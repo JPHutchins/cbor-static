@@ -173,6 +173,8 @@ mod scalar;
 mod schema;
 mod stack;
 mod token;
+#[cfg(test)]
+mod well_formed;
 mod wire;
 
 use core::mem::MaybeUninit;
