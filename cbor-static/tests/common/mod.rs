@@ -94,3 +94,44 @@ pub fn chunked_decode<'de, T: Decode<'de> + Copy>(
     }
     decoder.finish().map(|value| *value).map_err(|e| e.kind)
 }
+
+/// The binary64 bits of an IEEE 754 binary16 pattern, from the format's definition: exact f64
+/// arithmetic for numbers, and the payload moved into place for NaNs.
+pub fn ieee_binary16(half: u16) -> u64 {
+    let sign = if half >> 15 == 1 { -1.0 } else { 1.0 };
+    let fraction = f64::from(half & 0x3ff);
+    match (half >> 10 & 0x1f, half & 0x3ff) {
+        (0x1f, 0) => (sign * f64::INFINITY).to_bits(),
+        (0x1f, payload) => u64::from(half >> 15) << 63 | 0x7ff << 52 | u64::from(payload) << 42,
+        (0, _) => (sign * fraction * 2f64.powi(-24)).to_bits(),
+        (exponent, _) => {
+            (sign * (1.0 + fraction / 1024.0) * 2f64.powi(i32::from(exponent) - 15)).to_bits()
+        }
+    }
+}
+
+/// Every binary16 pattern, keyed by the binary64 bits of its value.
+pub fn halves() -> std::collections::HashMap<u64, u16> {
+    (0..=u16::MAX)
+        .map(|half| (ieee_binary16(half), half))
+        .collect()
+}
+
+/// The binary64 bits of the one float token `encoded` holds.
+pub fn float_bits(encoded: &[u8]) -> u64 {
+    match cbor_static::Tokens::new(encoded).next() {
+        Some(Ok(cbor_static::Token::Float(value))) => value.to_bits(),
+        other => panic!("{encoded:x?}: {other:?}"),
+    }
+}
+
+/// The preferred encoding of a float token with the binary64 `bits`.
+pub fn float_encoded(bits: u64) -> ([u8; 9], usize) {
+    let mut out = [0u8; 9];
+    let mut writer = cbor_static::TokenWriter::new(&mut out);
+    writer
+        .write(cbor_static::Token::Float(f64::from_bits(bits)))
+        .expect("fits");
+    let len = writer.written();
+    (out, len)
+}

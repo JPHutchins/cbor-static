@@ -57,7 +57,12 @@ doctor = (
 
 fix = rust_fmt | tasks_fix | harness
 check = rust_fmt_check | clippy | unit | usize16 | tasks_check | harness
-ci = (check - unit) | test | build | miri
+f32 = Task(
+	"cargo test --release -p cbor-static --test floats -- --ignored",
+	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},
+	help="R-101, R-135: all 2^32 binary32 patterns",
+)
+ci = (check - unit) | test | build | miri | f32
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
