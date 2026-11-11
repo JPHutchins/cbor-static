@@ -43,8 +43,10 @@ build = Parallel(
 miri = Task("cargo miri test -p cbor-static", cwd="nightly", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"})
 doctor = (
 	Task("git submodule update --init")
-	| Task("rustup toolchain install", help="installs what rust-toolchain.toml declares")
-	| Task("rustup toolchain install", cwd="nightly")
+	| (
+		Task("rustup toolchain install", help="installs what rust-toolchain.toml declares")
+		+ Task("rustup toolchain install", cwd="nightly")
+	)
 	| Task("uv sync --locked")
 )
 
