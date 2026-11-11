@@ -1,5 +1,6 @@
 #![allow(unsafe_code)]
-//! The one module that dereferences descriptor offsets. Every other module forbids `unsafe`.
+//! The one module that dereferences descriptor offsets. Every other module denies `unsafe`, except
+//! to declare or implement the codec traits (D-24a).
 
 mod decode;
 mod encode;
@@ -147,6 +148,13 @@ fn frame_mut(frames: &mut [MaybeUninit<Frame>], index: u8) -> Result<&mut Frame,
         .get_mut(usize::from(index))
         .map(|slot| unsafe { slot.assume_init_mut() })
         .ok_or(ErrorKind::Unsupported)
+}
+
+fn top_field(frames: &mut [MaybeUninit<Frame>], depth: u8) -> u8 {
+    depth
+        .checked_sub(1)
+        .and_then(|top| frame_mut(frames, top).ok())
+        .map_or(0, |frame| frame.field)
 }
 
 fn push(frames: &mut [MaybeUninit<Frame>], depth: &mut u8, frame: Frame) -> Result<(), ErrorKind> {

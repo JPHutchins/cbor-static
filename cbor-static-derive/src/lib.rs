@@ -1,5 +1,6 @@
 //! Derives for `cbor-static`: each emits constant descriptors and, for enums without a
-//! primitive `repr`, safe glue. No derive output contains `unsafe`.
+//! primitive `repr`, safe glue. The only `unsafe` in derive output is the `unsafe impl` of the
+//! codec traits (D-24a).
 
 mod emit;
 mod model;

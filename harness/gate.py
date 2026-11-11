@@ -21,6 +21,7 @@ MARGINAL_REDUCTION: Final = 0.30
 FIXED_ALLOWANCE: Final = 2048
 OVERHEAD_LIMIT: Final = 0.10
 PROFILE_LABELS: Final = {"release": "z", "release-s": "s"}
+INFORMATIONAL_TARGET: Final = "thumbv6m-none-eabi"
 
 
 class Verdict(NamedTuple):
@@ -46,6 +47,18 @@ class Verdict(NamedTuple):
 		False
 		"""
 		return self.reduction >= MARGINAL_REDUCTION and self.fixed <= self.baseline_fixed + FIXED_ALLOWANCE
+
+
+class Flashes(NamedTuple):
+	gated: int
+	baseline: int
+
+	def __str__(self) -> str:
+		"""
+		>>> str(Flashes(7604, 6075))
+		'7,604 / 6,075'
+		"""
+		return f"{self.gated:,} / {self.baseline:,}"
 
 
 def main() -> int:
@@ -74,7 +87,7 @@ def load() -> list[Measurement]:
 
 def report(rows: list[Measurement], measure: Callable[[Measurement], int]) -> tuple[str, bool]:
 	found = fits(rows, measure)
-	results = verdicts(found)
+	results = verdicts(found, GATE_TARGET)
 	compilers = {
 		m.rustc
 		for m in rows
@@ -86,16 +99,22 @@ def report(rows: list[Measurement], measure: Callable[[Measurement], int]) -> tu
 			f"## D-06 gate: {'PASS' if passed else 'FAIL'}",
 			f"Flash = every allocated PROGBITS section; {GATE_TARGET}; gated and baseline built by: {' AND '.join(sorted(compilers))}",
 			verdict_table(results),
+			f"### D-06 rule on {INFORMATIONAL_TARGET} (informational: not part of the verdict)",
+			verdict_table(verdicts(found, INFORMATIONAL_TARGET))
+			if any(f.target == INFORMATIONAL_TARGET for f in found)
+			else "Not measured: run `harness.sweep_v6m`.",
+			f"### Small N: flash at N=1 and N=2, {GATE_TARGET}",
+			small_n(rows, measure),
 			f"### Fits, {GATE_TARGET}",
 			fit_table(found, GATE_TARGET),
 			f"### Fits, research measure (.text + .rodata + .data), {GATE_TARGET}",
 			fit_table(fits(rows, lambda m: m.research), GATE_TARGET),
-			"### Glue enums vs `#[repr(C, u8)]` tables (D-21), marginal",
+			"### Glue enums vs `#[repr(C, u8)]` tables (D-21)",
 			comparison(found, CBOR_STATIC_REPR.name, CBOR_STATIC.name, "repr vs glue"),
-			f"### Resumability overhead (D-16), marginal; over {OVERHEAD_LIMIT:.0%} means ask the user",
+			f"### Resumability overhead (D-16); a marginal over {OVERHEAD_LIMIT:.0%} means ask the user",
 			comparison(found, CBOR_STATIC.name, CBOR_STATIC_ONESHOT.name, "resumable vs one-shot"),
-			"### Fits, thumbv6m-none-eabi (informational)",
-			fit_table(found, "thumbv6m-none-eabi"),
+			f"### Fits, {INFORMATIONAL_TARGET} (informational)",
+			fit_table(found, INFORMATIONAL_TARGET),
 			f"### Fixed cost: largest symbols at N=1, flat, opt-level z, {GATE_TARGET}",
 			breakdown(),
 		)
@@ -129,11 +148,11 @@ def breakdown() -> str:
 	)
 
 
-def verdicts(found: list[Fit]) -> tuple[Verdict | str, ...]:
+def verdicts(found: list[Fit], target: str) -> tuple[Verdict | str, ...]:
 	return tuple(
 		Verdict(shape, profile, gated.per_type, baseline.per_type, gated.intercept, baseline.intercept)
-		if (gated := find(found, CBOR_STATIC.name, shape, profile))
-		and (baseline := find(found, MINICBOR_HAND_TEXTKEYS.name, shape, profile))
+		if (gated := find(found, CBOR_STATIC.name, shape, profile, target))
+		and (baseline := find(found, MINICBOR_HAND_TEXTKEYS.name, shape, profile, target))
 		else f"missing {CBOR_STATIC.name} or {MINICBOR_HAND_TEXTKEYS.name} for {shape}/{profile}"
 		for shape in SHAPES
 		for profile in PROFILES
@@ -173,17 +192,67 @@ def verdict_table(results: tuple[Verdict | str, ...]) -> str:
 def comparison(found: list[Fit], backend: str, against: str, label: str) -> str:
 	return "\n".join(
 		(
-			f"| shape | opt | {label} |",
-			"|---|---|---:|",
+			f"| shape | opt | {label}: marginal | {label}: fixed (B) |",
+			"|---|---|---:|---:|",
 			*(
-				f"| {shape} | {PROFILE_LABELS[profile]} | {ratio:+.1%} |"
+				f"| {shape} | {PROFILE_LABELS[profile]} | {a.per_type / b.per_type - 1:+.1%} | {a.intercept - b.intercept:+,.0f} |"
 				for shape in SHAPES
 				for profile in PROFILES
 				if (a := find(found, backend, shape, profile)) and (b := find(found, against, shape, profile))
-				for ratio in (a.per_type / b.per_type - 1,)
 			),
 		)
 	)
+
+
+def small_n(rows: list[Measurement], measure: Callable[[Measurement], int]) -> str:
+	return "\n".join(
+		(
+			"| shape | opt | N=1: cbor-static / baseline | N=2: cbor-static / baseline | first measured N where cbor-static is smaller |",
+			"|---|---|---:|---:|---:|",
+			*(
+				f"| {shape} | {PROFILE_LABELS[profile]} | {flashes.get(1, 'missing')} | {flashes.get(2, 'missing')} "
+				f"| {crossover(flashes) or 'none'} |"
+				for shape in SHAPES
+				for profile in PROFILES
+				for flashes in (paired(rows, measure, shape, profile),)
+			),
+		)
+	)
+
+
+def paired(
+	rows: list[Measurement], measure: Callable[[Measurement], int], shape: str, profile: str
+) -> dict[int, Flashes]:
+	return {
+		count: Flashes(gated[count], baseline[count])
+		for gated, baseline in (
+			(
+				by_count(rows, measure, CBOR_STATIC.name, shape, profile),
+				by_count(rows, measure, MINICBOR_HAND_TEXTKEYS.name, shape, profile),
+			),
+		)
+		for count in sorted(gated.keys() & baseline.keys())
+	}
+
+
+def by_count(
+	rows: list[Measurement], measure: Callable[[Measurement], int], backend: str, shape: str, profile: str
+) -> dict[int, int]:
+	return {
+		m.message_count: measure(m)
+		for m in rows
+		if (m.backend, m.shape, m.profile, m.target) == (backend, shape, profile, GATE_TARGET)
+	}
+
+
+def crossover(flashes: dict[int, Flashes]) -> int | None:
+	"""
+	>>> crossover({1: Flashes(7604, 6075), 2: Flashes(8154, 8723), 4: Flashes(9256, 9833)})
+	2
+	>>> crossover({1: Flashes(2, 1), 2: Flashes(2, 2)}) is None
+	True
+	"""
+	return next((count for count, f in sorted(flashes.items()) if f.gated < f.baseline), None)
 
 
 def find(

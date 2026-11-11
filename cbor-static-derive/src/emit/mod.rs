@@ -82,7 +82,7 @@ fn impls(
             let (kind, stack, depth) = body(&quote!(::cbor_static::Encode));
             quote! {
                 #[automatically_derived]
-                impl #generics ::cbor_static::Encode for #ty {
+                unsafe impl #generics ::cbor_static::Encode for #ty {
                     const ENCODE: &'static __p::EncKind = &#kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
@@ -97,7 +97,7 @@ fn impls(
             let (kind, stack, depth) = body(&quote!(::cbor_static::Decode<'de>));
             quote! {
                 #[automatically_derived]
-                impl #generics ::cbor_static::Decode<'de> for #ty {
+                unsafe impl #generics ::cbor_static::Decode<'de> for #ty {
                     const DECODE: &'static __p::DecKind = &#kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
@@ -154,3 +154,6 @@ fn static_type(item: &Item) -> TokenStream {
         .as_ref()
         .map_or_else(|| quote!(#ident), |_| quote!(#ident<'static>))
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,11 +1,18 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
 use crate::engine::{Item, Next, Pending};
 use crate::error::ErrorKind;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
-pub trait Encode {
+///
+/// # Safety
+/// The engine trusts the descriptor without checking it against `Self`. `ENCODE` must describe
+/// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
+/// `Encode::ENCODE`, and every handler reads only a valid `Self` or field of it. `Stack` must hold
+/// `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting `ENCODE` reaches.
+#[allow(unsafe_code)]
+pub unsafe trait Encode {
     #[doc(hidden)]
     const ENCODE: &'static EncKind;
     #[doc(hidden)]
@@ -15,7 +22,16 @@ pub trait Encode {
 }
 
 /// Decodes through the engine via a constant descriptor; implemented by `#[derive(Decode)]`.
-pub trait Decode<'de> {
+///
+/// # Safety
+/// The engine trusts the descriptor without checking it against `Self`. `DECODE` must describe
+/// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
+/// `Decode::DECODE`, every handler writes only a valid `Self` or field of it, and the drop handler
+/// drops exactly what was written. `Self` borrows the input only through lifetimes `'de`
+/// outlives. `Stack` must hold `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting
+/// `DECODE` reaches.
+#[allow(unsafe_code)]
+pub unsafe trait Decode<'de> {
     #[doc(hidden)]
     const DECODE: &'static DecKind;
     #[doc(hidden)]

@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! Leaf field types: each maps to engine handlers reached only through its own descriptor (D-22).
 
 use crate::engine::{
@@ -139,13 +139,15 @@ fn floating(item: &Item<'_>) -> Result<f64, ErrorKind> {
 
 macro_rules! leaf {
 	($ty:ty, $encode:expr, $decode:expr) => {
-		impl Encode for $ty {
+		#[allow(unsafe_code)]
+		unsafe impl Encode for $ty {
 			const ENCODE: &'static EncKind = $encode;
 			type Stack = ();
 			const MAX_DEPTH: usize = 0;
 		}
 
-		impl<'de> Decode<'de> for $ty {
+		#[allow(unsafe_code)]
+		unsafe impl<'de> Decode<'de> for $ty {
 			const DECODE: &'static DecKind = $decode;
 			type Stack = ();
 			const MAX_DEPTH: usize = 0;
@@ -182,31 +184,36 @@ leaf!(
     }
 );
 
-impl Encode for &str {
+#[allow(unsafe_code)]
+unsafe impl Encode for &str {
     const ENCODE: &'static EncKind = &ENC_STR;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
 }
 
-impl<'de: 'a, 'a> Decode<'de> for &'a str {
+#[allow(unsafe_code)]
+unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const DECODE: &'static DecKind = &DEC_STR;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
 }
 
-impl Encode for &[u8] {
+#[allow(unsafe_code)]
+unsafe impl Encode for &[u8] {
     const ENCODE: &'static EncKind = &ENC_BYTES;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
 }
 
-impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
+#[allow(unsafe_code)]
+unsafe impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
     const DECODE: &'static DecKind = &DEC_BYTES;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
 }
 
-impl<T: Scalar> Encode for Option<T> {
+#[allow(unsafe_code)]
+unsafe impl<T: Scalar> Encode for Option<T> {
     const ENCODE: &'static EncKind = &EncKind::Leaf {
         encode: enc_option::<T>,
         absent: Some(absent_option::<T>),
@@ -215,7 +222,8 @@ impl<T: Scalar> Encode for Option<T> {
     const MAX_DEPTH: usize = 0;
 }
 
-impl<T: Scalar> Decode<'_> for Option<T> {
+#[allow(unsafe_code)]
+unsafe impl<T: Scalar> Decode<'_> for Option<T> {
     const DECODE: &'static DecKind = &DecKind::Leaf {
         decode: dec_option::<T>,
         default: Some(none::<T>),
@@ -225,7 +233,8 @@ impl<T: Scalar> Decode<'_> for Option<T> {
     const MAX_DEPTH: usize = 0;
 }
 
-impl<const TAG: u64, T: Scalar> Encode for Tagged<TAG, T> {
+#[allow(unsafe_code)]
+unsafe impl<const TAG: u64, T: Scalar> Encode for Tagged<TAG, T> {
     const ENCODE: &'static EncKind = &EncKind::Leaf {
         encode: enc_tagged::<TAG, T>,
         absent: None,
@@ -234,7 +243,8 @@ impl<const TAG: u64, T: Scalar> Encode for Tagged<TAG, T> {
     const MAX_DEPTH: usize = 0;
 }
 
-impl<const TAG: u64, T: Scalar> Decode<'_> for Tagged<TAG, T> {
+#[allow(unsafe_code)]
+unsafe impl<const TAG: u64, T: Scalar> Decode<'_> for Tagged<TAG, T> {
     const DECODE: &'static DecKind = &DecKind::Leaf {
         decode: dec_tagged::<TAG, T>,
         default: None,

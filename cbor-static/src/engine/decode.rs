@@ -4,7 +4,7 @@ use core::ptr;
 use super::input::{Carry, Input};
 use super::skip::Skip;
 use super::text::KeyMatch;
-use super::{Fed, bit, frame_mut, push};
+use super::{Fed, bit, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, DecVariant, Layout};
 use crate::stack::{Frame, INDEFINITE, Phase};
@@ -85,12 +85,7 @@ pub fn feed(
     let outcome = run(state, frames, &mut input);
     state.offset += input.at;
     outcome.map_err(|kind| {
-        let field = state
-            .depth
-            .checked_sub(1)
-            .and_then(|top| frame_mut(frames, top).ok())
-            .map_or(0, |f| f.field);
-        let error = Error::new(kind, field, state.offset);
+        let error = Error::new(kind, top_field(frames, state.depth), state.offset);
         drop_initialized(state, frames);
         state.mode = Mode::Failed(error);
         error

@@ -2,11 +2,13 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 use super::pending::Pending;
-use super::{Progress, frame_mut, push};
+use super::{Progress, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{EncKind, FieldPtrFn, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::Major;
+
+const BEFORE_FIRST: u8 = u8::MAX;
 
 pub struct State {
     root: &'static EncKind,
@@ -14,6 +16,7 @@ pub struct State {
     depth: u8,
     started: bool,
     pending: Pending,
+    offset: usize,
 }
 
 impl State {
@@ -25,6 +28,7 @@ impl State {
             depth: 0,
             started: false,
             pending: Pending::new(),
+            offset: 0,
         }
     }
 }
@@ -37,13 +41,17 @@ pub fn resume(
 ) -> Result<Progress, Error> {
     let mut written = 0;
     loop {
-        written += state
+        let drained = state
             .pending
             .drain(out.get_mut(written..).unwrap_or(&mut []));
+        written += drained;
+        state.offset += drained;
         if !state.pending.is_empty() {
             return Ok(Progress::NeedSpace(written));
         }
-        if !advance(state, frames).map_err(|kind| Error::new(kind, 0, written))? {
+        if !advance(state, frames)
+            .map_err(|kind| Error::new(kind, top_field(frames, state.depth), state.offset))?
+        {
             return Ok(Progress::Done(written));
         }
     }
@@ -66,7 +74,7 @@ fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool,
                 },
                 Phase::Key,
             ) => {
-                match (frame.field..=u8::MAX)
+                match (frame.field.wrapping_add(1)..u8::MAX)
                     .take_while(|&f| usize::from(f) < kinds.len())
                     .find(|&f| present(layout, kinds, *field_ptr, base, f))
                 {
@@ -88,7 +96,6 @@ fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool,
                 _,
             ) => {
                 let field = frame.field;
-                frame.field += 1;
                 frame.phase = Phase::Key;
                 let kind = kinds
                     .get(usize::from(field))
@@ -174,7 +181,7 @@ fn emit(
                 )
                 .unwrap_or(u64::MAX),
             );
-            push(frames, &mut state.depth, opened(0, Phase::Key))
+            push(frames, &mut state.depth, opened(BEFORE_FIRST, Phase::Key))
         }
         EncKind::Enum {
             layout,

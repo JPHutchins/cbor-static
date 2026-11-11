@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use core::mem::MaybeUninit;
 
 use cbor_static::{

@@ -34,5 +34,6 @@ pay_for_what_you_use = Task("uv run python -m harness.symbols fixtures")
 crosscheck = Task("uv run python -m harness.crosscheck")
 ram = Task("uv run python -m harness.ram")
 phase0 = (sweep | sweep_v6m | crosscheck | pay_for_what_you_use | ram) + machinery + gate
+ci = check | crosscheck | pay_for_what_you_use | size_gate
 
-_ = Config(default_task=all, github_task=check, agent=Claude(fix=fix, check=check))
+_ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
