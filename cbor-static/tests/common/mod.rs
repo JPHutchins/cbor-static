@@ -103,11 +103,16 @@ pub fn ieee_binary16(half: u16) -> u64 {
     match (half >> 10 & 0x1f, half & 0x3ff) {
         (0x1f, 0) => (sign * f64::INFINITY).to_bits(),
         (0x1f, payload) => u64::from(half >> 15) << 63 | 0x7ff << 52 | u64::from(payload) << 42,
-        (0, _) => (sign * fraction * 2f64.powi(-24)).to_bits(),
+        (0, _) => (sign * fraction * power_of_two(-24)).to_bits(),
         (exponent, _) => {
-            (sign * (1.0 + fraction / 1024.0) * 2f64.powi(i32::from(exponent) - 15)).to_bits()
+            (sign * (1.0 + fraction / 1024.0) * power_of_two(i32::from(exponent) - 15)).to_bits()
         }
     }
+}
+
+/// 2^`exponent` from its binary64 exponent field. `powi` need not be exact, and Miri perturbs it.
+fn power_of_two(exponent: i32) -> f64 {
+    f64::from_bits(u64::try_from(exponent + 1023).expect("a normal exponent") << 52)
 }
 
 /// Every binary16 pattern, keyed by the binary64 bits of its value.
