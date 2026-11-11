@@ -15,7 +15,7 @@ use crate::wire::{
 };
 
 /// One head, with the payload of a definite string. `Negative(n)` is `-1 - n`, and `None` is an
-/// indefinite length.
+/// indefinite length. Floats compare by their bits (D-22a).
 ///
 /// ```
 /// use cbor_static::{Token, Tokens};
@@ -32,9 +32,11 @@ use crate::wire::{
 ///         Token::Break,
 ///     ]
 /// );
+/// assert_eq!(Token::Float(f64::NAN), Token::Float(f64::NAN));
+/// assert_ne!(Token::Float(0.0), Token::Float(-0.0));
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub enum Token<'de> {
     Unsigned(u64),
     Negative(u64),
@@ -52,6 +54,30 @@ pub enum Token<'de> {
     Float(f64),
     Break,
 }
+
+impl PartialEq for Token<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (*self, *other) {
+            (Self::Unsigned(a), Self::Unsigned(b))
+            | (Self::Negative(a), Self::Negative(b))
+            | (Self::Tag(a), Self::Tag(b)) => a == b,
+            (Self::Bytes(a), Self::Bytes(b)) => a == b,
+            (Self::Text(a), Self::Text(b)) => a == b,
+            (Self::Array(a), Self::Array(b)) | (Self::Map(a), Self::Map(b)) => a == b,
+            (Self::Simple(a), Self::Simple(b)) => a == b,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => a.to_bits() == b.to_bits(),
+            (Self::BytesIndefinite, Self::BytesIndefinite)
+            | (Self::TextIndefinite, Self::TextIndefinite)
+            | (Self::Null, Self::Null)
+            | (Self::Undefined, Self::Undefined)
+            | (Self::Break, Self::Break) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Token<'_> {}
 
 /// The tokens of a CBOR sequence (RFC 8742), checked for well-formedness (RFC 8949 Appendix F)
 /// with the iterative skip state (D-14a). An error ends the iteration.
@@ -155,7 +181,7 @@ fn simple(header: Header) -> Result<Token<'static>, ErrorKind> {
                     .map(Token::Simple)
                     .map_err(|_| ErrorKind::NotWellFormed)
             },
-            |value| Ok(Token::Float(value)),
+            |bits| Ok(Token::Float(f64::from_bits(bits))),
         ),
     }
 }

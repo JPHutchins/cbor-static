@@ -76,7 +76,7 @@ def fixtures() -> int:
 	return 1 if forbidden or absent else 0
 
 
-def fixture(name: str) -> Path:
+def fixture(name: str, target: str = GATE_TARGET) -> Path:
 	crate = write_crate(
 		CRATES / f"fixture-{name}",
 		{
@@ -88,8 +88,8 @@ def fixture(name: str) -> Path:
 			"src/main.rs": render("fixture.rs", fields=FIXTURES[name]),
 		},
 	)
-	build(crate, GATE_TARGET, "release", (), HARNESS / "fixtures")
-	return elf_path(HARNESS / "fixtures", GATE_TARGET, "release", f"fixture-{name}")
+	build(crate, target, "release", (), HARNESS / "fixtures")
+	return elf_path(HARNESS / "fixtures", target, "release", f"fixture-{name}")
 
 
 def matched(names: frozenset[str], patterns: tuple[str, ...]) -> tuple[str, ...]:

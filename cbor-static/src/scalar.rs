@@ -108,11 +108,11 @@ impl Scalar for f64 {
     const LEAD: Lead = Lead::FLOAT;
 
     fn encode(self, out: &mut Pending) {
-        out.float(float::shortest(self));
+        out.float(float::shortest(self.to_bits()));
     }
 
     fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        floating(item)
+        floating(item).map(f64::from_bits)
     }
 }
 
@@ -120,11 +120,13 @@ impl Scalar for f32 {
     const LEAD: Lead = Lead::FLOAT;
 
     fn encode(self, out: &mut Pending) {
-        out.float(float::shortest(self.into()));
+        out.float(float::shortest(float::from_single(self.to_bits())));
     }
 
     fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        float::to_f32(floating(item)?).ok_or(ErrorKind::OutOfRange)
+        float::to_single(floating(item)?)
+            .map(f32::from_bits)
+            .ok_or(ErrorKind::OutOfRange)
     }
 }
 
@@ -144,7 +146,8 @@ fn signed(item: &Item<'_>) -> Result<i128, ErrorKind> {
     }
 }
 
-fn floating(item: &Item<'_>) -> Result<f64, ErrorKind> {
+/// The binary64 bits of a float item.
+fn floating(item: &Item<'_>) -> Result<u64, ErrorKind> {
     match item.header.major {
         Major::Simple => {
             float::value(item.header.info, item.header.arg).ok_or(ErrorKind::TypeMismatch)
