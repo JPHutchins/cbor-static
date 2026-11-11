@@ -1,3 +1,5 @@
+use core::mem::MaybeUninit;
+
 use crate::error::ErrorKind;
 use crate::wire::{Header, header_len, parse};
 
@@ -8,7 +10,7 @@ pub struct Input<'a> {
 
 /// A header split across chunks: at most 9 bytes.
 pub struct Carry {
-    bytes: [u8; 9],
+    bytes: [MaybeUninit<u8>; 9],
     len: u8,
 }
 
@@ -40,7 +42,7 @@ impl<'a> Input<'a> {
 impl Carry {
     pub const fn new() -> Self {
         Self {
-            bytes: [0; 9],
+            bytes: [MaybeUninit::uninit(); 9],
             len: 0,
         }
     }
@@ -62,13 +64,13 @@ impl Carry {
                 }
             };
         }
-        let need = header_len(self.bytes[0])?;
+        let need = header_len(unsafe { self.bytes[0].assume_init() })?;
         self.stash(input.take(u64::try_from(need - usize::from(self.len)).unwrap_or(0)));
         if usize::from(self.len) < need {
             return Ok(None);
         }
         self.len = 0;
-        parse(self.bytes.get(..need).unwrap_or(&[])).map(Some)
+        parse(unsafe { self.bytes.get(..need).unwrap_or(&[]).assume_init_ref() }).map(Some)
     }
 
     fn stash(&mut self, bytes: &[u8]) {
@@ -78,7 +80,7 @@ impl Carry {
             .iter_mut()
             .skip(start)
             .zip(bytes)
-            .map(|(d, s)| *d = *s)
+            .map(|(d, s)| d.write(*s))
             .count();
         self.len = u8::try_from(start + copied).unwrap_or(u8::MAX);
     }

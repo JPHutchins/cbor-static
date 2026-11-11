@@ -82,23 +82,15 @@ impl Utf8 {
 }
 
 impl KeyMatch {
-    pub const fn new() -> Self {
+    pub fn start(layout: &Layout, len: u64) -> Self {
         Self {
-            left: 0,
-            at: 0,
-            candidates: 0,
-            utf8: Utf8::new(),
-        }
-    }
-
-    pub fn start(&mut self, layout: &Layout, len: u64) {
-        *self = Self {
             left: len,
+            at: 0,
             candidates: names(layout)
                 .filter(|&(_, place)| u64::from(place.name_len) == len)
                 .fold(0, |mask, (index, _)| mask | bit(index)),
-            ..Self::new()
-        };
+            utf8: Utf8::new(),
+        }
     }
 
     #[inline(never)]

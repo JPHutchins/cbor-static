@@ -1,3 +1,5 @@
+use core::mem::MaybeUninit;
+
 use super::bit;
 use super::text::Utf8;
 use crate::error::ErrorKind;
@@ -9,10 +11,16 @@ const MAX_SAVED: usize = 8;
 /// Iterative skip (D-14a): one merged count for definite nesting, a bitset over open
 /// indefinite levels marking which saved an outer count, and a LIFO of those counts.
 pub struct Skip {
-    pending: u64,
+    walk: Walk,
     indefinite: u64,
+    saved: [MaybeUninit<u64>; MAX_SAVED],
+}
+
+/// The state a new skip resets. The open-level bitset and the saved counts are written before
+/// they are read.
+struct Walk {
+    pending: u64,
     levels: u8,
-    saved: [u64; MAX_SAVED],
     saved_len: u8,
     payload_left: u64,
     text: bool,
@@ -20,13 +28,11 @@ pub struct Skip {
     utf8: Utf8,
 }
 
-impl Skip {
-    pub const fn new() -> Self {
+impl Walk {
+    const fn new(items: u64) -> Self {
         Self {
-            pending: 0,
-            indefinite: 0,
+            pending: items,
             levels: 0,
-            saved: [0; MAX_SAVED],
             saved_len: 0,
             payload_left: 0,
             text: false,
@@ -34,43 +40,49 @@ impl Skip {
             utf8: Utf8::new(),
         }
     }
+}
 
-    pub fn start(&mut self, items: u64) {
-        *self = Self {
-            pending: items,
-            ..Self::new()
-        };
+impl Skip {
+    pub const fn started(items: u64) -> Self {
+        Self {
+            walk: Walk::new(items),
+            indefinite: 0,
+            saved: [MaybeUninit::uninit(); MAX_SAVED],
+        }
     }
 
     pub const fn done(&self) -> bool {
-        self.pending == 0 && self.levels == 0 && self.chunked.is_none() && self.payload_left == 0
+        self.walk.pending == 0
+            && self.walk.levels == 0
+            && self.walk.chunked.is_none()
+            && self.walk.payload_left == 0
     }
 
     pub const fn payload_left(&self) -> u64 {
-        self.payload_left
+        self.walk.payload_left
     }
 
     pub fn payload(&mut self, segment: &[u8]) -> Result<(), ErrorKind> {
-        if self.text {
-            self.utf8.feed(segment)?;
+        if self.walk.text {
+            self.walk.utf8.feed(segment)?;
         }
-        self.payload_left -= u64::try_from(segment.len()).unwrap_or(self.payload_left);
-        if self.payload_left == 0 && self.text {
-            self.text = false;
-            self.utf8.finish()?;
+        self.walk.payload_left -= u64::try_from(segment.len()).unwrap_or(self.walk.payload_left);
+        if self.walk.payload_left == 0 && self.walk.text {
+            self.walk.text = false;
+            self.walk.utf8.finish()?;
         }
         Ok(())
     }
 
     #[inline(never)]
     pub fn on_header(&mut self, header: Header) -> Result<(), ErrorKind> {
-        if let Some(major) = self.chunked {
+        if let Some(major) = self.walk.chunked {
             return match (
                 header.is_break(),
                 header.major == major && !header.indefinite(),
             ) {
                 (true, _) => {
-                    self.chunked = None;
+                    self.walk.chunked = None;
                     Ok(())
                 }
                 (false, true) => {
@@ -83,7 +95,7 @@ impl Skip {
         if header.is_break() {
             return self.close();
         }
-        self.pending = self.pending.saturating_sub(1);
+        self.walk.pending = self.walk.pending.saturating_sub(1);
         match (header.major, header.indefinite()) {
             (Major::Uint | Major::Nint | Major::Simple, _) => Ok(()),
             (Major::Tag, _) => self.add(1),
@@ -92,7 +104,7 @@ impl Skip {
                 Ok(())
             }
             (Major::Bytes | Major::Text, true) => {
-                self.chunked = Some(header.major);
+                self.walk.chunked = Some(header.major);
                 Ok(())
             }
             (Major::Array, false) => self.add(header.arg),
@@ -104,7 +116,8 @@ impl Skip {
     }
 
     fn add(&mut self, items: u64) -> Result<(), ErrorKind> {
-        self.pending = self
+        self.walk.pending = self
+            .walk
             .pending
             .checked_add(items)
             .ok_or(ErrorKind::LimitExceeded)?;
@@ -112,42 +125,43 @@ impl Skip {
     }
 
     fn string(&mut self, header: Header) {
-        self.payload_left = header.arg;
-        self.text = header.major == Major::Text;
+        self.walk.payload_left = header.arg;
+        self.walk.text = header.major == Major::Text;
     }
 
     fn open(&mut self) -> Result<(), ErrorKind> {
-        if self.levels == MAX_INDEFINITE {
+        if self.walk.levels == MAX_INDEFINITE {
             return Err(ErrorKind::LimitExceeded);
         }
-        if self.pending > 0 {
-            *self
-                .saved
-                .get_mut(usize::from(self.saved_len))
-                .ok_or(ErrorKind::LimitExceeded)? = self.pending;
-            self.saved_len += 1;
-            self.indefinite |= bit(self.levels);
+        let level = bit(self.walk.levels);
+        if self.walk.pending > 0 {
+            self.saved
+                .get_mut(usize::from(self.walk.saved_len))
+                .ok_or(ErrorKind::LimitExceeded)?
+                .write(self.walk.pending);
+            self.walk.saved_len += 1;
+            self.indefinite |= level;
+        } else {
+            self.indefinite &= !level;
         }
-        self.levels += 1;
-        self.pending = 0;
+        self.walk.levels += 1;
+        self.walk.pending = 0;
         Ok(())
     }
 
     fn close(&mut self) -> Result<(), ErrorKind> {
-        if self.levels == 0 || self.pending != 0 {
+        if self.walk.levels == 0 || self.walk.pending != 0 {
             return Err(ErrorKind::NotWellFormed);
         }
-        self.levels -= 1;
-        let level = bit(self.levels);
-        self.pending = if self.indefinite & level == 0 {
+        self.walk.levels -= 1;
+        let level = bit(self.walk.levels);
+        self.walk.pending = if self.indefinite & level == 0 {
             0
         } else {
-            self.indefinite &= !level;
-            self.saved_len -= 1;
+            self.walk.saved_len -= 1;
             self.saved
-                .get(usize::from(self.saved_len))
-                .copied()
-                .unwrap_or(0)
+                .get(usize::from(self.walk.saved_len))
+                .map_or(0, |count| unsafe { count.assume_init_read() })
         };
         Ok(())
     }
@@ -160,8 +174,7 @@ mod tests {
     use crate::wire::{header_len, parse};
 
     fn skip(bytes: &[u8]) -> Result<usize, ErrorKind> {
-        let mut state = Skip::new();
-        state.start(1);
+        let mut state = Skip::started(1);
         let mut at = 0;
         while !state.done() {
             let wanted = usize::try_from(state.payload_left()).unwrap_or(usize::MAX);
@@ -182,13 +195,14 @@ mod tests {
 
     #[test]
     fn skips_exactly_one_item() {
-        let cases: [&[u8]; 6] = [
+        let cases: [&[u8]; 7] = [
             b"\x01\x02",
             b"\xa2\x61a\x9f\x01\x02\xff\x61b\x03\x04",
             b"\x9f\x9f\xff\x82\x01\x9f\xff\xff\x05",
             b"\x7f\x61a\x62bc\xff\x00",
             b"\xc2\x42\x01\x02\x00",
             b"\xbf\x61a\xbf\xff\xff\x07",
+            b"\x82\x9f\xff\x9f\xff\x00",
         ];
         for bytes in cases {
             assert_eq!(skip(bytes), Ok(bytes.len() - 1), "{bytes:x?}");

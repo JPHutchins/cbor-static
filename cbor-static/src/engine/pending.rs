@@ -1,8 +1,10 @@
+use core::mem::MaybeUninit;
+
 use crate::wire::{Head, Major};
 
 /// Bytes produced for one item and not yet written: up to two heads plus a borrowed tail.
 pub struct Pending {
-    buf: [u8; 18],
+    buf: [MaybeUninit<u8>; 18],
     at: u8,
     len: u8,
     tail: *const u8,
@@ -12,7 +14,7 @@ pub struct Pending {
 impl Pending {
     pub(crate) const fn new() -> Self {
         Self {
-            buf: [0; 18],
+            buf: [MaybeUninit::uninit(); 18],
             at: 0,
             len: 0,
             tail: core::ptr::NonNull::dangling().as_ptr(),
@@ -35,7 +37,7 @@ impl Pending {
             .iter_mut()
             .skip(start)
             .zip(src)
-            .map(|(d, s)| *d = *s)
+            .map(|(d, s)| d.write(*s))
             .count();
         self.len = u8::try_from(start + copied).unwrap_or(u8::MAX);
     }
@@ -59,10 +61,12 @@ impl Pending {
         if cfg!(cbor_static_oneshot) && out.len() < self.remaining() {
             return 0;
         }
-        let head = self
-            .buf
-            .get(usize::from(self.at)..usize::from(self.len))
-            .unwrap_or(&[]);
+        let head = unsafe {
+            self.buf
+                .get(usize::from(self.at)..usize::from(self.len))
+                .unwrap_or(&[])
+                .assume_init_ref()
+        };
         let head_written = out.iter_mut().zip(head).map(|(d, s)| *d = *s).count();
         self.at += u8::try_from(head_written).unwrap_or(0);
         let tail = unsafe { core::slice::from_raw_parts(self.tail, self.tail_len) };

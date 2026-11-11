@@ -97,8 +97,8 @@ pub struct State {
     depth: u8,
     offset: usize,
     carry: Carry,
-    key: KeyMatch,
-    skip: Skip,
+    key: MaybeUninit<KeyMatch>,
+    skip: MaybeUninit<Skip>,
 }
 
 impl State {
@@ -113,8 +113,8 @@ impl State {
             depth: 0,
             offset: 0,
             carry: Carry::new(),
-            key: KeyMatch::new(),
-            skip: Skip::new(),
+            key: MaybeUninit::uninit(),
+            skip: MaybeUninit::uninit(),
         }
     }
 }
@@ -225,16 +225,17 @@ fn name(
 ) -> Result<Flow, ErrorKind> {
     let kind = desc(top(state.depth, frames)?);
     let layout = kind.layout().ok_or(ErrorKind::Unsupported)?;
-    let wanted = state.key.left();
+    let key = unsafe { state.key.assume_init_mut() };
+    let wanted = key.left();
     let segment = input.take(wanted);
     if cfg!(cbor_static_oneshot) && u64::try_from(segment.len()).unwrap_or(u64::MAX) < wanted {
         return Err(ErrorKind::UnexpectedEnd);
     }
-    state.key.feed(layout, segment)?;
-    if state.key.left() > 0 {
+    key.feed(layout, segment)?;
+    if key.left() > 0 {
         return Ok(Flow::NeedInput);
     }
-    let matched = state.key.finish()?;
+    let matched = key.finish()?;
     (ops(kind)?.named)(state, frames, matched)
 }
 
@@ -244,39 +245,40 @@ fn skip(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
+    let skipping = unsafe { state.skip.assume_init_mut() };
     loop {
-        let wanted = state.skip.payload_left();
+        let wanted = skipping.payload_left();
         let segment = input.take(wanted);
         if cfg!(cbor_static_oneshot) && u64::try_from(segment.len()).unwrap_or(u64::MAX) < wanted {
             return Err(ErrorKind::UnexpectedEnd);
         }
-        state.skip.payload(segment)?;
-        if state.skip.payload_left() > 0 {
+        skipping.payload(segment)?;
+        if skipping.payload_left() > 0 {
             return Ok(Flow::NeedInput);
         }
-        if state.skip.done() {
+        if skipping.done() {
             state.step = ops(desc(top(state.depth, frames)?))?.entry;
             return Ok(Flow::Continue);
         }
         let Some(header) = state.carry.header(input)? else {
             return Ok(Flow::NeedInput);
         };
-        state.skip.on_header(header)?;
+        skipping.on_header(header)?;
     }
 }
 
 /// Matches a text item of `len` bytes against `layout`'s names, chunk by chunk.
 fn start_name(state: &mut State, layout: &Layout, len: u64) -> Flow {
-    state.key.start(layout, len);
+    state.key.write(KeyMatch::start(layout, len));
     state.step = name;
     Flow::Continue
 }
 
 /// Skips `items` whole items, the first of which may already have begun with `header`.
 fn start_skip(state: &mut State, items: u64, header: Option<Header>) -> Result<Flow, ErrorKind> {
-    state.skip.start(items);
+    let skipping = state.skip.write(Skip::started(items));
     if let Some(header) = header {
-        state.skip.on_header(header)?;
+        skipping.on_header(header)?;
     }
     state.step = skip;
     Ok(Flow::Continue)
