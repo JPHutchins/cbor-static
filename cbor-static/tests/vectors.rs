@@ -48,29 +48,42 @@ struct Vector<'de> {
     roundtrip: bool,
 }
 
+/// Each file's number of tests.
+const COUNTS: [(&str, usize); 12] = [
+    ("mt0", 11),
+    ("mt1", 5),
+    ("mt2", 2),
+    ("mt3", 7),
+    ("mt4", 4),
+    ("mt5", 5),
+    ("mt6", 8),
+    ("mt7-float", 22),
+    ("mt7-simple", 6),
+    ("good", 88),
+    ("spike", 1165),
+    ("bad", 47),
+];
+
+/// Whether this run reads the file `name`: Miri skips spike's 101 KB for time, and every host cell
+/// reads it.
+fn read(name: &str) -> bool {
+    !(cfg!(miri) && name == "spike")
+}
+
 #[test]
 fn every_file_parses_into_its_tests() {
-    let counts: Vec<(&str, usize)> = GOOD
-        .iter()
-        .map(|&(name, file)| (name, vectors(&tokens(file)).len()))
-        .chain([("bad", vectors(&tokens(BAD)).len())])
-        .collect();
     assert_eq!(
-        counts,
-        [
-            ("mt0", 11),
-            ("mt1", 5),
-            ("mt2", 2),
-            ("mt3", 7),
-            ("mt4", 4),
-            ("mt5", 5),
-            ("mt6", 8),
-            ("mt7-float", 22),
-            ("mt7-simple", 6),
-            ("good", 88),
-            ("spike", 1165),
-            ("bad", 47),
-        ]
+        GOOD.iter()
+            .copied()
+            .chain([("bad", BAD)])
+            .filter(|&(name, _)| read(name))
+            .map(|(name, file)| (name, vectors(&tokens(file)).len()))
+            .collect::<Vec<_>>(),
+        COUNTS
+            .iter()
+            .copied()
+            .filter(|&(name, _)| read(name))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -163,7 +176,7 @@ fn reproduced(files: &[(&str, &[u8])]) -> usize {
                 .filter(|vector| vector.roundtrip)
                 .inspect(|vector| {
                     assert_eq!(
-                        reencoded(&tokens(vector.encoded)),
+                        reencoded(&tokens(vector.encoded), vector.encoded.len()),
                         vector.encoded,
                         "{name}: {description}",
                         description = vector.description
@@ -180,8 +193,9 @@ fn tokens(bytes: &[u8]) -> Vec<Token<'_>> {
         .expect("well-formed")
 }
 
-fn reencoded(tokens: &[Token]) -> Vec<u8> {
-    let mut out = vec![0; 1 << 16];
+/// The preferred re-encoding of `tokens`, which must fit in `capacity` bytes.
+fn reencoded(tokens: &[Token], capacity: usize) -> Vec<u8> {
+    let mut out = vec![0; capacity];
     let mut writer = TokenWriter::new(&mut out);
     for &token in tokens {
         writer.write(token).expect("writes");
