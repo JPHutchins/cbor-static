@@ -116,6 +116,20 @@ impl Head {
     }
 }
 
+/// A wire length or count as `usize`. Under `--cfg cbor_static_usize16` it is capped at
+/// `u16::MAX`, to test a 16-bit target's limit on the host.
+///
+/// # Errors
+/// [`ErrorKind::LimitExceeded`] when `len` is beyond that limit (RFC 8949 §5.1).
+pub fn length(len: u64) -> Result<usize, ErrorKind> {
+    if cfg!(cbor_static_usize16) {
+        u16::try_from(len).map(usize::from)
+    } else {
+        usize::try_from(len)
+    }
+    .map_err(|_| ErrorKind::LimitExceeded)
+}
+
 /// Length of the header that starts with `initial`.
 ///
 /// # Errors
@@ -156,7 +170,7 @@ pub fn parse(bytes: &[u8]) -> Result<Header, ErrorKind> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Head, Header, Major, header_len, parse};
+    use super::{Head, Header, Major, header_len, length, parse};
     use crate::error::ErrorKind;
 
     #[test]
@@ -202,5 +216,23 @@ mod tests {
             assert_eq!(parsed, Err(ErrorKind::NotWellFormed), "{bad:x?}");
         }
         assert_eq!(parse(&[0xf8, 0x20]).map(|h| h.arg), Ok(32));
+    }
+
+    #[test]
+    fn lengths_beyond_the_target_are_a_resource_limit() {
+        assert_eq!(length(0), Ok(0));
+        assert_eq!(length(65_535), Ok(65_535));
+        assert_eq!(
+            length(65_536),
+            if cfg!(cbor_static_usize16) {
+                Err(ErrorKind::LimitExceeded)
+            } else {
+                Ok(65_536)
+            }
+        );
+        assert_eq!(
+            length(u64::MAX).is_ok(),
+            !cfg!(cbor_static_usize16) && usize::BITS == u64::BITS
+        );
     }
 }

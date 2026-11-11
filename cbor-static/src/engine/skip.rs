@@ -3,7 +3,7 @@ use core::mem::MaybeUninit;
 use super::bit;
 use super::text::Utf8;
 use crate::error::ErrorKind;
-use crate::wire::{Header, Major, header_len, parse};
+use crate::wire::{Header, Major, header_len, length, parse};
 
 const MAX_INDEFINITE: u8 = 64;
 const MAX_SAVED: usize = 8;
@@ -171,15 +171,16 @@ impl Skip {
 ///
 /// # Errors
 /// [`ErrorKind::NeedContiguous`] when `bytes` ends inside the item; any error skipping it would.
-pub fn length(bytes: &[u8]) -> Result<usize, ErrorKind> {
+pub fn item_len(bytes: &[u8]) -> Result<usize, ErrorKind> {
     let mut skip = Skip::started(1);
     let mut at = 0;
     while !skip.done() {
-        let wanted = usize::try_from(skip.payload_left()).map_err(|_| ErrorKind::NeedContiguous)?;
+        let wanted = length(skip.payload_left())?;
         if wanted > 0 {
             skip.payload(
                 bytes
-                    .get(at..at + wanted)
+                    .get(at..)
+                    .and_then(|rest| rest.get(..wanted))
                     .ok_or(ErrorKind::NeedContiguous)?,
             )?;
             at += wanted;
@@ -196,7 +197,7 @@ pub fn length(bytes: &[u8]) -> Result<usize, ErrorKind> {
 
 #[cfg(test)]
 mod tests {
-    use super::length as skip;
+    use super::item_len as skip;
     use crate::error::ErrorKind;
 
     #[test]

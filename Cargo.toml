@@ -12,7 +12,7 @@ repository = "https://github.com/JPHutchins/cbor-static"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(cbor_static_oneshot)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(cbor_static_oneshot)", "cfg(cbor_static_usize16)"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

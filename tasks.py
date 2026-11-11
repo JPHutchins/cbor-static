@@ -27,6 +27,11 @@ clippy = Task(
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/clippy"},
 )
 unit = Task("cargo test --workspace", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"})
+usize16 = Task(
+	"cargo test -p cbor-static",
+	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/usize16-host", "RUSTFLAGS": "--cfg cbor_static_usize16"},
+	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target",
+)
 test = Parallel(
 	Task("cargo test --workspace", cwd="{DIR}", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/{{RUST}}-host"}),
 	variants=TOOLCHAINS,
@@ -51,7 +56,7 @@ doctor = (
 )
 
 fix = rust_fmt | tasks_fix | harness
-check = rust_fmt_check | clippy | unit | tasks_check | harness
+check = rust_fmt_check | clippy | unit | usize16 | tasks_check | harness
 ci = (check - unit) | test | build | miri
 all = fix + check
 

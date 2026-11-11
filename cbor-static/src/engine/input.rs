@@ -32,10 +32,17 @@ impl<'a> Input<'a> {
         taken
     }
 
-    pub fn take_exact(&mut self, len: u64) -> Option<&'a [u8]> {
-        let taken = self.rest().get(..usize::try_from(len).ok()?)?;
+    /// Exactly `len` bytes, or `None` while this chunk holds fewer.
+    pub fn take_exact(&mut self, len: usize) -> Option<&'a [u8]> {
+        let taken = self.rest().get(..len)?;
         self.at += taken.len();
         Some(taken)
+    }
+
+    pub fn take_rest(&mut self) -> &'a [u8] {
+        let rest = self.rest();
+        self.at += rest.len();
+        rest
     }
 }
 
@@ -62,12 +69,11 @@ impl Carry {
             let Some(&initial) = input.rest().first() else {
                 return Ok(None);
             };
-            let need = u64::try_from(header_len(initial)?).unwrap_or(u64::MAX);
-            return match input.take_exact(need) {
+            return match input.take_exact(header_len(initial)?) {
                 Some(bytes) => parse(bytes).map(Some),
                 None if cfg!(cbor_static_oneshot) => Err(ErrorKind::UnexpectedEnd),
                 None => {
-                    self.stash(input.take(need));
+                    self.stash(input.take_rest());
                     Ok(None)
                 }
             };
