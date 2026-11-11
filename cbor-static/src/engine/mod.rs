@@ -40,6 +40,8 @@ pub(crate) use leaf::{
 };
 pub use pending::Pending;
 pub(crate) use skip::Skip;
+#[cfg(test)]
+pub(crate) use skip::item_len;
 pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};
