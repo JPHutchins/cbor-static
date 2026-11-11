@@ -10,6 +10,10 @@ use crate::scalar::Scalar;
 use crate::schema::{DecKind, EncKind};
 use crate::wire::{Header, Major, NULL};
 
+pub type EncodeFn = unsafe fn(*const u8, &mut Pending);
+pub type AbsentFn = unsafe fn(*const u8) -> bool;
+pub type DecodeFn = unsafe fn(*mut u8, &Item<'_>) -> Result<Next, ErrorKind>;
+
 pub static ENC_STR: EncKind = EncKind::Leaf {
     encode: enc_str,
     absent: None,

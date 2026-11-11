@@ -1,6 +1,12 @@
 use core::mem::needs_drop;
 
-use crate::schema::{Assemble, EnumGlue, WriteFn};
+use crate::schema::{Assemble, EnumGlue};
+
+pub type IndexFn = unsafe fn(*const u8) -> u8;
+pub type FieldPtrFn = unsafe fn(*const u8, u8) -> *const u8;
+/// The payload of an `Option`, or null for `None`.
+pub type SomeFn = unsafe fn(*const u8) -> *const u8;
+pub type WriteFn = unsafe fn(*mut u8);
 
 /// # Safety
 /// `e` points to a valid `E`.

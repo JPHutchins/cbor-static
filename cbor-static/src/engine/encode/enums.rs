@@ -3,10 +3,11 @@
 use core::mem::MaybeUninit;
 
 use super::{Child, EncOps, Part, State, desc, field_addr, opened};
+use crate::engine::FieldPtrFn;
 use crate::engine::pending::Pending;
 use crate::engine::push;
 use crate::error::ErrorKind;
-use crate::schema::{EncKind, FieldPtrFn, Layout};
+use crate::schema::{EncKind, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::Major;
 
