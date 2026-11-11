@@ -50,5 +50,16 @@ jobs:
             ~/.cargo/git/db
           key: cargo-registry-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-registry-
+      - if: matrix.task == 'kani'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-kani
+            ~/.cargo/bin/kani
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.kani
+            ~/.rustup/toolchains/nightly-*
+          key: kani-${{ hashFiles('tasks.py') }}
       - run: uv run camas doctor
       - run: uv run camas ${{ matrix.task }}

@@ -235,3 +235,44 @@ mod tests {
         assert_eq!(shortest(0x36a0_0000_0000_0000), (SINGLE, 0x0000_0001));
     }
 }
+
+#[cfg(kani)]
+mod proofs {
+    use super::{BINARY16, BINARY32, shortest, value};
+
+    #[kani::proof]
+    fn every_binary16_round_trips() {
+        let half: u16 = kani::any();
+        assert_eq!(
+            BINARY16.narrow(BINARY16.widen(half.into())),
+            Some(half.into())
+        );
+    }
+
+    #[kani::proof]
+    fn every_binary32_round_trips() {
+        let single: u32 = kani::any();
+        assert_eq!(
+            BINARY32.narrow(BINARY32.widen(single.into())),
+            Some(single.into())
+        );
+    }
+
+    #[kani::proof]
+    fn narrowing_happens_only_when_exact() {
+        let bits: u64 = kani::any();
+        if let Some(half) = BINARY16.narrow(bits) {
+            assert_eq!(BINARY16.widen(half), bits);
+        }
+        if let Some(single) = BINARY32.narrow(bits) {
+            assert_eq!(BINARY32.widen(single), bits);
+        }
+    }
+
+    #[kani::proof]
+    fn the_shortest_encoding_decodes_to_the_same_bits() {
+        let bits: u64 = kani::any();
+        let (info, arg) = shortest(bits);
+        assert_eq!(value(info, arg), Some(bits));
+    }
+}
