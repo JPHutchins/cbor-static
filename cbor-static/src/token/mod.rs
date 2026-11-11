@@ -8,11 +8,9 @@ use core::iter::FusedIterator;
 
 pub use writer::TokenWriter;
 
-use crate::engine::{Skip, utf8};
+use crate::engine::{Input, Skip, utf8};
 use crate::error::{Error, ErrorKind};
-use crate::wire::{
-    FALSE, Header, INDEFINITE, Major, NULL, TRUE, UNDEFINED, float, header_len, length, parse,
-};
+use crate::wire::{FALSE, Header, INDEFINITE, Major, NULL, TRUE, UNDEFINED, float, length};
 
 /// One head, with the payload of a definite string. `Negative(n)` is `-1 - n`, and `None` is an
 /// indefinite length. Floats compare by their bits (D-22a).
@@ -80,7 +78,10 @@ impl PartialEq for Token<'_> {
 impl Eq for Token<'_> {}
 
 /// The tokens of a CBOR sequence (RFC 8742), checked for well-formedness (RFC 8949 Appendix F)
-/// with the iterative skip state (D-14a). An error ends the iteration.
+/// with the iterative skip state (D-14a, D-14b). An error ends the iteration. Nesting past the
+/// state's resource limits (RFC 8949 §5.1) is `LimitExceeded`: more than 64 open indefinite
+/// levels, or more than 8 indefinite items opened while their parent still owes items, which
+/// includes an indefinite key of an indefinite map.
 ///
 /// ```
 /// use cbor_static::{ErrorKind, Token, Tokens};
@@ -93,11 +94,15 @@ impl Eq for Token<'_> {}
 /// assert_eq!(tokens.next(), Some(Ok(Token::Unsigned(1))));
 /// assert_eq!(tokens.next().map(|t| t.map_err(|e| (e.kind, e.offset))), Some(Err((ErrorKind::UnexpectedEnd, 5))));
 /// assert_eq!(tokens.next(), None);
+///
+/// let at_limit = [[0x9f; 64], [0xff; 64]].concat();
+/// assert!(Tokens::new(&at_limit).all(|token| token.is_ok()));
+/// let past = [[0x9f; 65], [0xff; 65]].concat();
+/// assert_eq!(Tokens::new(&past).find_map(Result::err).map(|e| e.kind), Some(ErrorKind::LimitExceeded));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Tokens<'de> {
-    bytes: &'de [u8],
-    at: usize,
+    input: Input<'de>,
     skip: Skip,
 }
 
@@ -108,20 +113,14 @@ impl<'de> Tokens<'de> {
     #[must_use]
     pub const fn new(bytes: &'de [u8]) -> Self {
         Self {
-            bytes,
-            at: 0,
+            input: Input::new(bytes),
             skip: Skip::started(0),
         }
     }
 
     fn token(&mut self) -> Result<Token<'de>, ErrorKind> {
-        let rest = self.bytes.get(self.at..).unwrap_or(&[]);
-        let head = rest
-            .get(..header_len(*rest.first().ok_or(ErrorKind::UnexpectedEnd)?)?)
-            .ok_or(ErrorKind::UnexpectedEnd)?;
-        let header = parse(head)?;
+        let header = self.input.take_head()?.ok_or(ErrorKind::UnexpectedEnd)?;
         self.skip.on_header(header)?;
-        self.at += head.len();
         match (header.major, header.indefinite()) {
             (Major::Uint, _) => Ok(Token::Unsigned(header.arg)),
             (Major::Nint, _) => Ok(Token::Negative(header.arg)),
@@ -137,14 +136,11 @@ impl<'de> Tokens<'de> {
     }
 
     fn payload(&mut self, len: u64) -> Result<&'de [u8], ErrorKind> {
-        let payload = length(len).and_then(|len| {
-            self.bytes
-                .get(self.at..)
-                .and_then(|rest| rest.get(..len))
-                .ok_or(ErrorKind::UnexpectedEnd)
-        })?;
+        let payload = self
+            .input
+            .take_exact(length(len)?)
+            .ok_or(ErrorKind::UnexpectedEnd)?;
         self.skip.took_payload();
-        self.at += payload.len();
         Ok(payload)
     }
 }
@@ -154,12 +150,12 @@ impl<'de> Iterator for Tokens<'de> {
 
     #[inline(never)]
     fn next(&mut self) -> Option<Self::Item> {
-        let at = self.at;
-        if at >= self.bytes.len() && self.skip.done() {
+        let at = self.input.at;
+        if self.input.rest().is_empty() && self.skip.done() {
             return None;
         }
         Some(self.token().map_err(|kind| {
-            self.at = self.bytes.len();
+            self.input.take_rest();
             self.skip = Skip::started(0);
             Error::new(kind, 0, at)
         }))

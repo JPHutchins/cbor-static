@@ -33,6 +33,7 @@ pub use glue::{
     FieldPtrFn, IndexFn, SomeFn, WriteFn, assemble, drop_fn, field_ptr_of, index_of, index_tag,
     offset, some, some_ptr, write_tag,
 };
+pub(crate) use input::Input;
 pub(crate) use leaf::{
     AbsentFn, DEC_BYTES, DEC_STR, DecodeFn, ENC_BYTES, ENC_STR, EncodeFn, NULL_ITEM, absent_option,
     dec_i128, dec_option, dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar,
