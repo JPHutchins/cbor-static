@@ -32,6 +32,13 @@ struct Pair {
     tag: (bool, Option<u32>, i32, u64),
 }
 
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Samples {
+    values: [i32; 3],
+    points: [Point; 2],
+    empty: [u32; 0],
+}
+
 const POINT: Point = Point {
     x: 1,
     y: -2,
@@ -105,4 +112,43 @@ fn tuples_are_arrays_of_their_elements() {
         decode::<(u32, bool)>(b"\x81\x07"),
         Err(ErrorKind::MissingField)
     );
+}
+
+#[test]
+fn fixed_arrays_hold_exactly_n_elements() {
+    golden(&[1u32, 2, 3], b"\x83\x01\x02\x03");
+    golden(&[(1u32, true), (2, false)], b"\x82\x82\x01\xf5\x82\x02\xf4");
+    golden(
+        &Samples {
+            values: [-1, 0, 1],
+            points: [
+                POINT,
+                Point {
+                    label: None,
+                    weight: None,
+                    ..POINT
+                },
+            ],
+            empty: [],
+        },
+        &[
+            b"\xa3\x66values\x83\x20\x00\x01".as_slice(),
+            b"\x66points\x82\x84\x01\x21\x07\x09\x82\x01\x21",
+            b"\x65empty\x80",
+        ]
+        .concat(),
+    );
+    assert_eq!(decode::<[u32; 3]>(b"\x9f\x01\x02\x03\xff"), Ok([1, 2, 3]));
+    for wrong_length in [
+        b"\x82\x01\x02".as_slice(),
+        b"\x84\x01\x02\x03\x04",
+        b"\x9f\x01\x02\xff",
+        b"\x9f\x01\x02\x03\x04\xff",
+    ] {
+        assert_eq!(
+            decode::<[u32; 3]>(wrong_length),
+            Err(ErrorKind::TypeMismatch),
+            "{wrong_length:x?}"
+        );
+    }
 }

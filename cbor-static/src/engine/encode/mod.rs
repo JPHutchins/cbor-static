@@ -2,6 +2,7 @@
 //! only through the [`EncOps`] in its descriptor, so a firmware links only the forms it uses (D-22).
 
 mod array;
+mod elements;
 mod enums;
 mod map;
 
@@ -9,6 +10,7 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use array::ARRAY;
+pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use map::MAP;
 

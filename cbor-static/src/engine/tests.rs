@@ -57,7 +57,8 @@ struct Positional {
     c: u32,
 }
 
-/// `Positional` and `(Tracked, Tracked, u32)` alike: elements 1 and 2 decode to `Tracked`.
+/// `Positional`, `(Tracked, Tracked, u32)` and `[Tracked; 3]` alike: elements 1 and 2 decode to
+/// `Tracked`.
 const POSITIONAL: &[u8] = b"\x83\x01\x02\x03";
 
 const COMPLETE: &[u8] =
@@ -128,12 +129,14 @@ fn positional_forms_drop_exactly_the_initialized_elements() {
             for outcome in [
                 drops_after::<Positional>(&failing, chunk),
                 drops_after::<(Tracked, Tracked, u32)>(&failing, chunk),
+                drops_after::<[Tracked; 3]>(&failing, chunk),
             ] {
                 assert_eq!(outcome, (Some(ErrorKind::TypeMismatch), drops));
             }
             for outcome in [
                 drops_after::<Positional>(&POSITIONAL[..element], chunk),
                 drops_after::<(Tracked, Tracked, u32)>(&POSITIONAL[..element], chunk),
+                drops_after::<[Tracked; 3]>(&POSITIONAL[..element], chunk),
             ] {
                 assert_eq!(outcome, (None, drops));
             }
