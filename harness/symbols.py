@@ -20,6 +20,7 @@ MACHINERY: Final = (
 	"cbor_static::engine::encode::resume",
 	"cbor_static::engine::decode::feed",
 	"cbor_static::engine::decode::drop_initialized",
+	"cbor_static::engine::decode::map::drop",
 	"<cbor_static::engine::skip::Skip>::on_header",
 	"<cbor_static::engine::input::Carry>::header",
 	"<cbor_static::engine::pending::Pending>::drain",
