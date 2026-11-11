@@ -56,6 +56,7 @@ pub struct State {
 }
 
 impl State {
+    #[inline(never)]
     pub(crate) const fn new(kind: &'static DecKind, dst: *mut u8) -> Self {
         let root = Target { kind, dst };
         Self {
@@ -240,9 +241,8 @@ fn name(
     if state.key.left() > 0 {
         return Ok(Flow::NeedInput);
     }
-    let found = state.key.finish()?;
     let base = frame.base;
-    match (kind, frame.phase, found) {
+    match (kind, frame.phase, state.key.finish()?) {
         (DecKind::Struct { .. }, _, None) => {
             state.skip.start(1);
             state.mode = Mode::Skip;

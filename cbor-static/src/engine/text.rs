@@ -24,6 +24,7 @@ impl Utf8 {
         }
     }
 
+    #[inline(never)]
     pub fn feed(&mut self, segment: &[u8]) -> Result<(), ErrorKind> {
         let rest = self.complete(segment)?;
         match core::str::from_utf8(rest) {
@@ -100,15 +101,15 @@ impl KeyMatch {
         };
     }
 
+    #[inline(never)]
     pub fn feed(&mut self, layout: &Layout, segment: &[u8]) -> Result<(), ErrorKind> {
         self.utf8.feed(segment)?;
-        let at = self.at;
         self.candidates = names(layout)
             .filter(|&(index, place)| {
                 self.candidates & bit(index) != 0
                     && layout
                         .names
-                        .get(usize::from(place.name_at) + at..)
+                        .get(usize::from(place.name_at) + self.at..)
                         .and_then(|n| n.get(..segment.len()))
                         == Some(segment)
             })

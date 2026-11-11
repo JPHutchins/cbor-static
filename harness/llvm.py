@@ -1,25 +1,23 @@
-"""LLVM binutils shipped in a rustup toolchain's sysroot (component ``llvm-tools``)."""
+"""LLVM binutils from the rustup ``llvm-tools`` component of the toolchain a directory selects."""
 
 import subprocess
 from functools import cache
 from pathlib import Path
 
 
-@cache
-def sysroot(toolchain: str) -> Path:
-	return Path(
-		subprocess.run(
-			["rustc", "+" + toolchain, "--print", "sysroot"], capture_output=True, text=True, check=True
-		).stdout.strip()
+def llvm_tool(toolchain_dir: Path, name: str) -> Path:
+	return (
+		Path(rustc(toolchain_dir, "--print", "sysroot"))
+		/ "lib"
+		/ "rustlib"
+		/ rustc(toolchain_dir, "--print", "host-tuple")
+		/ "bin"
+		/ name
 	)
 
 
 @cache
-def host(toolchain: str) -> str:
+def rustc(toolchain_dir: Path, *args: str) -> str:
 	return subprocess.run(
-		["rustc", "+" + toolchain, "--print", "host-tuple"], capture_output=True, text=True, check=True
+		["rustc", *args], cwd=toolchain_dir, capture_output=True, text=True, check=True
 	).stdout.strip()
-
-
-def llvm_tool(toolchain: str, name: str) -> Path:
-	return sysroot(toolchain) / "lib" / "rustlib" / host(toolchain) / "bin" / name

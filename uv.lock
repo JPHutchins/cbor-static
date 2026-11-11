@@ -92,7 +92,7 @@ mcp = [
 [[package]]
 name = "cbor-static-harness"
 version = "0.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 
 [package.dev-dependencies]
 dev = [

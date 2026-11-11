@@ -13,6 +13,14 @@ TARGET_DIR = f"{ROOT}/target"
 harness = Project("harness")
 
 rust_fmt = Task("cargo fmt --all", mutates=True)
+tasks_fix = Task("uv run ruff check --fix --exit-zero {paths}", paths="tasks.py", mutates=True) + Task(
+	"uv run ruff format {paths}", paths="tasks.py", mutates=True
+)
+tasks_check = (
+	Task("uv run ruff format --check {paths}", paths="tasks.py")
+	| Task("uv run ruff check {paths}", paths="tasks.py")
+	| Task("uv run mypy tasks.py")
+)
 rust_fmt_check = Task("cargo fmt --all --check")
 clippy = Task(
 	"cargo clippy --workspace --all-targets -- -D warnings",
@@ -40,8 +48,8 @@ doctor = (
 	| Task("uv sync --locked")
 )
 
-fix = rust_fmt | harness
-check = rust_fmt_check | clippy | unit | harness
+fix = rust_fmt | tasks_fix | harness
+check = rust_fmt_check | clippy | unit | tasks_check | harness
 ci = (check - unit) | test | build | miri
 all = fix + check
 

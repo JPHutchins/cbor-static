@@ -62,6 +62,7 @@ impl Skip {
         Ok(())
     }
 
+    #[inline(never)]
     pub fn on_header(&mut self, header: Header) -> Result<(), ErrorKind> {
         if let Some(major) = self.chunked {
             return match (

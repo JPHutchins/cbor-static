@@ -17,6 +17,7 @@ pub struct State {
 }
 
 impl State {
+    #[inline(never)]
     pub(crate) const fn new(root: &'static EncKind, value: *const u8) -> Self {
         Self {
             root,
@@ -116,17 +117,22 @@ fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool,
                     .copied()
                     .flatten()
                     .ok_or(ErrorKind::Unsupported)?;
-                let at = match (field_ptr, payload) {
-                    (
-                        Some(_),
-                        EncKind::Struct {
-                            field_ptr: Some(_), ..
-                        },
-                    ) => base,
-                    (Some(glue), _) => unsafe { glue(base, 0) },
-                    (None, _) => field_addr(layout, None, base, variant),
-                };
-                return emit(state, frames, payload, at).map(|()| true);
+                return emit(
+                    state,
+                    frames,
+                    payload,
+                    match (field_ptr, payload) {
+                        (
+                            Some(_),
+                            EncKind::Struct {
+                                field_ptr: Some(_), ..
+                            },
+                        ) => base,
+                        (Some(glue), _) => unsafe { glue(base, 0) },
+                        (None, _) => field_addr(layout, None, base, variant),
+                    },
+                )
+                .map(|()| true);
             }
             _ => state.depth = top,
         }
@@ -158,13 +164,16 @@ fn emit(
             kinds,
             field_ptr,
         } => {
-            let entries = (0..kinds.len())
-                .filter_map(|f| u8::try_from(f).ok())
-                .filter(|&f| present(layout, kinds, *field_ptr, at, f))
-                .count();
-            state
-                .pending
-                .head(Major::Map, u64::try_from(entries).unwrap_or(u64::MAX));
+            state.pending.head(
+                Major::Map,
+                u64::try_from(
+                    (0..kinds.len())
+                        .filter_map(|f| u8::try_from(f).ok())
+                        .filter(|&f| present(layout, kinds, *field_ptr, at, f))
+                        .count(),
+                )
+                .unwrap_or(u64::MAX),
+            );
             push(frames, &mut state.depth, opened(0, Phase::Key))
         }
         EncKind::Enum {

@@ -65,6 +65,7 @@ pub struct Encoder<'v, T: Encode> {
 /// assert_eq!(decoder.feed(&[0x1b, 0, 0, 0])?, cbor_static::Fed::NeedInput);
 /// assert_eq!(decoder.feed(&[1, 0, 0, 0, 0])?, cbor_static::Fed::Done(5));
 /// assert_eq!(*decoder.finish()?, 1 << 32);
+/// assert!(decoder.finish().is_err());
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
 pub struct Decoder<'de, 's, T: Decode<'de>> {
@@ -114,11 +115,11 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
         )
     }
 
-    /// The decoded value, once [`Decoder::feed`] has returned [`Fed::Done`].
+    /// The decoded value, once [`Decoder::feed`] has returned [`Fed::Done`]; at most once.
     ///
     /// # Errors
-    /// [`crate::ErrorKind::UnexpectedEnd`] before then.
-    pub fn finish(mut self) -> Result<&'s mut T, Error> {
+    /// [`crate::ErrorKind::UnexpectedEnd`] before then; an error on every later call.
+    pub fn finish(&mut self) -> Result<&'s mut T, Error> {
         decode::take(&mut self.state).map(|root| unsafe { &mut *root.cast::<T>() })
     }
 }

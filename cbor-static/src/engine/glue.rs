@@ -54,9 +54,8 @@ pub const fn drop_fn<T>() -> Option<WriteFn> {
 /// # Panics
 /// If `bytes` exceeds `u32::MAX`.
 #[must_use]
+#[expect(clippy::cast_possible_truncation, reason = "asserted first")]
 pub const fn offset(bytes: usize) -> u32 {
     assert!(bytes <= u32::MAX as usize, "field offset exceeds u32");
-    #[expect(clippy::cast_possible_truncation, reason = "asserted above")]
-    let narrowed = bytes as u32;
-    narrowed
+    bytes as u32
 }

@@ -54,6 +54,7 @@ impl Pending {
     }
 
     /// Moves as much as fits into `out`; `oneshot` builds move all or nothing.
+    #[inline(never)]
     pub(crate) fn drain(&mut self, out: &mut [u8]) -> usize {
         if cfg!(cbor_static_oneshot) && out.len() < self.remaining() {
             return 0;

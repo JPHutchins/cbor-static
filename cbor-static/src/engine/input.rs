@@ -46,6 +46,7 @@ impl Carry {
     }
 
     /// The next header, or `None` until the chunks supplied so far complete one.
+    #[inline(never)]
     pub fn header(&mut self, input: &mut Input) -> Result<Option<Header>, ErrorKind> {
         if cfg!(cbor_static_oneshot) || self.len == 0 {
             let Some(&initial) = input.rest().first() else {
