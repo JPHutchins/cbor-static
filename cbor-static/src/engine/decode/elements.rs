@@ -9,7 +9,7 @@ use crate::engine::input::Input;
 use crate::error::ErrorKind;
 use crate::schema::DecKind;
 use crate::stack::{Frame, INDEFINITE, Phase};
-use crate::wire::{Header, Major};
+use crate::wire::{Header, Major, length};
 
 pub static ELEMENTS: DecOps = DecOps {
     value: Begin::Header(value),
@@ -30,7 +30,7 @@ fn value(
         return Err(ErrorKind::Unsupported);
     };
     match (header.major, entries(header)?) {
-        (Major::Array, count) if count == INDEFINITE || usize::try_from(count) == Ok(*len) => {
+        (Major::Array, count) if count == INDEFINITE || length(count) == Ok(*len) => {
             open(state, frames, Phase::Value, count)
         }
         _ => Err(ErrorKind::TypeMismatch),

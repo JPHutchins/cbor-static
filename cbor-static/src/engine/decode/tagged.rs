@@ -14,11 +14,11 @@ use super::{
     start_name, start_skip, top, unnamed,
 };
 use crate::engine::input::Input;
-use crate::engine::skip::length;
+use crate::engine::skip::item_len;
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, INDEFINITE, Phase};
-use crate::wire::{Header, Major, header_len, parse};
+use crate::wire::{Header, Major, header_len, length, parse};
 
 pub static INTERNAL: DecOps = DecOps {
     value: Begin::Header(internal),
@@ -193,7 +193,7 @@ fn tagged(layout: &Layout, variants: usize, count: u64, bytes: &[u8]) -> Result<
             (INDEFINITE, false) => {}
             _ => left -= 1,
         }
-        let value = at + length(bytes.get(at..).unwrap_or(&[]))?;
+        let value = at + item_len(bytes.get(at..).unwrap_or(&[]))?;
         if text(bytes, at, key)?.is_some_and(|key| named(layout, tag.clone(), key).is_some()) {
             return text(bytes, value, head(bytes, value)?)?
                 .ok_or(ErrorKind::TypeMismatch)
@@ -201,7 +201,7 @@ fn tagged(layout: &Layout, variants: usize, count: u64, bytes: &[u8]) -> Result<
                     named(layout, 0..variants, name).ok_or(ErrorKind::UnknownVariant)
                 });
         }
-        at = value + length(bytes.get(value..).unwrap_or(&[]))?;
+        at = value + item_len(bytes.get(value..).unwrap_or(&[]))?;
     }
 }
 
@@ -221,11 +221,13 @@ fn text(bytes: &[u8], at: usize, header: Header) -> Result<Option<&[u8]>, ErrorK
         return Ok(None);
     }
     let start = at + header_len(*bytes.get(at).ok_or(ErrorKind::NeedContiguous)?)?;
-    usize::try_from(header.arg)
-        .ok()
-        .and_then(|len| bytes.get(start..start + len))
-        .map(Some)
-        .ok_or(ErrorKind::NeedContiguous)
+    length(header.arg).and_then(|len| {
+        bytes
+            .get(start..)
+            .and_then(|rest| rest.get(..len))
+            .map(Some)
+            .ok_or(ErrorKind::NeedContiguous)
+    })
 }
 
 /// The entry among `entries` whose text name is `name`.

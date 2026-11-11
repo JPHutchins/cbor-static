@@ -33,7 +33,7 @@ use super::{Fed, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
-use crate::wire::{Header, Major};
+use crate::wire::{Header, Major, length};
 use entries::{Entry, entries, next_entry, unnamed};
 use steps::{name, start_name, start_skip};
 
@@ -224,7 +224,7 @@ fn value(
             let payload = match (header.major, header.indefinite()) {
                 (Major::Bytes | Major::Text, true) => return Err(ErrorKind::IndefiniteString),
                 (Major::Bytes | Major::Text, false) => input
-                    .take_exact(header.arg)
+                    .take_exact(length(header.arg)?)
                     .ok_or(ErrorKind::NeedContiguous)?,
                 _ => &[],
             };
