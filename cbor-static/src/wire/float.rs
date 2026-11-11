@@ -26,9 +26,7 @@ pub fn shortest(value: f64) -> (u8, u64) {
 pub fn value(info: u8, bits: u64) -> Option<f64> {
     match info {
         HALF => u16::try_from(bits).ok().map(from_f16),
-        SINGLE => u32::try_from(bits)
-            .ok()
-            .map(|b| f64::from(f32::from_bits(b))),
+        SINGLE => u32::try_from(bits).ok().map(from_f32),
         DOUBLE => Some(f64::from_bits(bits)),
         _ => None,
     }
@@ -73,6 +71,17 @@ fn to_f16(value: f64) -> Option<u16> {
             }
             _ => None,
         },
+    }
+}
+
+/// Exact, NaN payloads included.
+fn from_f32(single: u32) -> f64 {
+    if single & !(1 << 31) > f32::INFINITY.to_bits() {
+        f64::from_bits(
+            u64::from(single >> 31) << 63 | 0x7ff << 52 | u64::from(single & 0x007f_ffff) << 29,
+        )
+    } else {
+        f64::from(f32::from_bits(single))
     }
 }
 
@@ -139,6 +148,24 @@ mod tests {
             shortest(f64::from_bits(0x7ff8_0000_0000_0001)),
             (DOUBLE, 0x7ff8_0000_0000_0001)
         );
+    }
+
+    #[test]
+    fn single_nan_payloads_widen_exactly() {
+        let cases: [(u64, u64, (u8, u64)); 4] = [
+            (0x7f80_0001, 0x7ff0_0000_2000_0000, (SINGLE, 0x7f80_0001)),
+            (0xff80_0001, 0xfff0_0000_2000_0000, (SINGLE, 0xff80_0001)),
+            (0x7fff_ffff, 0x7fff_ffff_e000_0000, (SINGLE, 0x7fff_ffff)),
+            (0x7fc0_0000, 0x7ff8_0000_0000_0000, (HALF, 0x7e00)),
+        ];
+        for (single, double, narrowest) in cases {
+            assert_eq!(
+                value(SINGLE, single).map(f64::to_bits),
+                Some(double),
+                "{single:x}"
+            );
+            assert_eq!(shortest(f64::from_bits(double)), narrowest, "{single:x}");
+        }
     }
 
     #[test]
