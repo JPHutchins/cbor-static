@@ -5,9 +5,20 @@ use std::mem::MaybeUninit;
 
 use cbor_static::{ErrorKind, Tagged, Token, TokenWriter, Tokens, decode_into};
 
+/// A file of the suite, by its path under the suite's `tests/` directory.
+macro_rules! vector_file {
+    ($path:literal) => {
+        include_bytes!(concat!(
+            "../../tests/fixtures/cbor-test-vectors/tests/",
+            $path
+        ))
+        .as_slice()
+    };
+}
+
 macro_rules! vectors {
     ($($name:literal: $path:literal),+ $(,)?) => {
-        [$(($name, include_bytes!(concat!("../../tests/fixtures/cbor-test-vectors/tests/", $path)).as_slice())),+]
+        [$(($name, vector_file!($path))),+]
     };
 }
 
@@ -24,7 +35,7 @@ const GOOD: [(&str, &[u8]); 11] = vectors![
     "good": "rfc8949/good.cbor",
     "spike": "spike/spike.cbor",
 ];
-const BAD: &[u8] = include_bytes!("../../tests/fixtures/cbor-test-vectors/tests/rfc8949/bad.cbor");
+const BAD: &[u8] = vector_file!("rfc8949/bad.cbor");
 
 /// Well-formed items with invalid tag content: tag 1 and tag 0 around the map `{"a": 0}`. Tag
 /// validity is a typed decode's job (D-12), not the token decoder's.
