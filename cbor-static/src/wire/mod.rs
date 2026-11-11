@@ -19,7 +19,10 @@ pub enum Major {
 }
 
 pub const INDEFINITE: u8 = 31;
+pub const FALSE: u8 = 20;
+pub const TRUE: u8 = 21;
 pub const NULL: u8 = 22;
+pub const UNDEFINED: u8 = 23;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Header {
@@ -89,7 +92,7 @@ impl Head {
         }
     }
 
-    pub const fn float(info: u8, bits: u64) -> Self {
+    pub const fn float((info, bits): (u8, u64)) -> Self {
         let be = bits.to_be_bytes();
         let initial = (Major::Simple as u8) << 5 | info;
         match info {

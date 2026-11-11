@@ -7,7 +7,7 @@ const CONTINUATION_HIGH: u8 = 0xbf;
 
 /// UTF-8 validation (RFC 3629) across chunk boundaries: the continuation bytes still owed by the
 /// current code point, and the range the next one must fall in.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Utf8 {
     owed: u8,
     low: u8,
@@ -75,6 +75,11 @@ pub fn validate(bytes: &[u8]) -> Result<(), ErrorKind> {
     let mut utf8 = Utf8::new();
     utf8.feed(bytes)?;
     utf8.finish()
+}
+
+/// A whole string, once validated.
+pub fn utf8(bytes: &[u8]) -> Result<&str, ErrorKind> {
+    validate(bytes).map(|()| unsafe { core::str::from_utf8_unchecked(bytes) })
 }
 
 impl KeyMatch {

@@ -9,7 +9,7 @@ use crate::error::ErrorKind;
 use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
 use crate::stack::{Level, depth_of};
-use crate::wire::{Major, float};
+use crate::wire::{FALSE, Major, TRUE, float};
 
 /// A single-item value with no nesting and no borrowed payload.
 pub trait Scalar: Copy + 'static {
@@ -92,13 +92,13 @@ impl Scalar for bool {
     const LEAD: Lead = Lead::BOOL;
 
     fn encode(self, out: &mut Pending) {
-        out.head(Major::Simple, if self { 21 } else { 20 });
+        out.head(Major::Simple, if self { TRUE } else { FALSE }.into());
     }
 
     fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
         match (item.header.major, item.header.info) {
-            (Major::Simple, 20) => Ok(false),
-            (Major::Simple, 21) => Ok(true),
+            (Major::Simple, FALSE) => Ok(false),
+            (Major::Simple, TRUE) => Ok(true),
             _ => Err(ErrorKind::TypeMismatch),
         }
     }

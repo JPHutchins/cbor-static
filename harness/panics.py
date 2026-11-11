@@ -11,7 +11,7 @@ from harness.features import built
 from harness.measure import CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_label, elf_path, write_crate
 from harness.symbols import FIXTURES, MACHINERY, fixture, matched, names
 from harness.templates import render
-from harness.unused import control, gate
+from harness.unused import control, gate, tokens
 
 if TYPE_CHECKING:
 	from pathlib import Path
@@ -25,6 +25,7 @@ def main() -> int:
 		"gate": gate(),
 		"R-006 fixtures": tuple(fixture(name) for name in FIXTURES),
 		"R-009 positive control": (control(),),
+		"token control": (tokens(),),
 		"R-009 feature cost fixtures (when built)": built(),
 	}
 	read = {elf: names(elf) for elfs in groups.values() for elf in elfs}
