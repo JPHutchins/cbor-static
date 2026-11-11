@@ -1,0 +1,44 @@
+[project]
+name = "cbor-static-harness"
+version = "0.0.0"
+requires-python = ">=3.15"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "camas[mcp]==0.1.31",
+    "mypy",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[tool.uv]
+package = false
+
+[tool.mypy]
+strict = true
+files = ["harness", "tasks.py"]
+
+[tool.ruff]
+line-length = 110
+exclude = ["tests/fixtures/"]
+
+[tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
+select = [
+	"ASYNC", "B", "C4", "D", "DOC102", "DOC202", "DOC403", "DOC501", "DOC502", "E", "F", "FA", "FLY",
+	"FURB", "G", "I", "ICN", "INP", "ISC", "LOG", "N", "PERF", "PGH", "PIE", "PL", "PT", "PTH", "PYI",
+	"RET", "RSE", "RUF", "SIM", "SLF", "SLOT", "TC", "TRY", "UP", "W", "YTT",
+]
+ignore = [
+	"W191", "E101", "E111", "E114", "E117", "D206", "D300", "ISC001", "ISC002", "E501",
+	"D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107", "D205", "D212", "D402", "D415", "D417",
+	"PLC0415", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "TRY003", "TRY004",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+indent-style = "tab"

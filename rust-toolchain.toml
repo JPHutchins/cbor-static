@@ -1,0 +1,11 @@
+[toolchain]
+channel = "beta-2026-11-10"
+components = ["clippy", "rustfmt", "llvm-tools"]
+targets = [
+	"thumbv6m-none-eabi",
+	"thumbv7m-none-eabi",
+	"thumbv7em-none-eabihf",
+	"riscv32imc-unknown-none-elf",
+	"wasm32-unknown-unknown",
+]
+profile = "minimal"

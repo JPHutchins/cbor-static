@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["cbor-static", "cbor-static-derive"]
+exclude = ["tests/fixtures"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.100"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/JPHutchins/cbor-static"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(cbor_static_oneshot)"] }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"

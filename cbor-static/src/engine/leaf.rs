@@ -1,0 +1,242 @@
+use super::{Item, Next, Pending};
+use crate::error::ErrorKind;
+use crate::scalar::Scalar;
+use crate::schema::{DecKind, EncKind};
+use crate::wire::{Header, Major, NULL};
+
+pub static ENC_STR: EncKind = EncKind::Leaf {
+    encode: enc_str,
+    absent: None,
+};
+pub static DEC_STR: DecKind = DecKind::Leaf {
+    decode: dec_str,
+    default: None,
+    drop: None,
+};
+pub static ENC_BYTES: EncKind = EncKind::Leaf {
+    encode: enc_bytes,
+    absent: None,
+};
+pub static DEC_BYTES: DecKind = DecKind::Leaf {
+    decode: dec_bytes,
+    default: None,
+    drop: None,
+};
+static U128_DIGITS: DecKind = DecKind::Leaf {
+    decode: dec_u128_digits,
+    default: None,
+    drop: None,
+};
+static I128_POSITIVE: DecKind = DecKind::Leaf {
+    decode: dec_i128_positive,
+    default: None,
+    drop: None,
+};
+static I128_NEGATIVE: DecKind = DecKind::Leaf {
+    decode: dec_i128_negative,
+    default: None,
+    drop: None,
+};
+
+pub unsafe fn enc_scalar<T: Scalar>(src: *const u8, out: &mut Pending) {
+    unsafe { src.cast::<T>().read() }.encode(out);
+}
+
+pub unsafe fn dec_scalar<T: Scalar>(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    let value = T::decode(item)?;
+    unsafe { dst.cast::<T>().write(value) };
+    Ok(Next::Done)
+}
+
+pub unsafe fn enc_option<T: Scalar>(src: *const u8, out: &mut Pending) {
+    match unsafe { src.cast::<Option<T>>().read() } {
+        Some(value) => value.encode(out),
+        None => out.head(Major::Simple, NULL.into()),
+    }
+}
+
+pub unsafe fn absent_option<T>(src: *const u8) -> bool {
+    unsafe { (*src.cast::<Option<T>>()).is_none() }
+}
+
+pub unsafe fn dec_option<T: Scalar>(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    let value = match item.header {
+        Header {
+            major: Major::Simple,
+            info: NULL,
+            ..
+        } => None,
+        _ => Some(T::decode(item)?),
+    };
+    unsafe { dst.cast::<Option<T>>().write(value) };
+    Ok(Next::Done)
+}
+
+pub unsafe fn none<T>(dst: *mut u8) {
+    unsafe { dst.cast::<Option<T>>().write(None) };
+}
+
+pub unsafe fn enc_tagged<const TAG: u64, T: Scalar>(src: *const u8, out: &mut Pending) {
+    out.head(Major::Tag, TAG);
+    unsafe { enc_scalar::<T>(src, out) };
+}
+
+pub unsafe fn dec_tagged<const TAG: u64, T: Scalar>(
+    _: *mut u8,
+    item: &Item<'_>,
+) -> Result<Next, ErrorKind> {
+    match item.header {
+        Header {
+            major: Major::Tag,
+            arg,
+            ..
+        } if arg == TAG => Ok(Next::Then(T::DECODE_KIND)),
+        _ => Err(ErrorKind::UnexpectedTag),
+    }
+}
+
+pub unsafe fn enc_u128(src: *const u8, out: &mut Pending) {
+    bignum(out, Major::Uint, 2, unsafe {
+        src.cast::<u128>().read_unaligned()
+    });
+}
+
+pub unsafe fn enc_i128(src: *const u8, out: &mut Pending) {
+    match unsafe { src.cast::<i128>().read_unaligned() } {
+        value @ 0.. => bignum(out, Major::Uint, 2, value.cast_unsigned()),
+        value => bignum(out, Major::Nint, 3, (!value).cast_unsigned()),
+    }
+}
+
+pub unsafe fn dec_u128(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    match item.header {
+        Header {
+            major: Major::Uint,
+            arg,
+            ..
+        } => {
+            unsafe { dst.cast::<u128>().write_unaligned(arg.into()) };
+            Ok(Next::Done)
+        }
+        Header {
+            major: Major::Tag,
+            arg: 2,
+            ..
+        } => Ok(Next::Then(&U128_DIGITS)),
+        Header {
+            major: Major::Nint, ..
+        }
+        | Header {
+            major: Major::Tag,
+            arg: 3,
+            ..
+        } => Err(ErrorKind::OutOfRange),
+        _ => Err(ErrorKind::TypeMismatch),
+    }
+}
+
+pub unsafe fn dec_i128(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    let value = match item.header {
+        Header {
+            major: Major::Uint,
+            arg,
+            ..
+        } => i128::from(arg),
+        Header {
+            major: Major::Nint,
+            arg,
+            ..
+        } => !i128::from(arg),
+        Header {
+            major: Major::Tag,
+            arg: 2,
+            ..
+        } => return Ok(Next::Then(&I128_POSITIVE)),
+        Header {
+            major: Major::Tag,
+            arg: 3,
+            ..
+        } => return Ok(Next::Then(&I128_NEGATIVE)),
+        _ => return Err(ErrorKind::TypeMismatch),
+    };
+    unsafe { dst.cast::<i128>().write_unaligned(value) };
+    Ok(Next::Done)
+}
+
+unsafe fn dec_u128_digits(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    let value = digits(item)?;
+    unsafe { dst.cast::<u128>().write_unaligned(value) };
+    Ok(Next::Done)
+}
+
+unsafe fn dec_i128_positive(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    let value = i128::try_from(digits(item)?).map_err(|_| ErrorKind::OutOfRange)?;
+    unsafe { dst.cast::<i128>().write_unaligned(value) };
+    Ok(Next::Done)
+}
+
+unsafe fn dec_i128_negative(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    let value = !i128::try_from(digits(item)?).map_err(|_| ErrorKind::OutOfRange)?;
+    unsafe { dst.cast::<i128>().write_unaligned(value) };
+    Ok(Next::Done)
+}
+
+unsafe fn enc_str(src: *const u8, out: &mut Pending) {
+    let text = unsafe { src.cast::<&str>().read_unaligned() };
+    out.head(Major::Text, u64::try_from(text.len()).unwrap_or(u64::MAX));
+    out.tail(text.as_bytes());
+}
+
+unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    match item.header.major {
+        Major::Text => {
+            let text = core::str::from_utf8(item.payload).map_err(|_| ErrorKind::InvalidUtf8)?;
+            unsafe { dst.cast::<&str>().write_unaligned(text) };
+            Ok(Next::Done)
+        }
+        _ => Err(ErrorKind::TypeMismatch),
+    }
+}
+
+unsafe fn enc_bytes(src: *const u8, out: &mut Pending) {
+    let bytes = unsafe { src.cast::<&[u8]>().read_unaligned() };
+    out.head(Major::Bytes, u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+    out.tail(bytes);
+}
+
+unsafe fn dec_bytes(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    match item.header.major {
+        Major::Bytes => {
+            unsafe { dst.cast::<&[u8]>().write_unaligned(item.payload) };
+            Ok(Next::Done)
+        }
+        _ => Err(ErrorKind::TypeMismatch),
+    }
+}
+
+fn bignum(out: &mut Pending, major: Major, tag: u64, magnitude: u128) {
+    if let Ok(small) = u64::try_from(magnitude) {
+        out.head(major, small);
+    } else {
+        let be = magnitude.to_be_bytes();
+        let digits = be
+            .get(usize::try_from(magnitude.leading_zeros() / 8).unwrap_or(0)..)
+            .unwrap_or(&be);
+        out.head(Major::Tag, tag);
+        out.head(Major::Bytes, u64::try_from(digits.len()).unwrap_or(16));
+        out.bytes(digits);
+    }
+}
+
+fn digits(item: &Item<'_>) -> Result<u128, ErrorKind> {
+    match item.header.major {
+        Major::Bytes => {
+            let significant = item.payload.iter().skip_while(|&&b| b == 0);
+            if significant.clone().count() > 16 {
+                return Err(ErrorKind::OutOfRange);
+            }
+            Ok(significant.fold(0, |acc, &b| acc << 8 | u128::from(b)))
+        }
+        _ => Err(ErrorKind::TypeMismatch),
+    }
+}

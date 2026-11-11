@@ -1,0 +1,15 @@
+[package]
+name = "cbor-static"
+description = "no_std, table-driven RFC 8949 CBOR: derives emit const descriptors walked by one iterative, resumable engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+cbor-static-derive = { path = "../cbor-static-derive", version = "=0.0.0" }
+
+[lints]
+workspace = true
