@@ -10,7 +10,7 @@ use std::vec::Vec;
 use proptest::collection::vec as many;
 use proptest::prelude::*;
 
-use super::{agree, oracle};
+use super::{agree, chunk_sizes, oracle};
 
 #[derive(Clone, Debug)]
 enum Tree {
@@ -254,12 +254,12 @@ proptest! {
     fn generated_trees_are_well_formed_in_every_walker(tree in tree()) {
         let bytes = encoded(&tree);
         prop_assert_eq!(oracle::item(&bytes), Ok(bytes.len()));
-        agree(&bytes, 1..=bytes.len());
+        agree(&bytes, chunk_sizes(bytes.len()));
     }
 
     #[test]
     fn mutated_trees_agree_with_the_reference(tree in tree(), mutations in many(mutation(), 1..4)) {
         let bytes = mutated(encoded(&tree), &mutations);
-        agree(&bytes, 1..=bytes.len().max(1));
+        agree(&bytes, chunk_sizes(bytes.len()));
     }
 }

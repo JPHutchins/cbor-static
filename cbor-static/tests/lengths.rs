@@ -52,7 +52,7 @@ fn streaming_skips_pass_any_length() {
     ]
     .concat();
     assert_eq!(decode::<Probe>(&input), Ok(Probe { a: None }));
-    for chunk in [7, 4096] {
+    for chunk in [7, 4096].into_iter().filter(|_| !cfg!(miri)) {
         assert_eq!(
             chunked_decode::<Probe>(&input, chunk),
             Ok(Probe { a: None }),

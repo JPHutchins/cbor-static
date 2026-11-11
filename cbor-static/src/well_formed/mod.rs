@@ -8,6 +8,8 @@ mod nesting;
 mod oracle;
 
 use core::mem::MaybeUninit;
+use std::vec;
+use std::vec::Vec;
 
 use crate::engine::item_len;
 use crate::error::ErrorKind;
@@ -83,6 +85,15 @@ fn streamed(bytes: &[u8], chunk: usize) -> Result<usize, ErrorKind> {
         }
     }
     decoder.finish().map(|_| 0).map_err(|e| e.kind)
+}
+
+/// Every chunk size up to `len`, or only the smallest and largest under Miri.
+fn chunk_sizes(len: usize) -> Vec<usize> {
+    if cfg!(miri) {
+        vec![1, len.max(1)]
+    } else {
+        (1..=len.max(1)).collect()
+    }
 }
 
 /// Asserts that every walker agrees with the reference on `bytes`: the item's length or class for
