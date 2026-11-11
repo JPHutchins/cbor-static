@@ -64,6 +64,20 @@
 //! assert_eq!(&out[..len], b"\x81\x82\x01\x21");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
+//!
+//! An `Option` of a nested type is null or the value (D-08, D-20):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Inner {
+//!     x: u32,
+//! }
+//!
+//! let mut out = [0u8; 8];
+//! let len = cbor_static::encode_into(&[Some(Inner { x: 1 }), None], &mut out)?;
+//! assert_eq!(&out[..len], b"\x82\xa1\x61x\x01\xf6");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
 
 extern crate self as cbor_static;
 #[cfg(test)]

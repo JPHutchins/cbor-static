@@ -34,6 +34,7 @@ unsafe impl Decode<'_> for Tracked {
     };
     type Stack = ();
     const MAX_DEPTH: usize = 0;
+    type OptionStack = crate::stack::Level<()>;
 }
 
 #[derive(crate::Decode)]
@@ -56,6 +57,16 @@ struct Positional {
     b: Tracked,
     c: u32,
 }
+
+#[derive(crate::Decode)]
+struct Maybe {
+    first: Option<Pair>,
+    after: u32,
+}
+
+const MAYBE: &[u8] = b"\xa2\x65first\xa3\x61a\x01\x61b\x02\x61c\x03\x65after\x07";
+/// Where `MAYBE` holds the values of `a`, `b`, `c` and `after`, and the drops failing there.
+const MAYBE_DROPS: [(usize, usize); 4] = [(10, 0), (13, 1), (16, 2), (23, 2)];
 
 /// `Positional`, `(Tracked, Tracked, u32)` and `[Tracked; 3]` alike: elements 1 and 2 decode to
 /// `Tracked`.
@@ -141,6 +152,20 @@ fn positional_forms_drop_exactly_the_initialized_elements() {
                 assert_eq!(outcome, (None, drops));
             }
         }
+    }
+}
+
+#[test]
+fn an_option_drops_its_payload_pending_or_moved_into_some() {
+    for chunk in [1, 5, 64] {
+        for (value, drops) in MAYBE_DROPS {
+            assert_eq!(
+                drops_after::<Maybe>(&[&MAYBE[..value], b"\xf5"].concat(), chunk),
+                (Some(ErrorKind::TypeMismatch), drops)
+            );
+            assert_eq!(drops_after::<Maybe>(&MAYBE[..value], chunk), (None, drops));
+        }
+        assert_eq!(drops_after::<Maybe>(MAYBE, chunk), (None, 2));
     }
 }
 

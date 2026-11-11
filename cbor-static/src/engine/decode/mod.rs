@@ -5,6 +5,7 @@ mod array;
 mod elements;
 mod enums;
 mod map;
+mod option;
 
 use core::mem::MaybeUninit;
 use core::ptr;
@@ -13,6 +14,7 @@ pub use array::ARRAY;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
+pub use option::OPTION;
 
 use super::input::{Carry, Input};
 use super::skip::Skip;
@@ -62,20 +64,12 @@ pub struct DecOps {
 /// which the form retargets and the header is read for the new target.
 enum Begin {
     Header(OnHeader),
-    #[expect(
-        dead_code,
-        reason = "untagged enums and Option<nested> dispatch on the initial byte"
-    )]
     Peek(OnPeek),
 }
 
 /// What a frame does once an entry's value is complete.
 enum After {
     Entry,
-    #[expect(
-        dead_code,
-        reason = "frames without a container of their own close with their only entry"
-    )]
     Close,
 }
 

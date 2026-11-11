@@ -38,6 +38,24 @@ pub unsafe fn write_tag<const V: u8>(slot: *mut u8) {
     unsafe { slot.write(V) };
 }
 
+/// # Safety
+/// `slot` holds an initialized `T` and has `Option<T>`'s size and alignment.
+pub unsafe fn some<T>(slot: *mut u8) {
+    unsafe {
+        slot.cast::<Option<T>>()
+            .write(Some(slot.cast::<T>().read()));
+    }
+}
+
+/// # Safety
+/// `option` points to a valid `Option<T>`.
+#[must_use]
+pub unsafe fn some_ptr<T>(option: *const u8) -> *const u8 {
+    unsafe { &*option.cast::<Option<T>>() }
+        .as_ref()
+        .map_or(core::ptr::null(), |value| core::ptr::from_ref(value).cast())
+}
+
 unsafe fn drop_erased<T>(value: *mut u8) {
     unsafe { value.cast::<T>().drop_in_place() };
 }

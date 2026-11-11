@@ -44,6 +44,11 @@ pub const fn deeper(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
 }
 
+/// The frames `S` holds.
+pub(crate) const fn depth_of<S>() -> usize {
+    size_of::<S>() / size_of::<Frame>()
+}
+
 pub(crate) const fn fits<S>(depth: usize) -> bool {
     size_of::<S>() == depth * size_of::<Frame>()
         && (depth == 0 || align_of::<S>() == align_of::<Frame>())

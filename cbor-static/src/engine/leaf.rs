@@ -28,6 +28,12 @@ pub static DEC_BYTES: DecKind = DecKind::Leaf {
     default: None,
     drop: None,
 };
+/// Only null: what an `Option`'s `None` decodes through.
+pub static NULL_ITEM: DecKind = DecKind::Leaf {
+    decode: dec_null,
+    default: None,
+    drop: None,
+};
 static U128_DIGITS: DecKind = DecKind::Leaf {
     decode: dec_u128_digits,
     default: None,
@@ -175,6 +181,17 @@ unsafe fn dec_i128_negative(dst: *mut u8, item: &Item<'_>) -> Result<Next, Error
         .and_then(|n| i128::try_from(n).map_err(|_| ErrorKind::OutOfRange))
         .map(|n| !n)
         .map(unsafe { store::<i128>(dst) })
+}
+
+unsafe fn dec_null(_: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    match item.header {
+        Header {
+            major: Major::Simple,
+            info: NULL,
+            ..
+        } => Ok(Next::Done),
+        _ => Err(ErrorKind::TypeMismatch),
+    }
 }
 
 unsafe fn enc_str(src: *const u8, out: &mut Pending) {

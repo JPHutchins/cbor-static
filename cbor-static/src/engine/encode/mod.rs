@@ -5,6 +5,7 @@ mod array;
 mod elements;
 mod enums;
 mod map;
+mod option;
 
 use core::mem::MaybeUninit;
 use core::ptr;
@@ -13,6 +14,7 @@ pub use array::ARRAY;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use map::MAP;
+pub use option::OPTION;
 
 use super::pending::Pending;
 use super::{Progress, frame_mut, top_field};

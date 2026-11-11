@@ -1,7 +1,10 @@
 #![deny(unsafe_code)]
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
-use crate::engine::{DecOps, EncOps, Item, Next, Pending};
+use crate::engine::{
+    DECODE_OPTION, DecOps, ENCODE_OPTION, EncOps, Item, Next, Pending, absent_option, drop_fn,
+    none, some, some_ptr,
+};
 use crate::error::ErrorKind;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
@@ -11,14 +14,23 @@ use crate::error::ErrorKind;
 /// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
 /// `Encode::ENCODE`, and every handler reads only a valid `Self` or field of it. `Stack` must hold
 /// `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting `ENCODE` reaches.
+/// `OPTION_ENCODE` must describe `Option<Self>` within `Stack`.
 #[allow(unsafe_code)]
-pub unsafe trait Encode {
+pub unsafe trait Encode: Sized {
     #[doc(hidden)]
     const ENCODE: &'static EncKind;
     #[doc(hidden)]
     type Stack;
     #[doc(hidden)]
     const MAX_DEPTH: usize;
+    /// `Option<Self>`: null, or `Self` in place.
+    #[doc(hidden)]
+    const OPTION_ENCODE: &'static EncKind = &EncKind::Option {
+        ops: &ENCODE_OPTION,
+        absent: Some(absent_option::<Self>),
+        some: Self::ENCODE,
+        some_ptr: some_ptr::<Self>,
+    };
 }
 
 /// Decodes through the engine via a constant descriptor; implemented by `#[derive(Decode)]`.
@@ -29,15 +41,27 @@ pub unsafe trait Encode {
 /// `Decode::DECODE`, every handler writes only a valid `Self` or field of it, and the drop handler
 /// drops exactly what was written. `Self` borrows the input only through lifetimes `'de`
 /// outlives. `Stack` must hold `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting
-/// `DECODE` reaches.
+/// `DECODE` reaches. `OPTION_DECODE` must describe `Option<Self>`, and `OptionStack` must hold the
+/// frames it reaches.
 #[allow(unsafe_code)]
-pub unsafe trait Decode<'de> {
+pub unsafe trait Decode<'de>: Sized {
     #[doc(hidden)]
     const DECODE: &'static DecKind;
     #[doc(hidden)]
     type Stack;
     #[doc(hidden)]
     const MAX_DEPTH: usize;
+    /// `Option<Self>`: null, or `Self` decoded in place and moved into `Some`, one frame deeper.
+    #[doc(hidden)]
+    const OPTION_DECODE: &'static DecKind = &DecKind::Option {
+        ops: &DECODE_OPTION,
+        default: Some(none::<Self>),
+        drop: drop_fn::<Option<Self>>(),
+        some: Self::DECODE,
+        assemble: some::<Self>,
+    };
+    #[doc(hidden)]
+    type OptionStack;
 }
 
 /// Field or variant names (pre-encoded text items, concatenated) and per-entry placement.

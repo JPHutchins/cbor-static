@@ -7,6 +7,7 @@ use crate::engine::{
 };
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
+use crate::stack::{Level, depth_of};
 use crate::wire::{Major, float};
 
 /// A single-item value with no nesting and no borrowed payload.
@@ -137,28 +138,56 @@ fn floating(item: &Item<'_>) -> Result<f64, ErrorKind> {
     }
 }
 
-macro_rules! leaf {
-	($ty:ty, $encode:expr, $decode:expr) => {
+/// A scalar's `Option` is itself a leaf: no frame, `None` as null.
+macro_rules! scalar {
+	($($ty:ty),+) => {$(
 		#[allow(unsafe_code)]
 		unsafe impl Encode for $ty {
-			const ENCODE: &'static EncKind = $encode;
+			const ENCODE: &'static EncKind = <$ty as Scalar>::ENCODE_KIND;
 			type Stack = ();
 			const MAX_DEPTH: usize = 0;
+			const OPTION_ENCODE: &'static EncKind = &EncKind::Leaf {
+				encode: enc_option::<$ty>,
+				absent: Some(absent_option::<$ty>),
+			};
 		}
 
 		#[allow(unsafe_code)]
 		unsafe impl<'de> Decode<'de> for $ty {
-			const DECODE: &'static DecKind = $decode;
+			const DECODE: &'static DecKind = <$ty as Scalar>::DECODE_KIND;
 			type Stack = ();
 			const MAX_DEPTH: usize = 0;
+			const OPTION_DECODE: &'static DecKind = &DecKind::Leaf {
+				decode: dec_option::<$ty>,
+				default: Some(none::<$ty>),
+				drop: None,
+			};
+			type OptionStack = ();
 		}
-	};
-	($($ty:ty),+) => {
-		$(leaf!($ty, <$ty as Scalar>::ENCODE_KIND, <$ty as Scalar>::DECODE_KIND);)+
-	};
+	)+};
 }
 
-leaf!(u32, u64, i32, bool, f32, f64);
+/// Any other leaf's `Option` decodes through one frame.
+macro_rules! leaf {
+    ($ty:ty, $encode:expr, $decode:expr) => {
+        #[allow(unsafe_code)]
+        unsafe impl Encode for $ty {
+            const ENCODE: &'static EncKind = $encode;
+            type Stack = ();
+            const MAX_DEPTH: usize = 0;
+        }
+
+        #[allow(unsafe_code)]
+        unsafe impl<'de> Decode<'de> for $ty {
+            const DECODE: &'static DecKind = $decode;
+            type Stack = ();
+            const MAX_DEPTH: usize = 0;
+            type OptionStack = Level<()>;
+        }
+    };
+}
+
+scalar!(u32, u64, i32, bool, f32, f64);
 leaf!(
     u128,
     &EncKind::Leaf {
@@ -196,6 +225,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const DECODE: &'static DecKind = &DEC_STR;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
+    type OptionStack = Level<()>;
 }
 
 #[allow(unsafe_code)]
@@ -210,27 +240,22 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
     const DECODE: &'static DecKind = &DEC_BYTES;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
+    type OptionStack = Level<()>;
 }
 
 #[allow(unsafe_code)]
-unsafe impl<T: Scalar> Encode for Option<T> {
-    const ENCODE: &'static EncKind = &EncKind::Leaf {
-        encode: enc_option::<T>,
-        absent: Some(absent_option::<T>),
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
+unsafe impl<T: Encode> Encode for Option<T> {
+    const ENCODE: &'static EncKind = T::OPTION_ENCODE;
+    type Stack = T::Stack;
+    const MAX_DEPTH: usize = T::MAX_DEPTH;
 }
 
 #[allow(unsafe_code)]
-unsafe impl<T: Scalar> Decode<'_> for Option<T> {
-    const DECODE: &'static DecKind = &DecKind::Leaf {
-        decode: dec_option::<T>,
-        default: Some(none::<T>),
-        drop: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
+unsafe impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
+    const DECODE: &'static DecKind = T::OPTION_DECODE;
+    type Stack = T::OptionStack;
+    const MAX_DEPTH: usize = depth_of::<T::OptionStack>();
+    type OptionStack = Level<Self::Stack>;
 }
 
 #[allow(unsafe_code)]
@@ -252,4 +277,5 @@ unsafe impl<const TAG: u64, T: Scalar> Decode<'_> for Tagged<TAG, T> {
     };
     type Stack = ();
     const MAX_DEPTH: usize = 0;
+    type OptionStack = Level<()>;
 }

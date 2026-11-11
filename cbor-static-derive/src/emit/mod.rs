@@ -70,6 +70,7 @@ fn impls(
                     const DECODE: &'static __p::DecKind = &#kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
+                    type OptionStack = __p::Level<Self::Stack>;
                 }
             }
         }

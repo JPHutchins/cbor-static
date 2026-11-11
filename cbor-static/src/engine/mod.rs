@@ -19,16 +19,18 @@ pub use decode::{
     ARRAY as DECODE_ARRAY, DecOps, ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, Item,
     MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT,
     MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
-    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
+    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION,
 };
 pub use encode::{
     ARRAY as ENCODE_ARRAY, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
-    MAP as ENCODE_MAP,
+    MAP as ENCODE_MAP, OPTION as ENCODE_OPTION,
 };
-pub use glue::{assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, write_tag};
+pub use glue::{
+    assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, some, some_ptr, write_tag,
+};
 pub(crate) use leaf::{
-    DEC_BYTES, DEC_STR, ENC_BYTES, ENC_STR, absent_option, dec_i128, dec_option, dec_scalar,
-    dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar, enc_tagged, enc_u128, none,
+    DEC_BYTES, DEC_STR, ENC_BYTES, ENC_STR, NULL_ITEM, absent_option, dec_i128, dec_option,
+    dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar, enc_tagged, enc_u128, none,
 };
 pub use pending::Pending;
 
