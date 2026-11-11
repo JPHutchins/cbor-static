@@ -26,8 +26,9 @@ pub use untagged::UNTAGGED;
 
 use super::pending::Pending;
 use super::{Progress, frame_mut, top_field};
+use crate::engine::FieldPtrFn;
 use crate::error::{Error, ErrorKind};
-use crate::schema::{EncKind, FieldPtrFn, Layout};
+use crate::schema::{EncKind, Layout};
 use crate::stack::{Frame, Phase};
 
 type OnOpen = fn(

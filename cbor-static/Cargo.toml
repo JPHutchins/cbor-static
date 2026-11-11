@@ -11,5 +11,10 @@ publish = false
 [dependencies]
 cbor-static-derive = { path = "../cbor-static-derive", version = "=0.0.0" }
 
+[dev-dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+
 [lints]
 workspace = true

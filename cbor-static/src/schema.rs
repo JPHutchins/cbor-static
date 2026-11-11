@@ -2,10 +2,9 @@
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
 use crate::engine::{
-    DECODE_OPTION, DecOps, ENCODE_OPTION, EncOps, Item, Next, Pending, absent_option, drop_fn,
-    none, some, some_ptr,
+    AbsentFn, DECODE_OPTION, DecOps, DecodeFn, ENCODE_OPTION, EncOps, EncodeFn, FieldPtrFn,
+    IndexFn, SomeFn, WriteFn, absent_option, drop_fn, none, some, some_ptr,
 };
-use crate::error::ErrorKind;
 use crate::lead::Lead;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
@@ -82,15 +81,6 @@ pub struct FieldLayout {
     pub name_len: u8,
     pub omit_if_absent: bool,
 }
-
-pub type EncodeFn = unsafe fn(*const u8, &mut Pending);
-pub type AbsentFn = unsafe fn(*const u8) -> bool;
-pub type IndexFn = unsafe fn(*const u8) -> u8;
-pub type FieldPtrFn = unsafe fn(*const u8, u8) -> *const u8;
-/// The payload of an `Option`, or null for `None`.
-pub type SomeFn = unsafe fn(*const u8) -> *const u8;
-pub type DecodeFn = unsafe fn(*mut u8, &Item<'_>) -> Result<Next, ErrorKind>;
-pub type WriteFn = unsafe fn(*mut u8);
 
 /// `repr(C, u8)` keeps `ops` (and a leaf's `encode`) at one offset in every variant, and `absent`
 /// at another, so the engine reads them without matching.
