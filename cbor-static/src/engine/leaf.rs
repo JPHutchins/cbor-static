@@ -233,7 +233,7 @@ fn digits(item: &Item<'_>) -> Result<u128, ErrorKind> {
 
 /// # Safety
 /// `dst` is valid for an aligned write of `T`.
-unsafe fn store<T>(dst: *mut u8) -> impl FnOnce(T) -> Next {
+pub(super) unsafe fn store<T>(dst: *mut u8) -> impl FnOnce(T) -> Next {
     move |value| {
         unsafe { dst.cast::<T>().write(value) };
         Next::Done

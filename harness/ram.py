@@ -35,18 +35,18 @@ def main() -> int:
 	sizes = struct.iter_unpack(
 		"<4I", symbol_bytes(elf, next(s for s in symbols(ROOT, elf) if s.name == "SIZES"))
 	)
-	print(
-		"\n".join(
-			(
-				f"| rich type ({GATE_TARGET}) | {' | '.join(COLUMNS)} |",
-				"|---|" + "---:|" * len(COLUMNS),
-				*(
-					f"| {m.name} | {' | '.join(f'{n:,}' for n in row_sizes)} |"
-					for m, row_sizes in zip(generated, sizes, strict=True)
-				),
-			)
+	table = "\n".join(
+		(
+			f"| rich type ({GATE_TARGET}) | {' | '.join(COLUMNS)} |",
+			"|---|" + "---:|" * len(COLUMNS),
+			*(
+				f"| {m.name} | {' | '.join(f'{n:,}' for n in row_sizes)} |"
+				for m, row_sizes in zip(generated, sizes, strict=True)
+			),
 		)
 	)
+	(HARNESS / "ram.md").write_text(table + "\n")
+	print(table)
 	return 0
 
 

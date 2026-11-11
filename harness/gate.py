@@ -4,10 +4,13 @@ import csv
 import sys
 from typing import TYPE_CHECKING, Final, NamedTuple
 
+from harness.backends.backend import ROOT
 from harness.backends.cbor_static import CBOR_STATIC, CBOR_STATIC_ONESHOT, CBOR_STATIC_REPR
 from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS
+from harness.elf import symbols
 from harness.fit import Fit, fits
-from harness.measure import GATE_TARGET, HARNESS, PROFILES, Measurement
+from harness.generate import crate_name
+from harness.measure import GATE_TARGET, HARNESS, PROFILES, Measurement, elf_path, target_dir
 from harness.model import SHAPES
 from harness.sweep import RESULTS
 
@@ -93,9 +96,37 @@ def report(rows: list[Measurement], measure: Callable[[Measurement], int]) -> tu
 			comparison(found, CBOR_STATIC.name, CBOR_STATIC_ONESHOT.name, "resumable vs one-shot"),
 			"### Fits, thumbv6m-none-eabi (informational)",
 			fit_table(found, "thumbv6m-none-eabi"),
+			f"### Fixed cost: largest symbols at N=1, flat, opt-level z, {GATE_TARGET}",
+			breakdown(),
 		)
 	)
 	return text, passed
+
+
+def breakdown() -> str:
+	return "\n".join(
+		(
+			"| backend | symbol | bytes |",
+			"|---|---|---:|",
+			*(
+				f"| {backend.name} | `{symbol.name[:90]}` | {symbol.size:,} |"
+				for backend in (CBOR_STATIC, MINICBOR_HAND_TEXTKEYS)
+				for symbol in sorted(
+					symbols(
+						ROOT,
+						elf_path(
+							target_dir(backend.name, "flat", GATE_TARGET),
+							GATE_TARGET,
+							"release",
+							crate_name("flat", backend, 1),
+						),
+					),
+					key=lambda s: s.size,
+					reverse=True,
+				)[:12]
+			),
+		)
+	)
 
 
 def verdicts(found: list[Fit]) -> tuple[Verdict | str, ...]:

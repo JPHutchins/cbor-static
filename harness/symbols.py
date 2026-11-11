@@ -70,16 +70,16 @@ def fixtures() -> int:
 		scalars, (*OPTIONAL_KINDS, "enc_str", "dec_str", "enc_bytes", "dec_bytes", "core::fmt")
 	)
 	absent = sorted(set(OPTIONAL_KINDS) - set(matched(numbers, OPTIONAL_KINDS)))
-	print(
-		"\n".join(
-			(
-				"| fixture | check | result |",
-				"|---|---|---|",
-				f"| scalars-only | no float, tag, bignum, str/bytes or core::fmt symbols | {', '.join(forbidden) or 'none ✅'} |",
-				f"| numbers (positive control) | every float, tag and bignum handler linked | {', '.join(absent) or 'all ✅'} |",
-			)
+	table = "\n".join(
+		(
+			"| fixture | check | result |",
+			"|---|---|---|",
+			f"| scalars-only | no float, tag, bignum, str/bytes or core::fmt symbols | {', '.join(forbidden) or 'none ✅'} |",
+			f"| numbers (positive control) | every float, tag and bignum handler linked | {', '.join(absent) or 'all ✅'} |",
 		)
 	)
+	(HARNESS / "fixtures.md").write_text(table + "\n")
+	print(table)
 	return 1 if forbidden or absent else 0
 
 

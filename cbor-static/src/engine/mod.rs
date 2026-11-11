@@ -157,3 +157,6 @@ fn push(frames: &mut [MaybeUninit<Frame>], depth: &mut u8, frame: Frame) -> Resu
     *depth += 1;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
