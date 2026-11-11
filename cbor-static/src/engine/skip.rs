@@ -8,12 +8,15 @@ use crate::wire::{Header, Major, header_len, length, parse};
 const MAX_INDEFINITE: u8 = 64;
 const MAX_SAVED: usize = 8;
 
-/// Iterative skip (D-14a): one merged count for definite nesting, a bitset over open
-/// indefinite levels marking which saved an outer count, and a LIFO of those counts.
+/// Iterative skip (D-14a, D-14b): one merged count for definite nesting, a bitset over open
+/// indefinite levels marking which saved an outer count, a LIFO of those counts, and a stack of
+/// flags marking which open levels are maps, whose keys each owe a value.
 #[derive(Clone, Debug)]
 pub struct Skip {
     walk: Walk,
     indefinite: u64,
+    /// One bit per open indefinite level, the innermost in bit 0: set for a map.
+    maps: u64,
     saved: [MaybeUninit<u64>; MAX_SAVED],
 }
 
@@ -49,6 +52,7 @@ impl Skip {
         Self {
             walk: Walk::new(items),
             indefinite: 0,
+            maps: 0,
             saved: [MaybeUninit::uninit(); MAX_SAVED],
         }
     }
@@ -103,7 +107,10 @@ impl Skip {
         if header.is_break() {
             return self.close();
         }
-        self.walk.pending = self.walk.pending.saturating_sub(1);
+        self.walk.pending = match self.walk.pending {
+            0 if self.maps & 1 == 1 => 1,
+            pending => pending.saturating_sub(1),
+        };
         match (header.major, header.indefinite()) {
             (Major::Uint | Major::Nint | Major::Simple, _) => Ok(()),
             (Major::Tag, _) => self.add(1),
@@ -119,7 +126,7 @@ impl Skip {
             (Major::Map, false) => {
                 self.add(header.arg.checked_mul(2).ok_or(ErrorKind::LimitExceeded)?)
             }
-            (Major::Array | Major::Map, true) => self.open(),
+            (Major::Array | Major::Map, true) => self.open(header.major == Major::Map),
         }
     }
 
@@ -137,11 +144,12 @@ impl Skip {
         self.walk.text = header.major == Major::Text;
     }
 
-    fn open(&mut self) -> Result<(), ErrorKind> {
+    fn open(&mut self, map: bool) -> Result<(), ErrorKind> {
         if self.walk.levels == MAX_INDEFINITE {
             return Err(ErrorKind::LimitExceeded);
         }
         let level = bit(self.walk.levels);
+        self.maps = self.maps << 1 | u64::from(map);
         if self.walk.pending > 0 {
             self.saved
                 .get_mut(usize::from(self.walk.saved_len))
@@ -162,6 +170,7 @@ impl Skip {
             return Err(ErrorKind::NotWellFormed);
         }
         self.walk.levels -= 1;
+        self.maps >>= 1;
         let level = bit(self.walk.levels);
         self.walk.pending = if self.indefinite & level == 0 {
             0
@@ -205,7 +214,7 @@ pub fn item_len(bytes: &[u8]) -> Result<usize, ErrorKind> {
 
 #[cfg(test)]
 mod tests {
-    use super::item_len as skip;
+    use super::{Skip, item_len as skip};
     use crate::error::ErrorKind;
 
     #[test]
@@ -236,6 +245,46 @@ mod tests {
         for (bytes, error) in cases {
             assert_eq!(skip(bytes), Err(error), "{bytes:x?}");
         }
+    }
+
+    #[test]
+    fn indefinite_maps_pair_every_key_with_a_value() {
+        let paired: [&[u8]; 6] = [
+            b"\xbf\x82\x01\x02\x03\xff\x00",
+            b"\xbf\x9f\xff\x01\xff\x00",
+            b"\xbf\x01\x9f\xbf\xff\xff\xff\x00",
+            b"\xbf\x7f\x61a\xff\x01\xff\x00",
+            b"\xbf\x01\xbf\x02\x03\xff\xff\x00",
+            b"\x82\xbf\xff\x9f\x01\xff\x00",
+        ];
+        for bytes in paired {
+            assert_eq!(skip(bytes), Ok(bytes.len() - 1), "{bytes:x?}");
+        }
+        let ten_deep = [
+            b"\xbf\x01".repeat(10),
+            b"\xbf\xff".to_vec(),
+            b"\xff".repeat(10),
+            b"\x00".to_vec(),
+        ]
+        .concat();
+        assert_eq!(skip(&ten_deep), Ok(ten_deep.len() - 1));
+        let unpaired: [&[u8]; 7] = [
+            b"\xbf\x01\x9f\xff\x02\xff",
+            b"\xbf\x00\xff",
+            b"\xbf\x00\x00\x00\xff",
+            b"\xbf\x00\x01\x03\xff",
+            b"\xbf\x9f\xff\xff",
+            b"\x9f\xbf\x01\xff\xff",
+            b"\xbf\x01\xbf\x02\xff\xff",
+        ];
+        for bytes in unpaired {
+            assert_eq!(skip(bytes), Err(ErrorKind::NotWellFormed), "{bytes:x?}");
+        }
+    }
+
+    #[test]
+    fn the_state_is_104_bytes() {
+        assert_eq!(size_of::<Skip>(), 104);
     }
 
     #[test]
