@@ -172,6 +172,7 @@ mod lead;
 mod scalar;
 mod schema;
 mod stack;
+mod token;
 mod wire;
 
 use core::mem::MaybeUninit;
@@ -181,6 +182,7 @@ pub use engine::{Decoder, Encoder, Fed, Progress};
 pub use error::{Error, ErrorKind};
 pub use scalar::Tagged;
 pub use schema::{Decode, Encode};
+pub use token::{Token, TokenWriter, Tokens};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.
 ///

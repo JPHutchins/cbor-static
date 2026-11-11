@@ -10,6 +10,7 @@ const MAX_SAVED: usize = 8;
 
 /// Iterative skip (D-14a): one merged count for definite nesting, a bitset over open
 /// indefinite levels marking which saved an outer count, and a LIFO of those counts.
+#[derive(Clone, Debug)]
 pub struct Skip {
     walk: Walk,
     indefinite: u64,
@@ -18,6 +19,7 @@ pub struct Skip {
 
 /// The state a new skip resets. The open-level bitset and the saved counts are written before
 /// they are read.
+#[derive(Clone, Debug)]
 struct Walk {
     pending: u64,
     levels: u8,
@@ -72,6 +74,12 @@ impl Skip {
             self.walk.utf8.finish()?;
         }
         Ok(())
+    }
+
+    /// Ends the current string's payload, which the caller took whole and checked itself.
+    pub const fn took_payload(&mut self) {
+        self.walk.payload_left = 0;
+        self.walk.text = false;
     }
 
     #[inline(never)]

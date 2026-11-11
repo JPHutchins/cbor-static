@@ -26,8 +26,8 @@ impl Pending {
         self.bytes(Head::new(major, arg).as_bytes());
     }
 
-    pub fn float(&mut self, (info, bits): (u8, u64)) {
-        self.bytes(Head::float(info, bits).as_bytes());
+    pub fn float(&mut self, shortest: (u8, u64)) {
+        self.bytes(Head::float(shortest).as_bytes());
     }
 
     pub fn bytes(&mut self, src: &[u8]) {

@@ -39,6 +39,8 @@ pub(crate) use leaf::{
     enc_tagged, enc_u128, none,
 };
 pub use pending::Pending;
+pub(crate) use skip::Skip;
+pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};
 use crate::schema::{Decode, Encode};
