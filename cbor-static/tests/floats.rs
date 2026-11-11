@@ -7,13 +7,14 @@ mod common;
 
 use common::{float_bits, float_encoded, halves, ieee_binary16};
 
+/// Every binary16 pattern, or every 257th under Miri.
+fn halves_to_check() -> impl Iterator<Item = u16> {
+    (0..=u16::MAX).step_by(if cfg!(miri) { 257 } else { 1 })
+}
+
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "65,536 patterns; the unit tests of wire::float run instead"
-)]
 fn every_half_decodes_to_its_ieee_value_and_reencodes_unchanged() {
-    for half in 0..=u16::MAX {
+    for half in halves_to_check() {
         let encoded = [0xf9, half.to_be_bytes()[0], half.to_be_bytes()[1]];
         assert_eq!(float_bits(&encoded), ieee_binary16(half), "{half:04x}");
         let (out, len) = float_encoded(ieee_binary16(half));
@@ -23,9 +24,8 @@ fn every_half_decodes_to_its_ieee_value_and_reencodes_unchanged() {
 
 #[cfg(cbor_static_f16)]
 #[test]
-#[cfg_attr(miri, ignore = "65,536 patterns")]
 fn every_half_matches_the_f16_primitive() {
-    for half in 0..=u16::MAX {
+    for half in halves_to_check() {
         let primitive = f64::from(f16::from_bits(half));
         let ours = f64::from_bits(float_bits(&[
             0xf9,
