@@ -118,6 +118,34 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! Internally and adjacently tagged enums, whose decoding needs contiguous input (D-10, D-16):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[serde(tag = "type")]
+//! enum Event {
+//!     Start,
+//!     Move { x: i32 },
+//! }
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[serde(tag = "t", content = "c")]
+//! enum Message {
+//!     Data(u32),
+//! }
+//!
+//! let mut out = [0u8; 32];
+//! let len = cbor_static::encode_into(&Event::Move { x: 1 }, &mut out)?;
+//! assert_eq!(&out[..len], b"\xa2\x64type\x64Move\x61x\x01");
+//!
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! assert_eq!(
+//!     *cbor_static::decode_into::<Message>(b"\xa2\x61c\x07\x61t\x64Data", &mut slot)?,
+//!     Message::Data(7)
+//! );
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
 //! Variants that can start with the same item do not compile:
 //!
 //! ```compile_fail,E0080
@@ -190,9 +218,10 @@ pub fn decode_into<'de, 's, T: Decode<'de>>(
 #[doc(hidden)]
 pub mod __private {
     pub use crate::engine::{
-        DECODE_ARRAY, DECODE_CBOR_TAG, DECODE_EXTERNAL, DECODE_INDEX, DECODE_MAP, DECODE_MAP_DENY,
-        DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY,
-        DECODE_UNTAGGED, ENCODE_ARRAY, ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_MAP,
+        DECODE_ADJACENT, DECODE_ARRAY, DECODE_CBOR_TAG, DECODE_EXTERNAL, DECODE_INDEX,
+        DECODE_INTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY,
+        DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
+        ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
         ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
         write_tag,
     };

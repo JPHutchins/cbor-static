@@ -6,7 +6,7 @@ use super::{BEFORE_FIRST, Child, EncOps, Part, State, desc, field_addr, opened, 
 use crate::engine::pending::Pending;
 use crate::engine::push;
 use crate::error::ErrorKind;
-use crate::schema::EncKind;
+use crate::schema::{EncKind, FieldPtrFn, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::Major;
 
@@ -27,16 +27,9 @@ fn open(
     else {
         return Err(ErrorKind::Unsupported);
     };
-    state.pending.head(
-        Major::Map,
-        u64::try_from(
-            (0..kinds.len())
-                .filter_map(|f| u8::try_from(f).ok())
-                .filter(|&f| present(layout, kinds, *field_ptr, at, f))
-                .count(),
-        )
-        .unwrap_or(u64::MAX),
-    );
+    state
+        .pending
+        .head(Major::Map, present_count(layout, kinds, *field_ptr, at));
     push(
         frames,
         &mut state.depth,
@@ -79,4 +72,20 @@ fn next(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
             None => Part::Finished,
         },
     )
+}
+
+/// How many of the struct at `at`'s fields are written.
+pub(super) fn present_count(
+    layout: &Layout,
+    kinds: &[&EncKind],
+    field_ptr: Option<FieldPtrFn>,
+    at: *const u8,
+) -> u64 {
+    u64::try_from(
+        (0..kinds.len())
+            .filter_map(|f| u8::try_from(f).ok())
+            .filter(|&f| present(layout, kinds, field_ptr, at, f))
+            .count(),
+    )
+    .unwrap_or(u64::MAX)
 }

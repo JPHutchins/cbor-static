@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::Ident;
 
 use super::structs::decode_map_ops;
-use super::{Body, Trait, child, forms, impls, key, layout, level, not_yet};
+use super::{Body, Trait, child, forms, impls, key, layout, level};
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
 
@@ -20,9 +20,7 @@ pub fn enumeration(
     form: &EnumForm,
     directions: Directions,
 ) -> TokenStream {
-    let Some(ops) = forms::ops(form) else {
-        return not_yet("this enum representation");
-    };
+    let ops = forms::ops(form);
     let ident = &item.ident;
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let statics = item.lifetime.as_ref().map(|_| quote!(<'static>));

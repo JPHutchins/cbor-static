@@ -30,6 +30,32 @@ where
     }
 }
 
+/// `golden` for internally and adjacently tagged values, whose decoding needs contiguous input
+/// (D-10, D-16): encoding still resumes at every chunk size, and decoding in chunks either
+/// succeeds or reports `NeedContiguous`.
+pub fn golden_contiguous<T>(value: &T, bytes: &[u8])
+where
+    T: Encode + for<'de> Decode<'de> + Copy + PartialEq + Debug,
+{
+    assert_eq!(encode(value), bytes, "encode");
+    assert_eq!(decode::<T>(bytes), Ok(*value), "decode");
+    for chunk in 1..=64 {
+        assert_eq!(
+            chunked_encode(value, chunk),
+            bytes,
+            "encode in chunks of {chunk}"
+        );
+        assert!(
+            matches!(
+                chunked_decode::<T>(bytes, chunk),
+                Err(ErrorKind::NeedContiguous)
+            ) || chunked_decode::<T>(bytes, chunk) == Ok(*value),
+            "decode in chunks of {chunk}"
+        );
+    }
+    assert_eq!(chunked_decode::<T>(bytes, bytes.len()), Ok(*value));
+}
+
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = [0u8; 512];
     let len = encode_into(value, &mut out).expect("encodes");

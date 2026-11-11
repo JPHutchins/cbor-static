@@ -128,15 +128,6 @@ fn key(key: &Key) -> TokenStream {
     }
 }
 
-/// Stands in for a representation R-009 has not reached yet.
-fn not_yet(what: &str) -> TokenStream {
-    syn::Error::new(
-        proc_macro2::Span::call_site(),
-        format!("cbor-static: {what} is not supported yet"),
-    )
-    .into_compile_error()
-}
-
 /// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`.
 fn level(
     children: impl DoubleEndedIterator<Item = (TokenStream, TokenStream)>,

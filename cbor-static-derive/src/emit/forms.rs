@@ -13,16 +13,16 @@ pub struct Ops {
     pub decode: TokenStream,
 }
 
-/// The ops, or `None` for a representation R-009 has not reached yet.
-pub fn ops(form: &EnumForm) -> Option<Ops> {
+pub fn ops(form: &EnumForm) -> Ops {
     let (encode, decode) = match form {
         EnumForm::External => (quote!(__p::ENCODE_EXTERNAL), quote!(__p::DECODE_EXTERNAL)),
         EnumForm::Untagged => (quote!(__p::ENCODE_UNTAGGED), quote!(__p::DECODE_UNTAGGED)),
         EnumForm::Index => (quote!(__p::ENCODE_INDEX), quote!(__p::DECODE_INDEX)),
         EnumForm::CborTag => (quote!(__p::ENCODE_CBOR_TAG), quote!(__p::DECODE_CBOR_TAG)),
-        EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => return None,
+        EnumForm::Internal { .. } => (quote!(__p::ENCODE_INTERNAL), quote!(__p::DECODE_INTERNAL)),
+        EnumForm::Adjacent { .. } => (quote!(__p::ENCODE_ADJACENT), quote!(__p::DECODE_ADJACENT)),
     };
-    Some(Ops { encode, decode })
+    Ops { encode, decode }
 }
 
 /// How the layout identifies `variant`. An untagged variant's classes depend on its payload type,

@@ -92,6 +92,21 @@ enum CborTagged {
     Pair(Pair),
 }
 
+#[derive(crate::Decode)]
+#[serde(tag = "t", content = "c")]
+enum Adjacent {
+    Pair(Pair),
+}
+
+#[derive(crate::Decode)]
+#[serde(tag = "t")]
+enum Internal {
+    Pair(Pair),
+}
+
+/// `CHOICE`'s entries after an internal tag entry, which moves each value 7 bytes on.
+const INTERNAL_PAIR: &[u8] = b"\xa4\x61t\x64Pair\x61a\x01\x61b\x02\x61c\x03";
+
 /// `Positional`, `(Tracked, Tracked, u32)` and `[Tracked; 3]` alike: elements 1 and 2 decode to
 /// `Tracked`.
 const POSITIONAL: &[u8] = b"\x83\x01\x02\x03";
@@ -193,18 +208,24 @@ fn an_option_drops_its_payload_pending_or_moved_into_some() {
     }
 }
 
-/// `T` decodes `CHOICE` after `prefix` as a `Pair` payload: failing or abandoning at each of its
-/// values drops exactly the fields initialized so far.
-fn drops_inside_payload<T: for<'de> Decode<'de>>(prefix: &[u8], chunk: usize) {
-    let complete = [prefix, CHOICE].concat();
-    for (value, drops) in CHOICE_DROPS {
-        let at = prefix.len() + value;
+/// Failing or abandoning `T`'s decoding of `complete` at each value drops exactly the given count.
+fn drops_at<T: for<'de> Decode<'de>>(complete: &[u8], values: [(usize, usize); 3], chunk: usize) {
+    for (at, drops) in values {
         assert_eq!(
             drops_after::<T>(&[&complete[..at], b"\xf5"].concat(), chunk),
             (Some(ErrorKind::TypeMismatch), drops)
         );
         assert_eq!(drops_after::<T>(&complete[..at], chunk), (None, drops));
     }
+}
+
+/// `drops_at` for `CHOICE` decoded as a `Pair` payload after `prefix`.
+fn drops_inside_payload<T: for<'de> Decode<'de>>(prefix: &[u8], chunk: usize) {
+    drops_at::<T>(
+        &[prefix, CHOICE].concat(),
+        CHOICE_DROPS.map(|(value, drops)| (prefix.len() + value, drops)),
+        chunk,
+    );
 }
 
 #[test]
@@ -214,6 +235,14 @@ fn enum_variants_drop_what_their_payload_initialized() {
         drops_inside_payload::<Indexed>(b"\x82\x01", chunk);
         drops_inside_payload::<CborTagged>(b"\xc5", chunk);
         assert_eq!(drops_after::<Choice>(CHOICE, chunk), (None, 2));
+        if chunk >= INTERNAL_PAIR.len() {
+            drops_inside_payload::<Adjacent>(b"\xa2\x61t\x64Pair\x61c", chunk);
+            drops_at::<Internal>(
+                INTERNAL_PAIR,
+                CHOICE_DROPS.map(|(value, drops)| (value + 7, drops)),
+                chunk,
+            );
+        }
         assert_eq!(
             drops_after::<Indexed>(&[b"\x83\x01".as_slice(), CHOICE, b"\x00"].concat(), chunk),
             (Some(ErrorKind::TypeMismatch), 2)

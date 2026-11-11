@@ -3,7 +3,7 @@
 mod common;
 
 use cbor_static::{Cbor, ErrorKind};
-use common::{decode, golden};
+use common::{decode, golden, golden_contiguous};
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 struct Coord {
@@ -143,4 +143,76 @@ fn cbor_tagged_variants_are_their_tag_then_their_payload() {
         decode::<Cose>(b"\x82\x01\x02"),
         Err(ErrorKind::TypeMismatch)
     );
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Size {
+    w: u32,
+    h: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "type")]
+enum Event {
+    Start,
+    Move { x: i32, y: i32 },
+    Resize(Size),
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "t", content = "c")]
+enum Message {
+    Ping,
+    Data(u32),
+    Point { x: i32, y: i32 },
+}
+
+#[test]
+fn internally_tagged_variants_merge_the_tag_into_their_map() {
+    golden_contiguous(&Event::Start, b"\xa1\x64type\x65Start");
+    golden_contiguous(
+        &Event::Move { x: 1, y: 2 },
+        b"\xa3\x64type\x64Move\x61x\x01\x61y\x02",
+    );
+    golden_contiguous(
+        &Event::Resize(Size { w: 3, h: 4 }),
+        b"\xa3\x64type\x66Resize\x61w\x03\x61h\x04",
+    );
+    assert_eq!(
+        decode::<Event>(b"\xa3\x61x\x01\x61y\x02\x64type\x64Move"),
+        Ok(Event::Move { x: 1, y: 2 }),
+        "the tag may follow the payload's fields"
+    );
+    let errors: [(&[u8], ErrorKind); 4] = [
+        (b"\xa1\x61x\x01", ErrorKind::MissingField),
+        (b"\xa1\x64type\x63Foo", ErrorKind::UnknownVariant),
+        (b"\xa1\x64type\x01", ErrorKind::TypeMismatch),
+        (b"\x82\x01\x02", ErrorKind::TypeMismatch),
+    ];
+    for (bytes, error) in errors {
+        assert_eq!(decode::<Event>(bytes), Err(error), "{bytes:x?}");
+    }
+}
+
+#[test]
+fn adjacently_tagged_variants_put_their_payload_under_the_content_key() {
+    golden_contiguous(&Message::Ping, b"\xa1\x61t\x64Ping");
+    golden_contiguous(&Message::Data(7), b"\xa2\x61t\x64Data\x61c\x07");
+    golden_contiguous(
+        &Message::Point { x: 1, y: 2 },
+        b"\xa2\x61t\x65Point\x61c\xa2\x61x\x01\x61y\x02",
+    );
+    assert_eq!(
+        decode::<Message>(b"\xa2\x61c\x07\x61t\x64Data"),
+        Ok(Message::Data(7)),
+        "the content may come first"
+    );
+    let errors: [(&[u8], ErrorKind); 3] = [
+        (b"\xa1\x61t\x64Data", ErrorKind::MissingField),
+        (b"\xa2\x61t\x64Ping\x61c\x00", ErrorKind::TypeMismatch),
+        (b"\xa1\x61c\x07", ErrorKind::MissingField),
+    ];
+    for (bytes, error) in errors {
+        assert_eq!(decode::<Message>(bytes), Err(error), "{bytes:x?}");
+    }
 }

@@ -3,7 +3,7 @@ use core::mem::MaybeUninit;
 use super::bit;
 use super::text::Utf8;
 use crate::error::ErrorKind;
-use crate::wire::{Header, Major};
+use crate::wire::{Header, Major, header_len, parse};
 
 const MAX_INDEFINITE: u8 = 64;
 const MAX_SAVED: usize = 8;
@@ -167,31 +167,37 @@ impl Skip {
     }
 }
 
+/// The length of the one item `bytes` starts with, all of which must be there.
+///
+/// # Errors
+/// [`ErrorKind::NeedContiguous`] when `bytes` ends inside the item; any error skipping it would.
+pub fn length(bytes: &[u8]) -> Result<usize, ErrorKind> {
+    let mut skip = Skip::started(1);
+    let mut at = 0;
+    while !skip.done() {
+        let wanted = usize::try_from(skip.payload_left()).map_err(|_| ErrorKind::NeedContiguous)?;
+        if wanted > 0 {
+            skip.payload(
+                bytes
+                    .get(at..at + wanted)
+                    .ok_or(ErrorKind::NeedContiguous)?,
+            )?;
+            at += wanted;
+            continue;
+        }
+        let len = header_len(*bytes.get(at).ok_or(ErrorKind::NeedContiguous)?)?;
+        skip.on_header(parse(
+            bytes.get(at..at + len).ok_or(ErrorKind::NeedContiguous)?,
+        )?)?;
+        at += len;
+    }
+    Ok(at)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Skip;
+    use super::length as skip;
     use crate::error::ErrorKind;
-    use crate::wire::{header_len, parse};
-
-    fn skip(bytes: &[u8]) -> Result<usize, ErrorKind> {
-        let mut state = Skip::started(1);
-        let mut at = 0;
-        while !state.done() {
-            let wanted = usize::try_from(state.payload_left()).unwrap_or(usize::MAX);
-            if wanted > 0 {
-                let segment = bytes.get(at..at + wanted).ok_or(ErrorKind::UnexpectedEnd)?;
-                state.payload(segment)?;
-                at += wanted;
-                continue;
-            }
-            let len = header_len(*bytes.get(at).ok_or(ErrorKind::UnexpectedEnd)?)?;
-            state.on_header(parse(
-                bytes.get(at..at + len).ok_or(ErrorKind::UnexpectedEnd)?,
-            )?)?;
-            at += len;
-        }
-        Ok(at)
-    }
 
     #[test]
     fn skips_exactly_one_item() {
@@ -226,7 +232,7 @@ mod tests {
     #[test]
     fn limits_saved_outer_counts() {
         let eight_saved = b"\x82\x9f\x82\x9f\x82\x9f\x82\x9f\x82\x9f\x82\x9f\x82\x9f\x82\x9f";
-        assert_eq!(skip(eight_saved), Err(ErrorKind::UnexpectedEnd));
+        assert_eq!(skip(eight_saved), Err(ErrorKind::NeedContiguous));
         assert_eq!(
             skip(&[eight_saved.as_slice(), b"\x82\x9f"].concat()),
             Err(ErrorKind::LimitExceeded)

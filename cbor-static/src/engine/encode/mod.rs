@@ -8,6 +8,7 @@ mod enums;
 mod index;
 mod map;
 mod option;
+mod tagged;
 mod untagged;
 
 use core::mem::MaybeUninit;
@@ -20,6 +21,7 @@ pub use enums::EXTERNAL;
 pub use index::INDEX;
 pub use map::MAP;
 pub use option::OPTION;
+pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
 
 use super::pending::Pending;

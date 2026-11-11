@@ -19,7 +19,7 @@ impl<'a> Input<'a> {
         Self { bytes, at: 0 }
     }
 
-    fn rest(&self) -> &'a [u8] {
+    pub fn rest(&self) -> &'a [u8] {
         self.bytes.get(self.at..).unwrap_or(&[])
     }
 
