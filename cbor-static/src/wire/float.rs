@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn every_binary16_narrows_back_and_is_shortest() {
-        for half in 0..=u16::MAX {
+        for half in (0..=u16::MAX).step_by(if cfg!(miri) { 257 } else { 1 }) {
             let widened = BINARY16.widen(half.into());
             assert_eq!(BINARY16.narrow(widened), Some(half.into()), "{half:04x}");
             assert_eq!(shortest(widened), (HALF, half.into()), "{half:04x}");

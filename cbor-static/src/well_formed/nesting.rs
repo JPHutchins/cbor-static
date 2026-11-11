@@ -6,7 +6,7 @@ use core::iter::successors;
 use std::vec;
 use std::vec::Vec;
 
-use super::{Class, agree, oracle, skipped, streamed, tokens};
+use super::{Class, agree, chunk_sizes, oracle, skipped, streamed, tokens};
 use crate::Tokens;
 use crate::engine::item_len;
 use crate::error::ErrorKind;
@@ -95,7 +95,7 @@ fn misplaced_breaks_agree_with_the_reference() {
         b"\xc1\x9f\xd8\x20\x5f\x41\x00\xff\xff",
     ] {
         assert_eq!(oracle::item(well_formed), Ok(well_formed.len()));
-        agree(well_formed, 1..=well_formed.len());
+        agree(well_formed, chunk_sizes(well_formed.len()));
         for at in 0..=well_formed.len() {
             let inserted = [&well_formed[..at], b"\xff", &well_formed[at..]].concat();
             agree(&inserted, [1, 3, inserted.len()]);
