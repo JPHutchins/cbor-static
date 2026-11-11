@@ -3,71 +3,46 @@
 import tomllib
 from pathlib import Path
 
-from camas import Claude, Config, Parallel, Sequential, Task, by_suffix
+from camas import Claude, Config, Parallel, Project, Task
 
-TOOLCHAIN_FILE = tomllib.loads(Path("rust-toolchain.toml").read_text())["toolchain"]
-STABLE: str = TOOLCHAIN_FILE["channel"]
-NIGHTLY = "nightly-2026-11-10"
-TOOLCHAINS = (STABLE, NIGHTLY)
-TRIPLES: tuple[str, ...] = tuple(TOOLCHAIN_FILE["targets"])
-PYTHON = by_suffix((".py",), default=("harness", "tasks.py"))
+ROOT = Path(__file__).parent
+TRIPLES = tuple(tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["targets"])
+TOOLCHAINS = ({"RUST": "stable", "DIR": "."}, {"RUST": "nightly", "DIR": "nightly"})
+TARGET_DIR = f"{ROOT}/target"
 
-
-def target_dir(name: str) -> dict[str, str]:
-	return {"CARGO_TARGET_DIR": f".camas/target/{name}"}
-
+harness = Project("harness")
 
 rust_fmt = Task("cargo fmt --all", mutates=True)
-py_fmt = Task("uv run ruff format {paths}", paths=PYTHON, mutates=True)
-py_fix = Task("uv run ruff check --fix {paths}", paths=PYTHON, mutates=True)
-fix = Sequential(rust_fmt, py_fmt, py_fix)
-
-fmt = Parallel(
-	Task("cargo fmt --all --check"),
-	Task("uv run ruff format --check {paths}", paths=PYTHON),
-)
+rust_fmt_check = Task("cargo fmt --all --check")
 clippy = Task(
 	"cargo clippy --workspace --all-targets -- -D warnings",
-	env=target_dir(f"{STABLE}-clippy"),
+	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/clippy"},
 )
+unit = Task("cargo test --workspace", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"})
 test = Parallel(
-	Task("cargo +{TOOLCHAIN} test --workspace", env=target_dir("{TOOLCHAIN}-host")),
-	matrix={"TOOLCHAIN": TOOLCHAINS},
+	Task("cargo test --workspace", cwd="{DIR}", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/{{RUST}}-host"}),
+	variants=TOOLCHAINS,
 )
 build = Parallel(
 	Task(
-		"cargo +{TOOLCHAIN} build -p cbor-static --release --target {TRIPLE}",
-		env=target_dir("{TOOLCHAIN}-{TRIPLE}"),
+		"cargo build -p cbor-static --release --target {TRIPLE}",
+		cwd="{DIR}",
+		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/{{RUST}}-{{TRIPLE}}"},
 	),
-	matrix={"TOOLCHAIN": TOOLCHAINS, "TRIPLE": TRIPLES},
+	variants=TOOLCHAINS,
+	matrix={"TRIPLE": TRIPLES},
 )
-miri = Task(f"cargo +{NIGHTLY} miri test -p cbor-static", env=target_dir(f"{NIGHTLY}-miri"))
-python = Parallel(
-	Task("uv run ruff check {paths}", paths=PYTHON),
-	Task("uv run mypy"),
-	Task("uv run pytest --doctest-modules -q harness"),
-)
-doctor = Task(
-	(
-		"uv",
-		"run",
-		"python",
-		"-m",
-		"harness.doctor",
-		"--stable",
-		STABLE,
-		"--nightly",
-		NIGHTLY,
-		"--targets",
-		*TRIPLES,
-	)
+miri = Task("cargo miri test -p cbor-static", cwd="nightly", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"})
+doctor = (
+	Task("git submodule update --init")
+	| Task("rustup toolchain install", help="installs what rust-toolchain.toml declares")
+	| Task("rustup toolchain install", cwd="nightly")
+	| Task("uv sync --locked")
 )
 
-check = Parallel(fmt, clippy, python, Task("cargo test --workspace", env=target_dir(f"{STABLE}-host")))
-ci = Parallel(fmt, clippy, test, build, miri, python)
+fix = rust_fmt | harness
+check = rust_fmt_check | clippy | unit | harness
+ci = (check - unit) | test | build | miri
+all = fix + check
 
-_ = Config(
-	default_task=check,
-	github_task=ci,
-	agent=Claude(fix=fix, check=check),
-)
+_ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))

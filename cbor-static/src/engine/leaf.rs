@@ -1,3 +1,8 @@
+#![expect(
+    clippy::cast_ptr_alignment,
+    reason = "every field pointer is a descriptor offset taken with offset_of!, so it is aligned"
+)]
+
 use super::{Item, Next, Pending};
 use crate::error::ErrorKind;
 use crate::scalar::Scalar;
@@ -96,13 +101,11 @@ pub unsafe fn dec_tagged<const TAG: u64, T: Scalar>(
 }
 
 pub unsafe fn enc_u128(src: *const u8, out: &mut Pending) {
-    bignum(out, Major::Uint, 2, unsafe {
-        src.cast::<u128>().read_unaligned()
-    });
+    bignum(out, Major::Uint, 2, unsafe { src.cast::<u128>().read() });
 }
 
 pub unsafe fn enc_i128(src: *const u8, out: &mut Pending) {
-    match unsafe { src.cast::<i128>().read_unaligned() } {
+    match unsafe { src.cast::<i128>().read() } {
         value @ 0.. => bignum(out, Major::Uint, 2, value.cast_unsigned()),
         value => bignum(out, Major::Nint, 3, (!value).cast_unsigned()),
     }
@@ -115,7 +118,7 @@ pub unsafe fn dec_u128(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind>
             arg,
             ..
         } => {
-            unsafe { dst.cast::<u128>().write_unaligned(arg.into()) };
+            unsafe { dst.cast::<u128>().write(arg.into()) };
             Ok(Next::Done)
         }
         Header {
@@ -159,30 +162,30 @@ pub unsafe fn dec_i128(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind>
         } => return Ok(Next::Then(&I128_NEGATIVE)),
         _ => return Err(ErrorKind::TypeMismatch),
     };
-    unsafe { dst.cast::<i128>().write_unaligned(value) };
+    unsafe { dst.cast::<i128>().write(value) };
     Ok(Next::Done)
 }
 
 unsafe fn dec_u128_digits(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     let value = digits(item)?;
-    unsafe { dst.cast::<u128>().write_unaligned(value) };
+    unsafe { dst.cast::<u128>().write(value) };
     Ok(Next::Done)
 }
 
 unsafe fn dec_i128_positive(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     let value = i128::try_from(digits(item)?).map_err(|_| ErrorKind::OutOfRange)?;
-    unsafe { dst.cast::<i128>().write_unaligned(value) };
+    unsafe { dst.cast::<i128>().write(value) };
     Ok(Next::Done)
 }
 
 unsafe fn dec_i128_negative(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     let value = !i128::try_from(digits(item)?).map_err(|_| ErrorKind::OutOfRange)?;
-    unsafe { dst.cast::<i128>().write_unaligned(value) };
+    unsafe { dst.cast::<i128>().write(value) };
     Ok(Next::Done)
 }
 
 unsafe fn enc_str(src: *const u8, out: &mut Pending) {
-    let text = unsafe { src.cast::<&str>().read_unaligned() };
+    let text = unsafe { src.cast::<&str>().read() };
     out.head(Major::Text, u64::try_from(text.len()).unwrap_or(u64::MAX));
     out.tail(text.as_bytes());
 }
@@ -191,7 +194,7 @@ unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     match item.header.major {
         Major::Text => {
             let text = core::str::from_utf8(item.payload).map_err(|_| ErrorKind::InvalidUtf8)?;
-            unsafe { dst.cast::<&str>().write_unaligned(text) };
+            unsafe { dst.cast::<&str>().write(text) };
             Ok(Next::Done)
         }
         _ => Err(ErrorKind::TypeMismatch),
@@ -199,7 +202,7 @@ unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
 }
 
 unsafe fn enc_bytes(src: *const u8, out: &mut Pending) {
-    let bytes = unsafe { src.cast::<&[u8]>().read_unaligned() };
+    let bytes = unsafe { src.cast::<&[u8]>().read() };
     out.head(Major::Bytes, u64::try_from(bytes.len()).unwrap_or(u64::MAX));
     out.tail(bytes);
 }
@@ -207,7 +210,7 @@ unsafe fn enc_bytes(src: *const u8, out: &mut Pending) {
 unsafe fn dec_bytes(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     match item.header.major {
         Major::Bytes => {
-            unsafe { dst.cast::<&[u8]>().write_unaligned(item.payload) };
+            unsafe { dst.cast::<&[u8]>().write(item.payload) };
             Ok(Next::Done)
         }
         _ => Err(ErrorKind::TypeMismatch),

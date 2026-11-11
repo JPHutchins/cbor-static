@@ -31,23 +31,23 @@ enum ReprU8 {
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 struct Inner<'a> {
     #[serde(rename = "len")]
-    f_len: u32,
+    length: u32,
     #[serde(rename = "buf")]
-    f_buf: &'a [u8],
+    buffer: &'a [u8],
     #[serde(rename = "rsn")]
-    f_rsn: &'a str,
+    reason: &'a str,
     #[serde(rename = "confirmed", default, skip_serializing_if = "Option::is_none")]
-    f_confirmed: Option<u32>,
+    confirmed: Option<u32>,
 }
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 struct Outer<'a> {
     #[serde(rename = "ts")]
-    f_ts: Glue,
+    kind: Glue,
     #[serde(rename = "inner")]
-    f_inner: Inner<'a>,
+    inner: Inner<'a>,
     #[serde(rename = "msg")]
-    f_msg: i32,
+    message: i32,
     big: u64,
     flag: bool,
 }
@@ -85,7 +85,9 @@ fn encode<T: Encode>(value: &T) -> Vec<u8> {
 
 fn decode<'de, T: Decode<'de> + Copy>(bytes: &'de [u8]) -> Result<T, ErrorKind> {
     let mut slot = MaybeUninit::uninit();
-    decode_into(bytes, &mut slot).map(|value| *value).map_err(|e| e.kind)
+    decode_into(bytes, &mut slot)
+        .map(|value| *value)
+        .map_err(|e| e.kind)
 }
 
 fn chunked_encode<T: Encode>(value: &T, chunk: usize) -> Vec<u8> {
@@ -100,7 +102,10 @@ fn chunked_encode<T: Encode>(value: &T, chunk: usize) -> Vec<u8> {
     }
 }
 
-fn chunked_decode<'de, T: Decode<'de> + Copy>(bytes: &'de [u8], chunk: usize) -> Result<T, ErrorKind> {
+fn chunked_decode<'de, T: Decode<'de> + Copy>(
+    bytes: &'de [u8],
+    chunk: usize,
+) -> Result<T, ErrorKind> {
     let mut slot = MaybeUninit::uninit();
     let mut decoder = Decoder::new(&mut slot);
     for piece in bytes.chunks(chunk) {
@@ -134,14 +139,14 @@ fn every_enum_path_writes_the_same_externally_tagged_bytes() {
 #[test]
 fn borrowed_nested_struct_round_trips() {
     let value = Outer {
-        f_ts: Glue::C { x: 1, y: true },
-        f_inner: Inner {
-            f_len: 300,
-            f_buf: &[1, 2, 3],
-            f_rsn: "hello",
-            f_confirmed: None,
+        kind: Glue::C { x: 1, y: true },
+        inner: Inner {
+            length: 300,
+            buffer: &[1, 2, 3],
+            reason: "hello",
+            confirmed: None,
         },
-        f_msg: -5,
+        message: -5,
         big: 1 << 40,
         flag: true,
     };
@@ -161,14 +166,14 @@ fn borrowed_nested_struct_round_trips() {
 #[test]
 fn chunked_encoding_matches_one_shot_for_every_chunk_size() {
     let value = Outer {
-        f_ts: Glue::B(70_000),
-        f_inner: Inner {
-            f_len: 1,
-            f_buf: &[9; 40],
-            f_rsn: "a key that spans many chunks",
-            f_confirmed: Some(3),
+        kind: Glue::B(70_000),
+        inner: Inner {
+            length: 1,
+            buffer: &[9; 40],
+            reason: "a key that spans many chunks",
+            confirmed: Some(3),
         },
-        f_msg: i32::MIN,
+        message: i32::MIN,
         big: u64::MAX,
         flag: false,
     };
@@ -181,7 +186,10 @@ fn chunked_encoding_matches_one_shot_for_every_chunk_size() {
 #[test]
 fn chunked_decoding_matches_one_shot_for_owned_targets() {
     let value = Owned {
-        kind: Glue::C { x: 1 << 20, y: true },
+        kind: Glue::C {
+            x: 1 << 20,
+            y: true,
+        },
         repr: ReprC::B(u32::MAX),
         count: u64::MAX - 1,
         nested: Leaf { a: 24, b: -25 },
@@ -191,19 +199,26 @@ fn chunked_decoding_matches_one_shot_for_owned_targets() {
     let bytes = [&encode(&value)[..1], unknown, &encode(&value)[1..]].concat();
     let bytes = [&[0xa6][..], &bytes[1..]].concat();
     for chunk in 1..=64 {
-        assert_eq!(chunked_decode::<Owned>(&bytes, chunk), Ok(value), "chunk {chunk}");
+        assert_eq!(
+            chunked_decode::<Owned>(&bytes, chunk),
+            Ok(value),
+            "chunk {chunk}"
+        );
     }
 }
 
 #[test]
 fn borrowed_payloads_need_contiguous_input() {
     let bytes = encode(&Inner {
-        f_len: 1,
-        f_buf: &[1, 2, 3, 4],
-        f_rsn: "x",
-        f_confirmed: None,
+        length: 1,
+        buffer: &[1, 2, 3, 4],
+        reason: "x",
+        confirmed: None,
     });
-    assert_eq!(chunked_decode::<Inner>(&bytes, 6), Err(ErrorKind::NeedContiguous));
+    assert_eq!(
+        chunked_decode::<Inner>(&bytes, 6),
+        Err(ErrorKind::NeedContiguous)
+    );
 }
 
 #[test]
@@ -213,10 +228,10 @@ fn absent_options_are_omitted_and_null_or_missing_decode_as_none() {
     let inner = b"\xa3\x63len\x01\x63buf\x40\x63rsn\x60";
     let with_null = b"\xa4\x63len\x01\x63buf\x40\x63rsn\x60\x69confirmed\xf6";
     let expected = Inner {
-        f_len: 1,
-        f_buf: &[],
-        f_rsn: "",
-        f_confirmed: None,
+        length: 1,
+        buffer: &[],
+        reason: "",
+        confirmed: None,
     };
     assert_eq!(decode::<Inner>(inner), Ok(expected));
     assert_eq!(decode::<Inner>(with_null), Ok(expected));
@@ -228,19 +243,28 @@ fn decode_errors_are_reported_with_their_kind() {
     let cases: [(&[u8], ErrorKind); 9] = [
         (b"\xa2\x61a\x01\x61a\x02", ErrorKind::DuplicateKey),
         (b"\xa1\x61a\x01", ErrorKind::MissingField),
-        (b"\xa2\x61a\x01\x61b\x1b\x00\x00\x00\x01\x00\x00\x00\x00", ErrorKind::OutOfRange),
+        (
+            b"\xa2\x61a\x01\x61b\x1b\x00\x00\x00\x01\x00\x00\x00\x00",
+            ErrorKind::OutOfRange,
+        ),
         (b"\xa2\x61a\x20\x61b\x00", ErrorKind::OutOfRange),
         (b"\xa2\x61a\xf5\x61b\x00", ErrorKind::TypeMismatch),
         (b"\xa2\x61a\x01\x61b", ErrorKind::UnexpectedEnd),
         (b"\xa2\x61a\x01\x61b\x00\x00", ErrorKind::TrailingInput),
-        (b"\xa3\x61a\x01\x61b\x00\x62\xc3\x28\x00", ErrorKind::InvalidUtf8),
+        (
+            b"\xa3\x61a\x01\x61b\x00\x62\xc3\x28\x00",
+            ErrorKind::InvalidUtf8,
+        ),
         (b"\xa2\x61a\x01\x61b\x1c", ErrorKind::NotWellFormed),
     ];
     for (bytes, kind) in cases {
         assert_eq!(decode::<Leaf>(bytes), Err(kind), "{bytes:x?}");
     }
     assert_eq!(decode::<Glue>(b"\x61D"), Err(ErrorKind::UnknownVariant));
-    assert_eq!(decode::<Glue>(b"\xa2\x61B\x01\x61A\x02"), Err(ErrorKind::TypeMismatch));
+    assert_eq!(
+        decode::<Glue>(b"\xa2\x61B\x01\x61A\x02"),
+        Err(ErrorKind::TypeMismatch)
+    );
 }
 
 #[test]
@@ -267,7 +291,13 @@ fn floats_tags_and_bignums_round_trip() {
         .concat()
     );
     assert_eq!(decode::<Numbers>(&bytes), Ok(value));
-    assert_eq!(decode::<u128>(b"\x1b\xff\xff\xff\xff\xff\xff\xff\xff"), Ok(u128::from(u64::MAX)));
+    assert_eq!(
+        decode::<u128>(b"\x1b\xff\xff\xff\xff\xff\xff\xff\xff"),
+        Ok(u128::from(u64::MAX))
+    );
     assert_eq!(decode::<i128>(b"\x38\x63"), Ok(-100));
-    assert_eq!(decode::<Tagged<1, u64>>(b"\xc2\x00"), Err(ErrorKind::UnexpectedTag));
+    assert_eq!(
+        decode::<Tagged<1, u64>>(b"\xc2\x00"),
+        Err(ErrorKind::UnexpectedTag)
+    );
 }
