@@ -20,6 +20,7 @@ pub enum ErrorKind {
     LimitExceeded,
     BufferTooSmall,
     TrailingInput,
+    UnknownField,
 }
 
 /// An [`ErrorKind`], the index of the field being processed, and the byte offset reached.

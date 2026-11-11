@@ -120,12 +120,13 @@ fn emit(
                 unsafe { encode(next.at, &mut state.pending) };
                 return Ok(());
             }
-            EncKind::Struct { ops, .. } | EncKind::Enum { ops, .. } => {
-                match (ops.open)(state, frames, next.kind, next.at)? {
-                    Some(child) => next = child,
-                    None => return Ok(()),
-                }
-            }
+            EncKind::Struct { ops, .. }
+            | EncKind::Enum { ops, .. }
+            | EncKind::Array { ops, .. }
+            | EncKind::Option { ops, .. } => match (ops.open)(state, frames, next.kind, next.at)? {
+                Some(child) => next = child,
+                None => return Ok(()),
+            },
         }
     }
 }
@@ -155,10 +156,16 @@ fn present(
     ) {
         (
             Some(place),
-            Some(EncKind::Leaf {
-                absent: Some(absent),
-                ..
-            }),
+            Some(
+                EncKind::Leaf {
+                    absent: Some(absent),
+                    ..
+                }
+                | EncKind::Option {
+                    absent: Some(absent),
+                    ..
+                },
+            ),
         ) if place.omit_if_absent => !unsafe { absent(field_addr(layout, field_ptr, base, field)) },
         _ => true,
     }
@@ -187,7 +194,10 @@ fn desc(frame: &Frame) -> &'static EncKind {
 
 fn ops(kind: &EncKind) -> Result<&'static EncOps, ErrorKind> {
     match kind {
-        EncKind::Struct { ops, .. } | EncKind::Enum { ops, .. } => Ok(ops),
+        EncKind::Struct { ops, .. }
+        | EncKind::Enum { ops, .. }
+        | EncKind::Array { ops, .. }
+        | EncKind::Option { ops, .. } => Ok(ops),
         EncKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

@@ -3,7 +3,7 @@
 use core::mem::MaybeUninit;
 
 use super::{
-    After, DecOps, Entry, Flow, State, at, desc, end, entries, expect, next_entry, open,
+    After, Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, next_entry, open,
     start_name, start_skip, top,
 };
 use crate::engine::bit;
@@ -14,7 +14,7 @@ use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major};
 
 pub static MAP: DecOps = DecOps {
-    value,
+    value: Begin::Header(value),
     entry,
     named,
     child_done,

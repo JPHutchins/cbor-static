@@ -3,7 +3,7 @@
 use core::mem::MaybeUninit;
 
 use super::{
-    After, DecOps, Entry, Flow, State, at, desc, end, entries, expect, next_entry, open,
+    After, Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, next_entry, open,
     start_name, top,
 };
 use crate::engine::input::Input;
@@ -13,7 +13,7 @@ use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major};
 
 pub static EXTERNAL: DecOps = DecOps {
-    value,
+    value: Begin::Header(value),
     entry,
     named,
     child_done,

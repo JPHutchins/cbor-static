@@ -33,14 +33,15 @@ pub enum Next {
 
 /// The core's continuation: what the next bytes of input mean.
 type Step = fn(&mut State, &mut [MaybeUninit<Frame>], &mut Input) -> Result<Flow, ErrorKind>;
-type OnValue =
+type OnHeader =
     fn(&mut State, &mut [MaybeUninit<Frame>], &mut Input, Header) -> Result<Flow, ErrorKind>;
+type OnPeek = fn(&mut State, &mut [MaybeUninit<Frame>], u8) -> Result<Flow, ErrorKind>;
 type OnName = fn(&mut State, &mut [MaybeUninit<Frame>], Option<u8>) -> Result<Flow, ErrorKind>;
 
 /// One structural form's decode handlers.
 pub struct DecOps {
-    /// A header arrived where a value of this form is expected.
-    value: OnValue,
+    /// A value of this form begins.
+    value: Begin,
     /// The top frame, of this form, takes its next entry or ends.
     entry: Step,
     /// A text key or variant name in the top frame matched this entry, or none.
@@ -51,6 +52,17 @@ pub struct DecOps {
     close: fn(&mut Frame) -> Result<(), ErrorKind>,
     /// Drops what the frame initialized.
     drop: fn(&Frame),
+}
+
+/// How a form's value begins: with its whole header, or with a look at its initial byte, after
+/// which the form retargets and the header is read for the new target.
+enum Begin {
+    Header(OnHeader),
+    #[expect(
+        dead_code,
+        reason = "untagged enums and Option<nested> dispatch on the initial byte"
+    )]
+    Peek(OnPeek),
 }
 
 /// What a frame does once an entry's value is complete.
@@ -188,6 +200,16 @@ fn value(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
+    if let Ok(DecOps {
+        value: Begin::Peek(peek),
+        ..
+    }) = ops(state.target.kind)
+    {
+        return match state.carry.initial(input) {
+            Some(initial) => peek(state, frames, initial),
+            None => Ok(Flow::NeedInput),
+        };
+    }
     let Some(header) = state.carry.header(input)? else {
         return Ok(Flow::NeedInput);
     };
@@ -211,9 +233,13 @@ fn value(
                 }
             }
         }
-        DecKind::Struct { ops, .. } | DecKind::Enum { ops, .. } => {
-            (ops.value)(state, frames, input, header)
-        }
+        DecKind::Struct { ops, .. }
+        | DecKind::Enum { ops, .. }
+        | DecKind::Array { ops, .. }
+        | DecKind::Option { ops, .. } => match ops.value {
+            Begin::Header(on_header) => on_header(state, frames, input, header),
+            Begin::Peek(_) => Err(ErrorKind::Unsupported),
+        },
     }
 }
 
@@ -400,7 +426,10 @@ fn desc(frame: &Frame) -> &'static DecKind {
 
 fn ops(kind: &DecKind) -> Result<&'static DecOps, ErrorKind> {
     match kind {
-        DecKind::Struct { ops, .. } | DecKind::Enum { ops, .. } => Ok(ops),
+        DecKind::Struct { ops, .. }
+        | DecKind::Enum { ops, .. }
+        | DecKind::Array { ops, .. }
+        | DecKind::Option { ops, .. } => Ok(ops),
         DecKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

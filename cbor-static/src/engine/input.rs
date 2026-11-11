@@ -47,6 +47,14 @@ impl Carry {
         }
     }
 
+    /// The next item's initial byte, without taking it.
+    pub fn initial(&self, input: &Input) -> Option<u8> {
+        match self.len {
+            0 => input.rest().first().copied(),
+            _ => Some(unsafe { self.bytes[0].assume_init() }),
+        }
+    }
+
     /// The next header, or `None` until the chunks supplied so far complete one.
     #[inline(never)]
     pub fn header(&mut self, input: &mut Input) -> Result<Option<Header>, ErrorKind> {
