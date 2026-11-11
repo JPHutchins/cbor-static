@@ -115,12 +115,12 @@ def check() -> Unused:
 	)
 
 
-def gate() -> tuple[Path, ...]:
-	"""Every swept cbor-static ELF of the gate target."""
+def gate(targets: tuple[str, ...] = (GATE_TARGET,)) -> tuple[Path, ...]:
+	"""Every swept cbor-static ELF of `targets`."""
 	return tuple(
 		measured_elf(m)
 		for m in load()
-		if m.backend in {variant.name for variant in VARIANTS} and m.target == GATE_TARGET
+		if m.backend in {variant.name for variant in VARIANTS} and m.target in targets
 	)
 
 

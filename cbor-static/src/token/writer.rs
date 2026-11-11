@@ -92,7 +92,7 @@ fn encoding(token: Token<'_>) -> Result<(Head, &[u8]), ErrorKind> {
         )),
         Token::Null => Ok((Head::new(Major::Simple, NULL.into()), &[])),
         Token::Undefined => Ok((Head::new(Major::Simple, UNDEFINED.into()), &[])),
-        Token::Float(value) => Ok((Head::float(float::shortest(value)), &[])),
+        Token::Float(value) => Ok((Head::float(float::shortest(value.to_bits())), &[])),
         Token::BytesIndefinite
         | Token::TextIndefinite
         | Token::Array(None)

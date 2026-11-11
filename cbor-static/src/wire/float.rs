@@ -1,110 +1,133 @@
 #![forbid(unsafe_code)]
-//! Shortest value-preserving float widths (RFC 8949 §4.1), with in-crate binary16 conversion.
+//! Shortest value-preserving float widths (RFC 8949 §4.1), by moving bits only (D-22a): no float
+//! arithmetic, comparison or cast, so no soft-float routine is linked.
 
 pub const HALF: u8 = 25;
 pub const SINGLE: u8 = 26;
 pub const DOUBLE: u8 = 27;
 
-const F64_MANTISSA: u64 = (1 << 52) - 1;
-const F64_TO_F16_DROPPED: u64 = (1 << 42) - 1;
-const F64_TO_F32_DROPPED: u64 = (1 << 29) - 1;
+const BINARY64_MANTISSA: u32 = 52;
+const BINARY64_FRACTION: u64 = (1 << BINARY64_MANTISSA) - 1;
+const BINARY64_SPECIAL: u64 = 0x7ff;
+const BINARY64_BIAS: u64 = 1023;
 
-/// The additional information and bits of the narrowest encoding that preserves `value`,
-/// NaN payloads included.
-pub fn shortest(value: f64) -> (u8, u64) {
-    to_f16(value).map_or_else(
-        || {
-            to_f32(value).map_or((DOUBLE, value.to_bits()), |single| {
-                (SINGLE, u64::from(single.to_bits()))
-            })
-        },
-        |half| (HALF, u64::from(half)),
-    )
+/// An IEEE 754 binary interchange format narrower than binary64, by the widths of its fields.
+#[derive(Clone, Copy)]
+struct Format {
+    exponent: u32,
+    mantissa: u32,
 }
 
-/// The value of a float header's argument.
-pub fn value(info: u8, bits: u64) -> Option<f64> {
+const BINARY16: Format = Format {
+    exponent: 5,
+    mantissa: 10,
+};
+const BINARY32: Format = Format {
+    exponent: 8,
+    mantissa: 23,
+};
+
+/// The additional information and argument of the narrowest encoding of the binary64 `bits`
+/// that is exact, NaN payloads included.
+pub fn shortest(bits: u64) -> (u8, u64) {
+    BINARY16
+        .narrow(bits)
+        .map(|half| (HALF, half))
+        .or_else(|| BINARY32.narrow(bits).map(|single| (SINGLE, single)))
+        .unwrap_or((DOUBLE, bits))
+}
+
+/// The binary64 bits of a float header's argument.
+pub fn value(info: u8, arg: u64) -> Option<u64> {
     match info {
-        HALF => u16::try_from(bits).ok().map(from_f16),
-        SINGLE => u32::try_from(bits).ok().map(from_f32),
-        DOUBLE => Some(f64::from_bits(bits)),
+        HALF => Some(BINARY16.widen(arg)),
+        SINGLE => Some(BINARY32.widen(arg)),
+        DOUBLE => Some(arg),
         _ => None,
     }
 }
 
-/// `value` as `f32` when that loses nothing, NaN payloads included.
-pub fn to_f32(value: f64) -> Option<f32> {
-    let bits = value.to_bits();
-    if value.is_nan() {
-        (bits & F64_TO_F32_DROPPED == 0).then(|| {
-            let sign = u32::from(bits >> 63 == 1) << 31;
-            let payload = u32::try_from((bits & F64_MANTISSA) >> 29).unwrap_or(0);
-            f32::from_bits(sign | 0x7f80_0000 | payload)
-        })
-    } else {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "checked exact by the round trip"
-        )]
-        let single = value as f32;
-        (f64::from(single).to_bits() == bits).then_some(single)
-    }
+/// The binary64 bits of the binary32 `bits`.
+pub fn from_single(bits: u32) -> u64 {
+    BINARY32.widen(bits.into())
 }
 
-fn to_f16(value: f64) -> Option<u16> {
-    let bits = value.to_bits();
-    let sign = u16::from(bits >> 63 == 1) << 15;
-    let exponent = i32::try_from((bits >> 52) & 0x7ff).unwrap_or(0);
-    let mantissa = bits & F64_MANTISSA;
-    let high_mantissa = u16::try_from(mantissa >> 42).unwrap_or(0);
-    match exponent {
-        0x7ff => (mantissa & F64_TO_F16_DROPPED == 0).then_some(sign | 0x7c00 | high_mantissa),
-        0 => (mantissa == 0).then_some(sign),
-        _ => match exponent - 1023 {
-            unbiased @ -14..=15 => (mantissa & F64_TO_F16_DROPPED == 0)
-                .then(|| sign | u16::try_from(unbiased + 15).unwrap_or(0) << 10 | high_mantissa),
-            unbiased @ -24..-14 => {
-                let shift = u32::try_from(28 - unbiased).unwrap_or(64);
-                let significand = (1u64 << 52) | mantissa;
-                (significand.trailing_zeros() >= shift)
-                    .then(|| sign | u16::try_from(significand >> shift).unwrap_or(0))
+/// The binary32 bits of the binary64 `bits`, when exact.
+pub fn to_single(bits: u64) -> Option<u32> {
+    BINARY32
+        .narrow(bits)
+        .and_then(|single| u32::try_from(single).ok())
+}
+
+impl Format {
+    const fn bias(self) -> u64 {
+        (1 << (self.exponent - 1)) - 1
+    }
+
+    const fn special(self) -> u64 {
+        (1 << self.exponent) - 1
+    }
+
+    /// The low binary64 mantissa bits this format has no room for.
+    const fn dropped(self) -> u32 {
+        BINARY64_MANTISSA - self.mantissa
+    }
+
+    /// The binary64 biased exponent of this format's smallest normal.
+    const fn lowest_normal(self) -> u64 {
+        BINARY64_BIAS + 1 - self.bias()
+    }
+
+    /// `bits` of this format as binary64 bits, exact for every value, NaN payloads included.
+    fn widen(self, bits: u64) -> u64 {
+        let exponent = bits >> self.mantissa & self.special();
+        let mantissa = bits & ((1 << self.mantissa) - 1);
+        (bits >> (self.exponent + self.mantissa) & 1) << 63
+            | match (exponent, mantissa.checked_ilog2()) {
+                (0, None) => 0,
+                (0, Some(top)) => {
+                    (self.lowest_normal() + u64::from(top) - u64::from(self.mantissa))
+                        << BINARY64_MANTISSA
+                        | mantissa << (BINARY64_MANTISSA - top) & BINARY64_FRACTION
+                }
+                (special, _) if special == self.special() => {
+                    BINARY64_SPECIAL << BINARY64_MANTISSA | mantissa << self.dropped()
+                }
+                (normal, _) => {
+                    (normal + self.lowest_normal() - 1) << BINARY64_MANTISSA
+                        | mantissa << self.dropped()
+                }
             }
-            _ => None,
-        },
     }
-}
 
-/// Exact, NaN payloads included.
-fn from_f32(single: u32) -> f64 {
-    if single & !(1 << 31) > f32::INFINITY.to_bits() {
-        f64::from_bits(
-            u64::from(single >> 31) << 63 | 0x7ff << 52 | u64::from(single & 0x007f_ffff) << 29,
-        )
-    } else {
-        f64::from(f32::from_bits(single))
-    }
-}
-
-fn from_f16(half: u16) -> f64 {
-    let magnitude = match (half >> 10) & 0x1f {
-        0 => f64::from(half & 0x3ff) * (1.0 / 16_777_216.0),
-        exponent => f64::from_bits(
-            match exponent {
-                0x1f => 0x7ff << 52,
-                _ => (u64::from(exponent) + 1008) << 52,
-            } | u64::from(half & 0x3ff) << 42,
-        ),
-    };
-    if half >> 15 == 1 {
-        -magnitude
-    } else {
-        magnitude
+    /// The binary64 `bits` in this format, when that is exact, NaN payloads included.
+    fn narrow(self, bits: u64) -> Option<u64> {
+        let sign = bits >> 63 << (self.exponent + self.mantissa);
+        let mantissa = bits & BINARY64_FRACTION;
+        let fits = mantissa.trailing_zeros() >= self.dropped();
+        match bits >> BINARY64_MANTISSA & BINARY64_SPECIAL {
+            BINARY64_SPECIAL => {
+                fits.then(|| sign | self.special() << self.mantissa | mantissa >> self.dropped())
+            }
+            0 => (mantissa == 0).then_some(sign),
+            normal if normal >= self.lowest_normal() => {
+                (fits && normal - self.lowest_normal() + 1 < self.special()).then(|| {
+                    sign | (normal - self.lowest_normal() + 1) << self.mantissa
+                        | mantissa >> self.dropped()
+                })
+            }
+            subnormal => {
+                let shift = u32::try_from(self.lowest_normal() - subnormal).ok()? + self.dropped();
+                let significand = 1 << BINARY64_MANTISSA | mantissa;
+                (significand.trailing_zeros() >= shift).then(|| sign | significand >> shift)
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DOUBLE, HALF, SINGLE, shortest, value};
+    use super::{BINARY16, DOUBLE, HALF, SINGLE, from_single, shortest, to_single, value};
 
     #[test]
     fn rfc8949_appendix_a_floats_take_their_shortest_width() {
@@ -125,55 +148,107 @@ mod tests {
             (-4.1, DOUBLE, 0xc010_6666_6666_6666),
         ];
         for (number, info, bits) in cases {
-            assert_eq!(shortest(number), (info, bits), "{number}");
-            assert_eq!(
-                value(info, bits).map(f64::to_bits),
-                Some(number.to_bits()),
-                "{number}"
-            );
+            assert_eq!(shortest(number.to_bits()), (info, bits), "{number}");
+            assert_eq!(value(info, bits), Some(number.to_bits()), "{number}");
         }
     }
 
     #[test]
     fn nan_payloads_survive_narrowing_only_when_exact() {
+        assert_eq!(shortest(0x7ff8_0000_0000_0000), (HALF, 0x7e00));
+        assert_eq!(shortest(0x7ff8_0000_2000_0000), (SINGLE, 0x7fc0_0001));
         assert_eq!(
-            shortest(f64::from_bits(0x7ff8_0000_0000_0000)),
-            (HALF, 0x7e00)
-        );
-        assert_eq!(
-            shortest(f64::from_bits(0x7ff8_0000_2000_0000)),
-            (SINGLE, 0x7fc0_0001)
-        );
-        assert_eq!(
-            shortest(f64::from_bits(0x7ff8_0000_0000_0001)),
+            shortest(0x7ff8_0000_0000_0001),
             (DOUBLE, 0x7ff8_0000_0000_0001)
         );
     }
 
     #[test]
     fn single_nan_payloads_widen_exactly() {
-        let cases: [(u64, u64, (u8, u64)); 4] = [
+        let cases: [(u32, u64, (u8, u64)); 4] = [
             (0x7f80_0001, 0x7ff0_0000_2000_0000, (SINGLE, 0x7f80_0001)),
             (0xff80_0001, 0xfff0_0000_2000_0000, (SINGLE, 0xff80_0001)),
             (0x7fff_ffff, 0x7fff_ffff_e000_0000, (SINGLE, 0x7fff_ffff)),
             (0x7fc0_0000, 0x7ff8_0000_0000_0000, (HALF, 0x7e00)),
         ];
         for (single, double, narrowest) in cases {
-            assert_eq!(
-                value(SINGLE, single).map(f64::to_bits),
-                Some(double),
-                "{single:x}"
-            );
-            assert_eq!(shortest(f64::from_bits(double)), narrowest, "{single:x}");
+            assert_eq!(from_single(single), double, "{single:x}");
+            assert_eq!(shortest(double), narrowest, "{single:x}");
+            assert_eq!(to_single(double), Some(single), "{single:x}");
         }
     }
 
     #[test]
-    fn half_subnormals_round_trip_exactly() {
-        for half in [0x0001_u16, 0x0003, 0x03ff, 0x8200] {
-            let number = value(HALF, u64::from(half)).unwrap_or(f64::NAN);
-            assert_eq!(shortest(number), (HALF, u64::from(half)));
+    fn every_binary16_widens_to_its_ieee_value_and_narrows_back() {
+        for half in 0..=u16::MAX {
+            let widened = BINARY16.widen(half.into());
+            assert_eq!(BINARY16.narrow(widened), Some(half.into()), "{half:04x}");
+            assert_eq!(shortest(widened), (HALF, half.into()), "{half:04x}");
+            assert_eq!(widened, ieee_binary16(half), "{half:04x}");
         }
-        assert_eq!(shortest(1.5 * 5.960_464_477_539_063e-8).0, SINGLE);
+    }
+
+    #[test]
+    fn single_boundaries_widen_to_their_ieee_value_and_narrow_back() {
+        for single in [
+            0x0000_0001_u32,
+            0x0000_0003,
+            0x007f_ffff,
+            0x0080_0000,
+            0x0080_0001,
+            0x3380_0000,
+            0x3380_0001,
+            0x387f_c000,
+            0x3880_0000,
+            0x3f80_0000,
+            0x477f_e000,
+            0x477f_f000,
+            0x4780_0000,
+            0x7f7f_ffff,
+            0x7f80_0000,
+            0x8000_0000,
+            0x8000_0001,
+            0xff7f_ffff,
+        ] {
+            assert_eq!(
+                from_single(single),
+                f64::from(f32::from_bits(single)).to_bits(),
+                "{single:08x}"
+            );
+            assert_eq!(to_single(from_single(single)), Some(single), "{single:08x}");
+        }
+    }
+
+    #[test]
+    fn doubles_between_the_formats_stay_double() {
+        for double in [
+            0x0000_0000_0000_0001_u64,
+            0x000f_ffff_ffff_ffff,
+            0x3690_0000_0000_0000,
+            0x3e70_0000_0000_0001,
+            0x47f0_0000_0000_0000,
+            0x7fef_ffff_ffff_ffff,
+            0x7ff0_0000_0000_0001,
+        ] {
+            assert_eq!(shortest(double), (DOUBLE, double), "{double:016x}");
+            assert_eq!(to_single(double), None, "{double:016x}");
+        }
+        assert_eq!(shortest(0x36a0_0000_0000_0000), (SINGLE, 0x0000_0001));
+    }
+
+    /// The binary64 bits of an IEEE 754 binary16 pattern, by its definition: computed in this
+    /// test with exact f64 arithmetic, and by payload for NaNs.
+    fn ieee_binary16(half: u16) -> u64 {
+        let sign = if half >> 15 == 1 { -1.0 } else { 1.0 };
+        let exponent = i32::from(half >> 10 & 0x1f);
+        let fraction = f64::from(half & 0x3ff);
+        match exponent {
+            0x1f if half & 0x3ff != 0 => {
+                u64::from(half >> 15) << 63 | 0x7ff << 52 | u64::from(half & 0x3ff) << 42
+            }
+            0x1f => (sign * f64::INFINITY).to_bits(),
+            0 => (sign * fraction * 2f64.powi(-24)).to_bits(),
+            _ => (sign * (1.0 + fraction / 1024.0) * 2f64.powi(exponent - 15)).to_bits(),
+        }
     }
 }
