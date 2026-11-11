@@ -27,6 +27,7 @@ extern crate std;
 
 mod engine;
 mod error;
+mod keys;
 mod scalar;
 mod schema;
 mod stack;
@@ -79,6 +80,7 @@ pub mod __private {
         DECODE_EXTERNAL, DECODE_MAP, ENCODE_EXTERNAL, ENCODE_MAP, Pending, assemble, drop_fn,
         field_ptr_of, index_of, index_tag, offset, write_tag,
     };
+    pub use crate::keys::{Key, field, names, names_len};
     pub use crate::schema::{
         Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout,
     };

@@ -2,7 +2,7 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::Ident;
 
-use super::{Trait, child, impls, layout, level};
+use super::{Trait, child, impls, layout, level, text_key};
 use crate::Directions;
 use crate::model::{Field, Item, Payload, Repr, Variant};
 
@@ -49,29 +49,31 @@ pub fn enumeration(
         },
         Repr::Rust | Repr::U8 => quote!(::core::mem::offset_of!(#shadow #statics, #member)),
     };
-    let variant_layout = layout(variants.iter().zip(&shadows).map(|(variant, shadow)| {
-        let offset = shadow
-            .as_ref()
-            .filter(|_| matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust)
-            .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
-        (variant.name.as_str(), offset, false)
-    }));
+    let variant_layout = layout(
+        &format_ident!("LAYOUT"),
+        variants.iter().zip(&shadows).map(|(variant, shadow)| {
+            let offset = shadow
+                .as_ref()
+                .filter(|_| matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust)
+                .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
+            (text_key(&variant.name), offset, false)
+        }),
+    );
     let payload_layouts = variants
         .iter()
         .zip(&shadows)
         .filter_map(|(variant, shadow)| match (&variant.payload, shadow) {
-            (Payload::Struct(fields), Some(s)) => {
-                let name = layout_ident(&variant.ident);
-                let layout = layout(fields.iter().map(|field| {
+            (Payload::Struct(fields), Some(s)) => Some(layout(
+                &layout_ident(&variant.ident),
+                fields.iter().map(|field| {
                     let member = &field.member;
                     (
-                        field.name.as_str(),
+                        text_key(&field.name),
                         offset_in(&s.ident, &quote!(#member)),
                         field.omit_if_absent,
                     )
-                }));
-                Some(quote!(const #name: &__p::Layout = #layout;))
-            }
+                }),
+            )),
             _ => None,
         });
     let definitions = shadows.iter().flatten().map(|s| &s.definition);
@@ -85,7 +87,7 @@ pub fn enumeration(
     quote! {
         #(#definitions)*
         #mirror_definition
-        const LAYOUT: &__p::Layout = #variant_layout;
+        #variant_layout
         #(#payload_layouts)*
         #glue
         #encode

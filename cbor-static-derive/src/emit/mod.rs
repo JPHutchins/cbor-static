@@ -1,8 +1,8 @@
 mod enums;
 
-use proc_macro2::{Literal, Span, TokenStream};
-use quote::quote;
-use syn::{LitByteStr, Type};
+use proc_macro2::{Ident, TokenStream};
+use quote::{format_ident, quote};
+use syn::Type;
 
 use crate::Directions;
 use crate::model::{Field, Item, Shape};
@@ -29,14 +29,17 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
 
 fn structure(item: &Item, fields: &[Field], directions: Directions) -> TokenStream {
     let static_ty = static_type(item);
-    let layout = layout(fields.iter().map(|field| {
-        let member = &field.member;
-        (
-            field.name.as_str(),
-            quote!(::core::mem::offset_of!(#static_ty, #member)),
-            field.omit_if_absent,
-        )
-    }));
+    let layout = layout(
+        &format_ident!("LAYOUT"),
+        fields.iter().map(|field| {
+            let member = &field.member;
+            (
+                text_key(&field.name),
+                quote!(::core::mem::offset_of!(#static_ty, #member)),
+                field.omit_if_absent,
+            )
+        }),
+    );
     let types: Vec<&Type> = fields.iter().map(|field| &field.ty).collect();
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
@@ -57,7 +60,7 @@ fn structure(item: &Item, fields: &[Field], directions: Directions) -> TokenStre
         )
     });
     quote! {
-        const LAYOUT: &__p::Layout = #layout;
+        #layout
         #encode
         #decode
     }
@@ -108,21 +111,29 @@ fn impls(
     }
 }
 
-/// `&Layout` from (name, byte offset, omit-if-absent) per entry; names are pre-encoded text items.
-fn layout<'a>(entries: impl Iterator<Item = (&'a str, TokenStream, bool)>) -> TokenStream {
-    let (blob, fields) = entries.fold((Vec::new(), Vec::new()), |(mut blob, mut fields), (name, offset, omit)| {
-		let len = u8::try_from(name.len()).unwrap_or(u8::MAX);
-		blob.extend(if len < 24 { vec![0x60 | len] } else { vec![0x78, len] });
-		let at = Literal::u16_unsuffixed(u16::try_from(blob.len()).unwrap_or(u16::MAX));
-		blob.extend(name.as_bytes());
-		let len = Literal::u8_unsuffixed(len);
-		fields.push(quote! {
-			__p::FieldLayout { offset: __p::offset(#offset), name_at: #at, name_len: #len, omit_if_absent: #omit }
-		});
-		(blob, fields)
-	});
-    let blob = LitByteStr::new(&blob, Span::call_site());
-    quote!(&__p::Layout { names: #blob, fields: &[#(#fields),*] })
+/// The `name: &Layout` const, with its keys and their pre-encoded names, from (key, byte offset,
+/// omit-if-absent) per entry.
+fn layout(
+    name: &Ident,
+    entries: impl Iterator<Item = (TokenStream, TokenStream, bool)>,
+) -> TokenStream {
+    let keys = format_ident!("{}_KEYS", name);
+    let names = format_ident!("{}_NAMES", name);
+    let (entry_keys, fields): (Vec<_>, Vec<_>) = entries
+        .enumerate()
+        .map(|(index, (key, offset, omit))| {
+            (key, quote!(__p::field(#keys, #index, #offset, #omit)))
+        })
+        .unzip();
+    quote! {
+        const #keys: &[__p::Key] = &[#(#entry_keys),*];
+        const #names: [u8; __p::names_len(#keys)] = __p::names(#keys);
+        const #name: &__p::Layout = &__p::Layout { names: &#names, fields: &[#(#fields),*] };
+    }
+}
+
+fn text_key(name: &str) -> TokenStream {
+    quote!(__p::Key::Text(#name))
 }
 
 /// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`.

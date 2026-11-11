@@ -108,8 +108,11 @@ impl Head {
         Self { bytes, len }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
-        self.bytes.get(..usize::from(self.len)).unwrap_or(&[])
+    pub const fn as_bytes(&self) -> &[u8] {
+        match self.bytes.split_at_checked(self.len as usize) {
+            Some((head, _)) => head,
+            None => &[],
+        }
     }
 }
 
