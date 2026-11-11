@@ -15,7 +15,11 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr;
 
-pub use decode::{DecOps, EXTERNAL as DECODE_EXTERNAL, Item, MAP as DECODE_MAP, Next};
+pub use decode::{
+    DecOps, EXTERNAL as DECODE_EXTERNAL, Item, MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY,
+    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
+    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
+};
 pub use encode::{EXTERNAL as ENCODE_EXTERNAL, EncOps, MAP as ENCODE_MAP};
 pub use glue::{assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, write_tag};
 pub(crate) use leaf::{

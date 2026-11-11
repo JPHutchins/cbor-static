@@ -1,11 +1,9 @@
 #![forbid(unsafe_code)]
 
-use core::mem::MaybeUninit;
+mod common;
 
-use cbor_static::{
-    Cbor, Decode, Decoder, Encode, Encoder, ErrorKind, Fed, Progress, Tagged, decode_into,
-    encode_into,
-};
+use cbor_static::{Cbor, ErrorKind, Tagged};
+use common::{chunked_decode, chunked_encode, decode, encode};
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 enum Glue {
@@ -77,45 +75,6 @@ struct Numbers {
     time: Tagged<1, u64>,
     huge: u128,
     tiny: i128,
-}
-
-fn encode<T: Encode>(value: &T) -> Vec<u8> {
-    let mut out = [0u8; 512];
-    let len = encode_into(value, &mut out).expect("encodes");
-    out[..len].to_vec()
-}
-
-fn decode<'de, T: Decode<'de> + Copy>(bytes: &'de [u8]) -> Result<T, ErrorKind> {
-    let mut slot = MaybeUninit::uninit();
-    decode_into(bytes, &mut slot)
-        .map(|value| *value)
-        .map_err(|e| e.kind)
-}
-
-fn chunked_encode<T: Encode>(value: &T, chunk: usize) -> Vec<u8> {
-    let mut encoder = Encoder::new(value);
-    let mut buffer = vec![0u8; chunk];
-    let mut out = Vec::new();
-    loop {
-        match encoder.resume(&mut buffer).expect("encodes") {
-            Progress::Done(n) => return [out, buffer[..n].to_vec()].concat(),
-            Progress::NeedSpace(n) => out.extend_from_slice(&buffer[..n]),
-        }
-    }
-}
-
-fn chunked_decode<'de, T: Decode<'de> + Copy>(
-    bytes: &'de [u8],
-    chunk: usize,
-) -> Result<T, ErrorKind> {
-    let mut slot = MaybeUninit::uninit();
-    let mut decoder = Decoder::new(&mut slot);
-    for piece in bytes.chunks(chunk) {
-        if let Fed::Done(_) = decoder.feed(piece).map_err(|e| e.kind)? {
-            break;
-        }
-    }
-    decoder.finish().map(|value| *value).map_err(|e| e.kind)
 }
 
 #[test]

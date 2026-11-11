@@ -89,6 +89,14 @@ impl KeyMatch {
         }
     }
 
+    /// Never matches the `entries` set in the mask.
+    pub const fn excluding(self, entries: u64) -> Self {
+        Self {
+            candidates: self.candidates & !entries,
+            ..self
+        }
+    }
+
     #[inline(never)]
     pub fn feed(&mut self, layout: &Layout, segment: &[u8]) -> Result<(), ErrorKind> {
         self.utf8.feed(segment)?;

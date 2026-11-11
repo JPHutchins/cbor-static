@@ -1,26 +1,39 @@
-//! Structs as maps with text keys.
+//! Structs as maps keyed by text, by integer (D-09), or both, whose unknown entries are skipped or,
+//! with `deny_unknown_fields`, rejected. Each combination is its own ops table, so a firmware links
+//! only the key matching it uses: integer keys that deny unknown entries link no skip, no key
+//! matcher and no UTF-8 validation.
 
 use core::mem::MaybeUninit;
 
 use super::{
-    After, Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, next_entry, open,
-    start_name, start_skip, top,
+    After, Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, name, next_entry,
+    open, start_name, start_skip, top,
 };
 use crate::engine::bit;
 use crate::engine::input::Input;
+use crate::engine::text::KeyMatch;
 use crate::error::ErrorKind;
-use crate::schema::DecKind;
+use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
-use crate::wire::{Header, Major};
+use crate::wire::{Header, Major, parse};
 
-pub static MAP: DecOps = DecOps {
-    value: Begin::Header(value),
-    entry,
-    named,
-    child_done,
-    close,
-    drop,
-};
+pub static MAP: DecOps = ops::<true, false, false>();
+pub static MAP_INT: DecOps = ops::<false, true, false>();
+pub static MAP_MIXED: DecOps = ops::<true, true, false>();
+pub static MAP_DENY: DecOps = ops::<true, false, true>();
+pub static MAP_INT_DENY: DecOps = ops::<false, true, true>();
+pub static MAP_MIXED_DENY: DecOps = ops::<true, true, true>();
+
+const fn ops<const TEXT: bool, const INT: bool, const DENY: bool>() -> DecOps {
+    DecOps {
+        value: Begin::Header(value),
+        entry: entry::<TEXT, INT, DENY>,
+        named: named::<DENY>,
+        child_done,
+        close,
+        drop,
+    }
+}
 
 fn value(
     state: &mut State,
@@ -34,7 +47,7 @@ fn value(
     }
 }
 
-fn entry(
+fn entry<const TEXT: bool, const INT: bool, const DENY: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
@@ -43,42 +56,120 @@ fn entry(
         Entry::Wait => Ok(Flow::NeedInput),
         Entry::End => end(state, frames),
         Entry::Item(header) => match (header.major, header.indefinite()) {
-            (Major::Text, false) => Ok(start_name(
+            (Major::Text, false) if TEXT => Ok(start_text_key::<INT>(
                 state,
                 desc(top(state.depth, frames)?)
                     .layout()
                     .ok_or(ErrorKind::Unsupported)?,
                 header.arg,
             )),
-            (Major::Text, true) => Err(ErrorKind::Unsupported),
-            _ => start_skip(state, 2, Some(header)),
+            (Major::Text, true) if TEXT => Err(ErrorKind::Unsupported),
+            (Major::Uint | Major::Nint, _) if INT => match item_index(
+                desc(top(state.depth, frames)?)
+                    .layout()
+                    .ok_or(ErrorKind::Unsupported)?,
+                header,
+            ) {
+                Some(field) => select(state, frames, field),
+                None => unknown::<DENY>(state, 1, None),
+            },
+            _ => unknown::<DENY>(state, 2, Some(header)),
         },
     }
 }
 
-fn named(
+fn named<const DENY: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     matched: Option<u8>,
+) -> Result<Flow, ErrorKind> {
+    match matched {
+        None => unknown::<DENY>(state, 1, None),
+        Some(field) => select(state, frames, field),
+    }
+}
+
+/// Decodes the value of `field` next, unless the map already had it.
+fn select(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    field: u8,
 ) -> Result<Flow, ErrorKind> {
     let frame = top(state.depth, frames)?;
     let DecKind::Struct { layout, kinds, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
     };
-    match matched {
-        None => start_skip(state, 1, None),
-        Some(field) if frame.seen & bit(field) != 0 => Err(ErrorKind::DuplicateKey),
-        Some(field) => {
-            frame.field = field;
-            Ok(expect(
-                state,
-                kinds
-                    .get(usize::from(field))
-                    .ok_or(ErrorKind::Unsupported)?,
-                at(frame.base, layout, field),
-            ))
-        }
+    if frame.seen & bit(field) != 0 {
+        return Err(ErrorKind::DuplicateKey);
     }
+    frame.field = field;
+    Ok(expect(
+        state,
+        kinds
+            .get(usize::from(field))
+            .ok_or(ErrorKind::Unsupported)?,
+        at(frame.base, layout, field),
+    ))
+}
+
+/// Skips the rest of an entry no field claims, `items` items of which remain, or rejects it.
+fn unknown<const DENY: bool>(
+    state: &mut State,
+    items: u64,
+    header: Option<Header>,
+) -> Result<Flow, ErrorKind> {
+    if DENY {
+        Err(ErrorKind::UnknownField)
+    } else {
+        start_skip(state, items, header)
+    }
+}
+
+/// Matches a text key; in a mixed map, only against the text-keyed entries.
+fn start_text_key<const INT: bool>(state: &mut State, layout: &'static Layout, len: u64) -> Flow {
+    if INT {
+        state
+            .key
+            .write(KeyMatch::start(layout, len).excluding(heads(layout)));
+        state.step = name;
+        Flow::Continue
+    } else {
+        start_name(state, layout, len)
+    }
+}
+
+/// The entries identified by a pre-encoded head (an integer key or a tag) rather than a text.
+fn heads(layout: &Layout) -> u64 {
+    (0..layout.fields.len())
+        .filter_map(|index| u8::try_from(index).ok())
+        .filter(|&index| head(layout, index).is_some())
+        .fold(0, |mask, index| mask | bit(index))
+}
+
+/// The entry whose pre-encoded head has `header`'s major type and argument, in any encoding.
+pub(super) fn item_index(layout: &Layout, header: Header) -> Option<u8> {
+    (0..layout.fields.len())
+        .filter_map(|index| u8::try_from(index).ok())
+        .find(|&index| {
+            head(layout, index)
+                .is_some_and(|item| (item.major, item.arg) == (header.major, header.arg))
+        })
+}
+
+/// Entry `index`'s identifier when it is a head: integer and tag heads are under 24 bytes and
+/// begin one byte before `name_at`, where a text identifier has its own initial byte instead.
+fn head(layout: &Layout, index: u8) -> Option<Header> {
+    let place = layout.fields.get(usize::from(index))?;
+    let start = usize::from(place.name_at).checked_sub(1)?;
+    (place.name_len < 24)
+        .then(|| {
+            layout
+                .names
+                .get(start..usize::from(place.name_at) + usize::from(place.name_len))
+        })
+        .flatten()
+        .and_then(|item| parse(item).ok())
+        .filter(|item| item.major != Major::Text)
 }
 
 #[expect(
@@ -127,5 +218,59 @@ fn drop(frame: &Frame) {
                     unsafe { drop(at(frame.base, layout, field)) };
                 }
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{heads, item_index};
+    use crate::keys::{Key, field, names, names_len};
+    use crate::schema::Layout;
+    use crate::wire::{header_len, parse};
+
+    const KEYS: &[Key] = &[
+        Key::Text("a"),
+        Key::Int(97),
+        Key::Int(-1000),
+        Key::Tag(18),
+        Key::Text("twenty-four bytes long!!"),
+    ];
+    const NAMES: [u8; names_len(KEYS)] = names(KEYS);
+    const LAYOUT: Layout = Layout {
+        names: &NAMES,
+        fields: &[
+            field(KEYS, 0, 0, false),
+            field(KEYS, 1, 0, false),
+            field(KEYS, 2, 0, false),
+            field(KEYS, 3, 0, false),
+            field(KEYS, 4, 0, false),
+        ],
+    };
+
+    #[test]
+    fn heads_are_the_integer_and_tag_entries() {
+        assert_eq!(heads(&LAYOUT), 0b01110);
+    }
+
+    #[test]
+    fn an_item_matches_the_entry_with_its_head_in_any_encoding() {
+        let cases: [(&[u8], Option<u8>); 8] = [
+            (b"\x18\x61", Some(1)),
+            (b"\x19\x00\x61", Some(1)),
+            (b"\x39\x03\xe7", Some(2)),
+            (b"\xd2", Some(3)),
+            (b"\xd8\x12", Some(3)),
+            (b"\x61", None),
+            (b"\x38\x61", None),
+            (b"\x18\x18", None),
+        ];
+        for (bytes, expected) in cases {
+            let header = header_len(bytes[0]).and_then(|_| parse(bytes));
+            assert_eq!(
+                header.map(|header| item_index(&LAYOUT, header)),
+                Ok(expected),
+                "{bytes:x?}"
+            );
+        }
     }
 }

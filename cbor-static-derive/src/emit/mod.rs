@@ -1,11 +1,12 @@
 mod enums;
+mod structs;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::Type;
 
 use crate::Directions;
-use crate::model::{Field, Item, Shape};
+use crate::model::{Item, Key, Shape};
 
 #[derive(Clone, Copy)]
 enum Trait {
@@ -15,8 +16,12 @@ enum Trait {
 
 pub fn item(item: &Item, directions: Directions) -> TokenStream {
     let body = match &item.shape {
-        Shape::Struct(fields) => structure(item, fields, directions),
-        Shape::Enum { variants, repr } => enums::enumeration(item, variants, *repr, directions),
+        Shape::Struct { fields, form } => structs::structure(item, fields, *form, directions),
+        Shape::Enum {
+            variants,
+            repr,
+            form,
+        } => enums::enumeration(item, variants, *repr, form, directions),
     };
     quote! {
         #[allow(non_camel_case_types, dead_code, clippy::all, clippy::pedantic)]
@@ -24,45 +29,6 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
             use ::cbor_static::__private as __p;
             #body
         };
-    }
-}
-
-fn structure(item: &Item, fields: &[Field], directions: Directions) -> TokenStream {
-    let static_ty = static_type(item);
-    let layout = layout(
-        &format_ident!("LAYOUT"),
-        fields.iter().map(|field| {
-            let member = &field.member;
-            (
-                text_key(&field.name),
-                quote!(::core::mem::offset_of!(#static_ty, #member)),
-                field.omit_if_absent,
-            )
-        }),
-    );
-    let types: Vec<&Type> = fields.iter().map(|field| &field.ty).collect();
-    let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
-        let kinds = types.iter().map(|ty| quote!(<#ty as #path>::ENCODE));
-        (
-            quote!(__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
-            stack,
-            depth,
-        )
-    });
-    let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
-        let kinds = types.iter().map(|ty| quote!(<#ty as #path>::DECODE));
-        (
-            quote!(__p::DecKind::Struct { ops: &__p::DECODE_MAP, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
-            stack,
-            depth,
-        )
-    });
-    quote! {
-        #layout
-        #encode
-        #decode
     }
 }
 
@@ -134,6 +100,23 @@ fn layout(
 
 fn text_key(name: &str) -> TokenStream {
     quote!(__p::Key::Text(#name))
+}
+
+fn key(key: &Key) -> TokenStream {
+    match key {
+        Key::Text(text) => text_key(text),
+        Key::Int(int) => quote!(__p::Key::Int(#int)),
+        Key::Label { label, variant } => quote!(__p::Key::Int(#label::#variant as i64)),
+    }
+}
+
+/// Stands in for a representation R-009 has not reached yet.
+fn not_yet(what: &str) -> TokenStream {
+    syn::Error::new(
+        proc_macro2::Span::call_site(),
+        format!("cbor-static: {what} is not supported yet"),
+    )
+    .into_compile_error()
 }
 
 /// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`.

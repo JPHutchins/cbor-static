@@ -8,7 +8,7 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use enums::EXTERNAL;
-pub use map::MAP;
+pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
 
 use super::input::{Carry, Input};
 use super::skip::Skip;

@@ -2,9 +2,10 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::Ident;
 
-use super::{Trait, child, impls, layout, level, text_key};
+use super::structs::decode_map_ops;
+use super::{Trait, child, impls, key, layout, level, not_yet, text_key};
 use crate::Directions;
-use crate::model::{Field, Item, Payload, Repr, Variant};
+use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
 
 /// Per variant: the shadow (or mirror) type the payload is decoded through, if any.
 struct Shadow {
@@ -16,8 +17,17 @@ pub fn enumeration(
     item: &Item,
     variants: &[Variant],
     repr: Repr,
+    form: &EnumForm,
     directions: Directions,
 ) -> TokenStream {
+    match form {
+        EnumForm::External => {}
+        EnumForm::Index => return not_yet("`#[cbor(index)]`"),
+        EnumForm::CborTag => return not_yet("`#[cbor(cbor_tag)]`"),
+        EnumForm::Internal { .. } => return not_yet("`#[serde(tag)]`"),
+        EnumForm::Adjacent { .. } => return not_yet("`#[serde(tag, content)]`"),
+        EnumForm::Untagged => return not_yet("`#[serde(untagged)]`"),
+    }
     let ident = &item.ident;
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let statics = item.lifetime.as_ref().map(|_| quote!(<'static>));
@@ -68,7 +78,7 @@ pub fn enumeration(
                 fields.iter().map(|field| {
                     let member = &field.member;
                     (
-                        text_key(&field.name),
+                        key(&field.key),
                         offset_in(&s.ident, &quote!(#member)),
                         field.omit_if_absent,
                     )
@@ -247,7 +257,8 @@ fn decode_kind(
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
 				let kinds = fields.iter().map(|Field { ty, .. }| quote!(<#ty as #path>::DECODE));
-				quote!(Some(&__p::DecKind::Struct { ops: &__p::DECODE_MAP, layout: #name, kinds: &[#(#kinds),*], drop: None }))
+				let ops = decode_map_ops(fields, Unknown::Skip);
+				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: &[#(#kinds),*], drop: None }))
 			}
 		};
 		quote!(__p::DecVariant { payload: #payload, assemble: #assemble })
