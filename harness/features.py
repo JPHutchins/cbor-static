@@ -121,35 +121,38 @@ def cost(feature: Feature, profile: str) -> Cost:
 
 def flash(template: str, count: int, cell: str, profile: str) -> int:
 	"""Flash of a firmware round-tripping `count` types made from `template`."""
-	name = f"r009-{template}-n{count}"
-	built = fixture(name, (template,) * count, cell, profile)
-	return sizes(elf_path(built, GATE_TARGET, profile, name)).flash
+	return sizes(fixture(f"r009-{template}-n{count}", (template,) * count, cell, profile)).flash
 
 
 def fixture(name: str, templates: Sequence[str], cell: str, profile: str) -> Path:
-	"""Builds a firmware whose type `T{i}` comes from `templates[i]`; returns its target dir."""
-	crate = write_crate(
-		CRATES / "features" / name,
-		{
-			"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC.dependencies),
-			"src/main.rs": render(
-				"main.rs",
-				prelude=CBOR_STATIC.prelude,
-				items="\n".join(
-					render(f"features/{template}.rs", i=str(index))
-					+ "\n"
-					+ CBOR_STATIC.roundtrip(Message(f"T{index}", ()))
-					for index, template in enumerate(templates)
-				),
-				calls="\n".join(
-					f"    black_box(roundtrip_t{index}(input, out));" for index in range(len(templates))
-				),
-			),
-		},
-	)
+	"""Builds a firmware whose type `T{i}` comes from `templates[i]`; returns its ELF."""
 	target_dir = FEATURES_DIR / cell
-	build(crate, GATE_TARGET, profile, (), target_dir)
-	return target_dir
+	build(
+		write_crate(
+			CRATES / "features" / name,
+			{
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC.dependencies),
+				"src/main.rs": render(
+					"main.rs",
+					prelude=CBOR_STATIC.prelude,
+					items="\n".join(
+						render(f"features/{template}.rs", i=str(index))
+						+ "\n"
+						+ CBOR_STATIC.roundtrip(Message(f"T{index}", ()))
+						for index, template in enumerate(templates)
+					),
+					calls="\n".join(
+						f"    black_box(roundtrip_t{index}(input, out));" for index in range(len(templates))
+					),
+				),
+			},
+		),
+		GATE_TARGET,
+		profile,
+		(),
+		target_dir,
+	)
+	return elf_path(target_dir, GATE_TARGET, profile, name)
 
 
 def load() -> list[Cost]:

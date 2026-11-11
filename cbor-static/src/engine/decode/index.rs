@@ -103,9 +103,12 @@ fn payload(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<Flow,
     else {
         return Err(ErrorKind::Unsupported);
     };
-    let kind = variants
-        .get(usize::from(frame.field))
-        .and_then(|variant| variant.payload)
-        .ok_or(ErrorKind::Unsupported)?;
-    Ok(expect(state, kind, at(frame.base, layout, frame.field)))
+    Ok(expect(
+        state,
+        variants
+            .get(usize::from(frame.field))
+            .and_then(|variant| variant.payload)
+            .ok_or(ErrorKind::Unsupported)?,
+        at(frame.base, layout, frame.field),
+    ))
 }

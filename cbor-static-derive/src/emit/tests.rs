@@ -58,6 +58,62 @@ fn the_only_unsafe_in_derive_output_is_the_codec_trait_impls() {
                 C { x: u32 },
             }
         ),
+        parse_quote!(
+            #[cbor(keys = Label, deny_unknown_fields)]
+            struct Keyed {
+                alg: i32,
+            }
+        ),
+        parse_quote!(
+            struct Mixed {
+                #[cbor(key = -1)]
+                a: u32,
+                b: u32,
+            }
+        ),
+        parse_quote!(
+            #[cbor(array)]
+            struct Positional {
+                a: u32,
+                b: Option<u32>,
+            }
+        ),
+        parse_quote!(
+            #[cbor(index)]
+            enum Indexed {
+                A,
+                B(u32),
+            }
+        ),
+        parse_quote!(
+            enum Tagged {
+                #[cbor(cbor_tag = 18)]
+                A(u32),
+                #[cbor(cbor_tag = 17)]
+                B { x: u32 },
+            }
+        ),
+        parse_quote!(
+            #[serde(tag = "t")]
+            enum Internal {
+                A,
+                B { x: u32 },
+            }
+        ),
+        parse_quote!(
+            #[serde(tag = "t", content = "c")]
+            enum Adjacent {
+                A,
+                B(u32),
+            }
+        ),
+        parse_quote!(
+            #[serde(untagged)]
+            enum Untagged {
+                A,
+                B(u32),
+            }
+        ),
     ] {
         assert_eq!(after_unsafe(&input), ["impl", "impl"]);
     }

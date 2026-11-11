@@ -68,21 +68,19 @@ fn internal(
     }
     let count = entries(header)?;
     let variant = tagged(layout, variants.len(), count, input.rest())?;
-    let payload = match variants
-        .get(usize::from(variant))
-        .ok_or(ErrorKind::Unsupported)?
-        .payload
-    {
-        None => &NOTHING,
-        Some(kind @ DecKind::Struct { .. }) => kind,
-        Some(_) => return Err(ErrorKind::Unsupported),
-    };
-    let dst = state.target.dst;
     open(state, frames, Phase::EnumPayload, 0)?;
     top(state.depth, frames)?.field = variant;
     state.target = Target {
-        kind: payload,
-        dst: at(dst, layout, variant),
+        kind: match variants
+            .get(usize::from(variant))
+            .ok_or(ErrorKind::Unsupported)?
+            .payload
+        {
+            None => &NOTHING,
+            Some(kind @ DecKind::Struct { .. }) => kind,
+            Some(_) => return Err(ErrorKind::Unsupported),
+        },
+        dst: at(state.target.dst, layout, variant),
     };
     open(state, frames, Phase::Key, count)
 }

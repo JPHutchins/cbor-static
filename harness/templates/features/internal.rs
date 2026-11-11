@@ -1,6 +1,6 @@
 #[derive(cbor_static::Cbor)]
-#[serde(tag = "t")]
-pub enum T$i {
-    A,
-    C { x: u32, y: u32 },
+#[serde(tag = "t${i}")]
+pub enum T${i} {
+    A${i},
+    C${i} { x${i}: u32, y${i}: u32 },
 }

@@ -4,10 +4,12 @@
 mod array;
 mod cbor_tag;
 mod elements;
+mod entries;
 mod enums;
 mod index;
 mod map;
 mod option;
+mod steps;
 mod tagged;
 mod untagged;
 
@@ -30,8 +32,10 @@ use super::text::KeyMatch;
 use super::{Fed, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, Layout};
-use crate::stack::{Frame, INDEFINITE, Phase};
+use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major};
+use entries::{Entry, entries, next_entry, unnamed};
+use steps::{name, start_name, start_skip};
 
 /// A header plus, for definite strings, its payload.
 pub struct Item<'a> {
@@ -92,13 +96,6 @@ enum Status {
 enum Flow {
     Continue,
     NeedInput,
-}
-
-/// The next item of a frame's container: a header, the container's end, or not yet available.
-enum Entry {
-    Item(Header),
-    End,
-    Wait,
 }
 
 #[derive(Clone, Copy)]
@@ -249,73 +246,6 @@ fn value(
     }
 }
 
-/// Continues matching a text key or name, then hands the match to the top frame's form.
-fn name(
-    state: &mut State,
-    frames: &mut [MaybeUninit<Frame>],
-    input: &mut Input,
-) -> Result<Flow, ErrorKind> {
-    let kind = desc(top(state.depth, frames)?);
-    let layout = kind.layout().ok_or(ErrorKind::Unsupported)?;
-    let key = unsafe { state.key.assume_init_mut() };
-    let wanted = key.left();
-    let segment = input.take(wanted);
-    if cfg!(cbor_static_oneshot) && u64::try_from(segment.len()).unwrap_or(u64::MAX) < wanted {
-        return Err(ErrorKind::UnexpectedEnd);
-    }
-    key.feed(layout, segment)?;
-    if key.left() > 0 {
-        return Ok(Flow::NeedInput);
-    }
-    let matched = key.finish()?;
-    (ops(kind)?.named)(state, frames, matched)
-}
-
-/// Skips the rest of an unwanted entry, then returns to the top frame's next entry.
-fn skip(
-    state: &mut State,
-    frames: &mut [MaybeUninit<Frame>],
-    input: &mut Input,
-) -> Result<Flow, ErrorKind> {
-    let skipping = unsafe { state.skip.assume_init_mut() };
-    loop {
-        let wanted = skipping.payload_left();
-        let segment = input.take(wanted);
-        if cfg!(cbor_static_oneshot) && u64::try_from(segment.len()).unwrap_or(u64::MAX) < wanted {
-            return Err(ErrorKind::UnexpectedEnd);
-        }
-        skipping.payload(segment)?;
-        if skipping.payload_left() > 0 {
-            return Ok(Flow::NeedInput);
-        }
-        if skipping.done() {
-            state.step = ops(desc(top(state.depth, frames)?))?.entry;
-            return Ok(Flow::Continue);
-        }
-        let Some(header) = state.carry.header(input)? else {
-            return Ok(Flow::NeedInput);
-        };
-        skipping.on_header(header)?;
-    }
-}
-
-/// Matches a text item of `len` bytes against `layout`'s names, chunk by chunk.
-fn start_name(state: &mut State, layout: &Layout, len: u64) -> Flow {
-    state.key.write(KeyMatch::start(layout, len));
-    state.step = name;
-    Flow::Continue
-}
-
-/// Skips `items` whole items, the first of which may already have begun with `header`.
-fn start_skip(state: &mut State, items: u64, header: Option<Header>) -> Result<Flow, ErrorKind> {
-    let skipping = state.skip.write(Skip::started(items));
-    if let Some(header) = header {
-        skipping.on_header(header)?;
-    }
-    state.step = skip;
-    Ok(Flow::Continue)
-}
-
 /// Decodes the next item as `kind` into `dst`.
 fn expect(state: &mut State, kind: &'static DecKind, dst: *mut u8) -> Flow {
     state.target = Target { kind, dst };
@@ -388,43 +318,6 @@ fn drop_initialized(state: &mut State, frames: &mut [MaybeUninit<Frame>]) {
             }
         });
     state.depth = 0;
-}
-
-/// The top frame's next item, counted against its container's length.
-fn next_entry(
-    state: &mut State,
-    frames: &mut [MaybeUninit<Frame>],
-    input: &mut Input,
-) -> Result<Entry, ErrorKind> {
-    if top(state.depth, frames)?.remaining == 0 {
-        return Ok(Entry::End);
-    }
-    let Some(header) = state.carry.header(input)? else {
-        return Ok(Entry::Wait);
-    };
-    let frame = top(state.depth, frames)?;
-    match (frame.remaining, header.is_break()) {
-        (INDEFINITE, true) => Ok(Entry::End),
-        (INDEFINITE, false) => Ok(Entry::Item(header)),
-        (_, true) => Err(ErrorKind::NotWellFormed),
-        (_, false) => {
-            frame.remaining -= 1;
-            Ok(Entry::Item(header))
-        }
-    }
-}
-
-/// `named` for forms whose entries have no names.
-fn unnamed(_: &mut State, _: &mut [MaybeUninit<Frame>], _: Option<u8>) -> Result<Flow, ErrorKind> {
-    Err(ErrorKind::Unsupported)
-}
-
-fn entries(header: Header) -> Result<u64, ErrorKind> {
-    match (header.indefinite(), header.arg) {
-        (true, _) => Ok(INDEFINITE),
-        (false, INDEFINITE) => Err(ErrorKind::LimitExceeded),
-        (false, arg) => Ok(arg),
-    }
 }
 
 fn top(depth: u8, frames: &mut [MaybeUninit<Frame>]) -> Result<&mut Frame, ErrorKind> {

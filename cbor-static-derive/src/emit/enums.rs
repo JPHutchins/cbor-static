@@ -237,7 +237,7 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
 			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
 		}
 	});
-    let (stack, depth) = stack(variants, path);
+    let (stack, depth) = stack(variants, path, false);
     Body {
         kind: quote!(__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
         stack,
@@ -288,7 +288,7 @@ fn decode_kind(
                 );
             }
         });
-    let (stack, depth) = stack(variants, path);
+    let (stack, depth) = stack(variants, path, unit_payload_frames(form));
     let layout = forms::decode_layout(form, variants, path);
     Body {
         kind: quote!({
@@ -301,12 +301,23 @@ fn decode_kind(
     }
 }
 
-fn stack(variants: &[Variant], path: &TokenStream) -> (TokenStream, TokenStream) {
+/// One level per enum frame, over each variant's payload. A unit variant has none, unless
+/// `unit_frames`: an internally tagged unit variant decodes through an empty payload map.
+fn stack(
+    variants: &[Variant],
+    path: &TokenStream,
+    unit_frames: bool,
+) -> (TokenStream, TokenStream) {
     level(variants.iter().map(|variant| match &variant.payload {
+        Payload::Unit if unit_frames => level(core::iter::empty()),
         Payload::Unit => (quote!(()), quote!(0)),
         Payload::Newtype(ty) => child(ty, path),
         Payload::Struct(fields) => level(fields.iter().map(|Field { ty, .. }| child(ty, path))),
     }))
+}
+
+const fn unit_payload_frames(form: &EnumForm) -> bool {
+    matches!(form, EnumForm::Internal { .. })
 }
 
 fn layout_ident(variant: &Ident) -> Ident {

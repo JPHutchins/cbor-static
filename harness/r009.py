@@ -36,15 +36,10 @@ def main() -> int:
 		if m.backend == CBOR_STATIC.name and m.target == GATE_TARGET
 	)
 	leaked = sorted({f"{elf.name}: {symbol}" for elf in gate_elfs for symbol in names(elf) & anchors})
-	control = names(
-		elf_path(
-			fixture(CONTROL, tuple(feature.template for feature in FEATURES), "positive", "release"),
-			GATE_TARGET,
-			"release",
-			CONTROL,
-		)
+	unlinked = sorted(
+		anchors
+		- names(fixture(CONTROL, tuple(feature.template for feature in FEATURES), "positive", "release"))
 	)
-	unlinked = sorted(anchors - control)
 	passed = (
 		len(slacks) == len(results)
 		and all(slack(v) >= SLACK for v in slacks)

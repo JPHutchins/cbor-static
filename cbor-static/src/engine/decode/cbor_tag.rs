@@ -38,12 +38,15 @@ fn value(
         return Err(ErrorKind::TypeMismatch);
     }
     let variant = item_index(layout, header).ok_or(ErrorKind::UnexpectedTag)?;
-    let kind = variants
-        .get(usize::from(variant))
-        .and_then(|entry| entry.payload)
-        .ok_or(ErrorKind::Unsupported)?;
     let dst = state.target.dst;
     open(state, frames, Phase::EnumPayload, 0)?;
     top(state.depth, frames)?.field = variant;
-    Ok(expect(state, kind, at(dst, layout, variant)))
+    Ok(expect(
+        state,
+        variants
+            .get(usize::from(variant))
+            .and_then(|entry| entry.payload)
+            .ok_or(ErrorKind::Unsupported)?,
+        at(dst, layout, variant),
+    ))
 }

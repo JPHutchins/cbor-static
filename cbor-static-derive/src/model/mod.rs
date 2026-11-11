@@ -160,8 +160,10 @@ fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Result<Sh
         .iter()
         .map(variant)
         .collect::<syn::Result<Vec<_>>>()?;
-    let tagged = variants.iter().filter(|v| v.cbor_tag.is_some()).count();
-    let form = match (attrs, tagged) {
+    let form = match (
+        attrs,
+        variants.iter().filter(|v| v.cbor_tag.is_some()).count(),
+    ) {
         (
             EnumAttrs {
                 index: false,

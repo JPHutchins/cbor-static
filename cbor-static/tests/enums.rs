@@ -167,9 +167,17 @@ enum Message {
     Point { x: i32, y: i32 },
 }
 
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "t")]
+enum Kind {
+    A,
+    B,
+}
+
 #[test]
 fn internally_tagged_variants_merge_the_tag_into_their_map() {
     golden_contiguous(&Event::Start, b"\xa1\x64type\x65Start");
+    golden_contiguous(&Kind::B, b"\xa1\x61t\x61B");
     golden_contiguous(
         &Event::Move { x: 1, y: 2 },
         b"\xa3\x64type\x64Move\x61x\x01\x61y\x02",
