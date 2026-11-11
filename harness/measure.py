@@ -4,6 +4,7 @@ import os
 import subprocess
 from typing import TYPE_CHECKING, Final, NamedTuple
 
+from harness.backends import BACKENDS
 from harness.backends.backend import ROOT
 from harness.elf import sizes
 from harness.generate import crate_name, render_crate
@@ -73,6 +74,24 @@ def build(crate: Path, target: str, profile: str, rustflags: tuple[str, ...], ta
 
 def elf_path(target_dir: Path, target: str, profile: str, name: str) -> Path:
 	return target_dir / target / profile / name
+
+
+def elf_label(elf: Path) -> str:
+	"""
+	>>> from pathlib import Path
+	>>> elf_label(Path("/t/thumbv7m-none-eabi/release-s/cs-flat-cbor-static-n1"))
+	'release-s/cs-flat-cbor-static-n1'
+	"""
+	return f"{elf.parent.name}/{elf.name}"
+
+
+def measured_elf(m: Measurement) -> Path:
+	return elf_path(
+		target_dir(m.backend, m.shape, m.target),
+		m.target,
+		m.profile,
+		crate_name(m.shape, BACKENDS[m.backend], m.message_count),
+	)
 
 
 def target_dir(backend: str, shape: str, target: str) -> Path:

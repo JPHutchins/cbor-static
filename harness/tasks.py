@@ -32,15 +32,19 @@ machinery = Task("uv run python -m harness.symbols machinery")
 gate = Task("uv run python -m harness.gate")
 size_gate = sweep + machinery + gate
 pay_for_what_you_use = Task("uv run python -m harness.symbols fixtures")
+unused = Task("uv run python -m harness.unused")
+panics = Task(
+	"uv run python -m harness.panics", help="R-132: no core::panicking in a cbor-static thumbv7m ELF"
+)
 crosscheck = Task("uv run python -m harness.crosscheck")
 ram = Task("uv run python -m harness.ram")
-phase0 = (sweep | sweep_v6m | crosscheck | pay_for_what_you_use | ram) + machinery + gate
+phase0 = (sweep | sweep_v6m | crosscheck | pay_for_what_you_use | ram) + machinery + gate + unused + panics
 features = Parallel(
 	Task("uv run python -m harness.features --feature {FEATURE}"),
 	matrix={"FEATURE": tuple(BY_TEMPLATE)},
 	help="R-009: each feature's fixture against its reference, thumbv7m, N=1 and 8",
 )
-r009 = (sweep | features) + machinery + gate + Task("uv run python -m harness.r009")
-ci = check | crosscheck | pay_for_what_you_use | size_gate
+r009 = (sweep | features) + machinery + gate + Task("uv run python -m harness.r009") + panics
+ci = (check | crosscheck | pay_for_what_you_use | size_gate + unused) + panics
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
