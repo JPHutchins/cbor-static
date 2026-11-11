@@ -6,6 +6,7 @@ use crate::engine::{
     none, some, some_ptr,
 };
 use crate::error::ErrorKind;
+use crate::lead::Lead;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
 ///
@@ -62,6 +63,10 @@ pub unsafe trait Decode<'de>: Sized {
     };
     #[doc(hidden)]
     type OptionStack;
+    /// The initial-byte classes `Self` can start with; an untagged enum's variants share none
+    /// (D-10).
+    #[doc(hidden)]
+    const LEAD: Lead = Lead::ANY;
 }
 
 /// Field or variant names (pre-encoded text items, concatenated) and per-entry placement.

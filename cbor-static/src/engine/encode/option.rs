@@ -36,6 +36,6 @@ fn open(
 
 /// An `Option` opens no frame, so it is never asked for a next part.
 #[expect(clippy::unnecessary_wraps, reason = "EncOps::next can fail")]
-const fn frameless(_: &mut Pending, _: &mut Frame) -> Result<Part, ErrorKind> {
+pub(super) const fn frameless(_: &mut Pending, _: &mut Frame) -> Result<Part, ErrorKind> {
     Ok(Part::Finished)
 }

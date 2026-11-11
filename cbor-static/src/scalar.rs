@@ -6,6 +6,7 @@ use crate::engine::{
     dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar, enc_tagged, enc_u128, none,
 };
 use crate::error::ErrorKind;
+use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
 use crate::stack::{Level, depth_of};
 use crate::wire::{Major, float};
@@ -21,6 +22,8 @@ pub trait Scalar: Copy + 'static {
         default: None,
         drop: None,
     };
+
+    const LEAD: Lead;
 
     fn encode(self, out: &mut Pending);
 
@@ -47,6 +50,8 @@ pub trait Scalar: Copy + 'static {
 pub struct Tagged<const TAG: u64, T>(pub T);
 
 impl Scalar for u32 {
+    const LEAD: Lead = Lead::UINT;
+
     fn encode(self, out: &mut Pending) {
         out.head(Major::Uint, self.into());
     }
@@ -57,6 +62,8 @@ impl Scalar for u32 {
 }
 
 impl Scalar for u64 {
+    const LEAD: Lead = Lead::UINT;
+
     fn encode(self, out: &mut Pending) {
         out.head(Major::Uint, self);
     }
@@ -67,6 +74,8 @@ impl Scalar for u64 {
 }
 
 impl Scalar for i32 {
+    const LEAD: Lead = Lead::UINT.union(Lead::NINT);
+
     fn encode(self, out: &mut Pending) {
         match i64::from(self) {
             value @ 0.. => out.head(Major::Uint, value.cast_unsigned()),
@@ -80,6 +89,8 @@ impl Scalar for i32 {
 }
 
 impl Scalar for bool {
+    const LEAD: Lead = Lead::BOOL;
+
     fn encode(self, out: &mut Pending) {
         out.head(Major::Simple, if self { 21 } else { 20 });
     }
@@ -94,6 +105,8 @@ impl Scalar for bool {
 }
 
 impl Scalar for f64 {
+    const LEAD: Lead = Lead::FLOAT;
+
     fn encode(self, out: &mut Pending) {
         out.float(float::shortest(self));
     }
@@ -104,6 +117,8 @@ impl Scalar for f64 {
 }
 
 impl Scalar for f32 {
+    const LEAD: Lead = Lead::FLOAT;
+
     fn encode(self, out: &mut Pending) {
         out.float(float::shortest(self.into()));
     }
@@ -163,13 +178,14 @@ macro_rules! scalar {
 				drop: None,
 			};
 			type OptionStack = ();
+			const LEAD: Lead = <$ty as Scalar>::LEAD;
 		}
 	)+};
 }
 
 /// Any other leaf's `Option` decodes through one frame.
 macro_rules! leaf {
-    ($ty:ty, $encode:expr, $decode:expr) => {
+    ($ty:ty, $lead:expr, $encode:expr, $decode:expr) => {
         #[allow(unsafe_code)]
         unsafe impl Encode for $ty {
             const ENCODE: &'static EncKind = $encode;
@@ -183,6 +199,7 @@ macro_rules! leaf {
             type Stack = ();
             const MAX_DEPTH: usize = 0;
             type OptionStack = Level<()>;
+            const LEAD: Lead = $lead;
         }
     };
 }
@@ -190,6 +207,7 @@ macro_rules! leaf {
 scalar!(u32, u64, i32, bool, f32, f64);
 leaf!(
     u128,
+    Lead::UINT.union(Lead::TAG),
     &EncKind::Leaf {
         encode: enc_u128,
         absent: None
@@ -202,6 +220,7 @@ leaf!(
 );
 leaf!(
     i128,
+    Lead::UINT.union(Lead::NINT).union(Lead::TAG),
     &EncKind::Leaf {
         encode: enc_i128,
         absent: None
@@ -226,6 +245,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
+    const LEAD: Lead = Lead::TEXT;
 }
 
 #[allow(unsafe_code)]
@@ -241,6 +261,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
+    const LEAD: Lead = Lead::BYTES;
 }
 
 #[allow(unsafe_code)]
@@ -256,6 +277,7 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
     type Stack = T::OptionStack;
     const MAX_DEPTH: usize = depth_of::<T::OptionStack>();
     type OptionStack = Level<Self::Stack>;
+    const LEAD: Lead = Lead::NULL.union(T::LEAD);
 }
 
 #[allow(unsafe_code)]
@@ -278,4 +300,5 @@ unsafe impl<const TAG: u64, T: Scalar> Decode<'_> for Tagged<TAG, T> {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
+    const LEAD: Lead = Lead::TAG;
 }

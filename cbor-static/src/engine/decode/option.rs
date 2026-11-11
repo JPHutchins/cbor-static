@@ -42,7 +42,7 @@ fn value(
 }
 
 /// The frame never takes an entry of its own: its payload completes it.
-fn payload_only(
+pub(super) fn payload_only(
     _: &mut State,
     _: &mut [MaybeUninit<Frame>],
     _: &mut Input,
@@ -67,9 +67,9 @@ fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
 }
 
 #[expect(clippy::unnecessary_wraps, reason = "DecOps::close can fail")]
-const fn done(_: &mut Frame) -> Result<(), ErrorKind> {
+pub(super) const fn done(_: &mut Frame) -> Result<(), ErrorKind> {
     Ok(())
 }
 
 /// The value is written whole when its payload completes, so a pending frame holds nothing.
-const fn holds_nothing(_: &Frame) {}
+pub(super) const fn holds_nothing(_: &Frame) {}

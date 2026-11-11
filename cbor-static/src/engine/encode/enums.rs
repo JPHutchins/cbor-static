@@ -6,7 +6,7 @@ use super::{Child, EncOps, Part, State, desc, field_addr, opened};
 use crate::engine::pending::Pending;
 use crate::engine::push;
 use crate::error::ErrorKind;
-use crate::schema::EncKind;
+use crate::schema::{EncKind, FieldPtrFn, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::Major;
 
@@ -61,24 +61,39 @@ fn next(_: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
         return Ok(Part::Finished);
     }
     frame.phase = Phase::EnumDone;
-    let base = frame.base.cast_const();
-    let variant = frame.field;
     let payload = payloads
-        .get(usize::from(variant))
+        .get(usize::from(frame.field))
         .copied()
         .flatten()
         .ok_or(ErrorKind::Unsupported)?;
     Ok(Part::Child(Child {
         kind: payload,
-        at: match (field_ptr, payload) {
-            (
-                Some(_),
-                EncKind::Struct {
-                    field_ptr: Some(_), ..
-                },
-            ) => base,
-            (Some(glue), _) => unsafe { glue(base, 0) },
-            (None, _) => field_addr(layout, None, base, variant),
-        },
+        at: payload_at(
+            layout,
+            *field_ptr,
+            payload,
+            frame.base.cast_const(),
+            frame.field,
+        ),
     }))
+}
+
+/// Where variant `variant`'s payload lives in the enum at `base`.
+pub(super) fn payload_at(
+    layout: &Layout,
+    field_ptr: Option<FieldPtrFn>,
+    payload: &EncKind,
+    base: *const u8,
+    variant: u8,
+) -> *const u8 {
+    match (field_ptr, payload) {
+        (
+            Some(_),
+            EncKind::Struct {
+                field_ptr: Some(_), ..
+            },
+        ) => base,
+        (Some(glue), _) => unsafe { glue(base, 0) },
+        (None, _) => field_addr(layout, None, base, variant),
+    }
 }

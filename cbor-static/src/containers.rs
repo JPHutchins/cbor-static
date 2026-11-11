@@ -6,6 +6,7 @@ use core::mem::{offset_of, size_of};
 use crate::engine::{
     DECODE_ARRAY, DECODE_ELEMENTS, ENCODE_ARRAY, ENCODE_ELEMENTS, drop_fn, offset,
 };
+use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode, FieldLayout, Layout};
 use crate::stack::{Level, Widest, deeper};
 
@@ -50,6 +51,7 @@ macro_rules! tuple {
             type Stack = Level<tuple!(@widest $($T::Stack),+)>;
             const MAX_DEPTH: usize = 1 + tuple!(@deepest $($T::MAX_DEPTH),+);
             type OptionStack = Level<Self::Stack>;
+            const LEAD: Lead = Lead::ARRAY;
         }
     };
     (@widest $first:ty $(, $rest:ty)*) => { Widest<$first, tuple!(@widest $($rest),*)> };
@@ -82,6 +84,7 @@ unsafe impl<'de, T: Decode<'de>, const N: usize> Decode<'de> for [T; N] {
     type Stack = Level<T::Stack>;
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
+    const LEAD: Lead = Lead::ARRAY;
 }
 
 tuple!(A 0);

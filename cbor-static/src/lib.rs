@@ -78,6 +78,35 @@
 //! assert_eq!(&out[..len], b"\x82\xa1\x61x\x01\xf6");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
+//!
+//! Untagged enums whose variants start with different items, picked by the initial byte (D-10):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[serde(untagged)]
+//! enum Id<'a> {
+//!     Number(u64),
+//!     Name(&'a str),
+//! }
+//!
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! assert_eq!(*cbor_static::decode_into::<Id>(b"\x61a", &mut slot)?, Id::Name("a"));
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! Variants that can start with the same item do not compile:
+//!
+//! ```compile_fail,E0080
+//! #[derive(cbor_static::Cbor)]
+//! #[serde(untagged)]
+//! enum Ambiguous {
+//!     Small(u32),
+//!     Large(u64),
+//! }
+//!
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! let _ = cbor_static::decode_into::<Ambiguous>(b"\x01", &mut slot);
+//! ```
 
 extern crate self as cbor_static;
 #[cfg(test)]
@@ -87,6 +116,7 @@ mod containers;
 mod engine;
 mod error;
 mod keys;
+mod lead;
 mod scalar;
 mod schema;
 mod stack;
@@ -137,11 +167,12 @@ pub fn decode_into<'de, 's, T: Decode<'de>>(
 pub mod __private {
     pub use crate::engine::{
         DECODE_ARRAY, DECODE_EXTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT,
-        DECODE_MAP_INT_DENY, DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, ENCODE_ARRAY,
-        ENCODE_EXTERNAL, ENCODE_MAP, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag,
-        offset, write_tag,
+        DECODE_MAP_INT_DENY, DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED,
+        ENCODE_ARRAY, ENCODE_EXTERNAL, ENCODE_MAP, ENCODE_UNTAGGED, Pending, assemble, drop_fn,
+        field_ptr_of, index_of, index_tag, offset, write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
+    pub use crate::lead::Lead;
     pub use crate::schema::{
         Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout,
     };

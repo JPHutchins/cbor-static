@@ -7,6 +7,7 @@
 //! 24. A text item's payload is exactly `name_at .. name_at + name_len`.
 
 use crate::engine::offset;
+use crate::lead::Lead;
 use crate::schema::FieldLayout;
 use crate::wire::{Head, Major};
 
@@ -16,7 +17,7 @@ pub enum Key {
     Int(i64),
     Tag(u64),
     /// The first-item classes an untagged variant accepts, two bytes little-endian; never written.
-    Lead(u16),
+    Lead(Lead),
     /// Positional: no identifier.
     None,
 }
@@ -141,6 +142,7 @@ const fn copied<const N: usize>(blob: [u8; N], at: usize, bytes: &[u8]) -> [u8; 
 #[cfg(test)]
 mod tests {
     use super::{Key, field, names, names_len};
+    use crate::lead::Lead;
     use crate::schema::Layout;
 
     const KEYS: &[Key] = &[
@@ -149,7 +151,7 @@ mod tests {
         Key::Int(1000),
         Key::Tag(18),
         Key::Text("a twenty-four byte name!"),
-        Key::Lead(0x0123),
+        Key::Lead(Lead::from_le_bytes([0x23, 0x01])),
         Key::None,
     ];
     const NAMES: [u8; names_len(KEYS)] = names(KEYS);

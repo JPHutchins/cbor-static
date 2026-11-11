@@ -1,4 +1,5 @@
 mod enums;
+mod forms;
 mod structs;
 
 use proc_macro2::{Ident, TokenStream};
@@ -24,7 +25,7 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
         } => enums::enumeration(item, variants, *repr, form, directions),
     };
     quote! {
-        #[allow(non_camel_case_types, dead_code, clippy::all, clippy::pedantic)]
+        #[allow(non_camel_case_types, non_upper_case_globals, dead_code, clippy::all, clippy::pedantic)]
         const _: () = {
             use ::cbor_static::__private as __p;
             #body
@@ -32,13 +33,21 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
     }
 }
 
-/// The `Encode` or `Decode` impl, when `directions` asks for it, around the kind, stack and
-/// depth that `body` builds from the trait path.
+/// A codec trait impl's items. `lead` is `Decode`'s alone.
+struct Body {
+    kind: TokenStream,
+    stack: TokenStream,
+    depth: TokenStream,
+    lead: TokenStream,
+}
+
+/// The `Encode` or `Decode` impl, when `directions` asks for it, around the body built from the
+/// trait path.
 fn impls(
     item: &Item,
     directions: Directions,
     which: Trait,
-    body: impl FnOnce(&TokenStream) -> (TokenStream, TokenStream, TokenStream),
+    body: impl FnOnce(&TokenStream) -> Body,
 ) -> TokenStream {
     let ident = &item.ident;
     let ty = item
@@ -48,7 +57,9 @@ fn impls(
     match (which, directions) {
         (Trait::Encode, Directions::Encode | Directions::Both) => {
             let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
-            let (kind, stack, depth) = body(&quote!(::cbor_static::Encode));
+            let Body {
+                kind, stack, depth, ..
+            } = body(&quote!(::cbor_static::Encode));
             quote! {
                 #[automatically_derived]
                 unsafe impl #generics ::cbor_static::Encode for #ty {
@@ -63,7 +74,12 @@ fn impls(
                 || quote!(<'de>),
                 |lifetime| quote!(<'de: #lifetime, #lifetime>),
             );
-            let (kind, stack, depth) = body(&quote!(::cbor_static::Decode<'de>));
+            let Body {
+                kind,
+                stack,
+                depth,
+                lead,
+            } = body(&quote!(::cbor_static::Decode<'de>));
             quote! {
                 #[automatically_derived]
                 unsafe impl #generics ::cbor_static::Decode<'de> for #ty {
@@ -71,6 +87,7 @@ fn impls(
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
                     type OptionStack = __p::Level<Self::Stack>;
+                    const LEAD: __p::Lead = #lead;
                 }
             }
         }

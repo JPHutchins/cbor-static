@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Type;
 
-use super::{Trait, child, impls, key, layout, level, static_type};
+use super::{Body, Trait, child, impls, key, layout, level, static_type};
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
 
@@ -31,23 +31,29 @@ pub fn structure(
         StructForm::Array => (quote!(__p::ENCODE_ARRAY), quote!(__p::DECODE_ARRAY)),
     };
     let types: Vec<&Type> = fields.iter().map(|field| &field.ty).collect();
+    let lead = match form {
+        StructForm::Map { .. } => quote!(__p::Lead::MAP),
+        StructForm::Array => quote!(__p::Lead::ARRAY),
+    };
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::ENCODE));
-        (
-            quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
+        Body {
+            kind: quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
             depth,
-        )
+            lead: lead.clone(),
+        }
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::DECODE));
-        (
-            quote!(__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
+        Body {
+            kind: quote!(__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
-        )
+            lead,
+        }
     });
     let labels = labels(fields);
     quote! {

@@ -68,6 +68,17 @@ const MAYBE: &[u8] = b"\xa2\x65first\xa3\x61a\x01\x61b\x02\x61c\x03\x65after\x07
 /// Where `MAYBE` holds the values of `a`, `b`, `c` and `after`, and the drops failing there.
 const MAYBE_DROPS: [(usize, usize); 4] = [(10, 0), (13, 1), (16, 2), (23, 2)];
 
+#[derive(crate::Decode)]
+#[serde(untagged)]
+enum Choice {
+    Count(u32),
+    Pair(Pair),
+}
+
+const CHOICE: &[u8] = b"\xa3\x61a\x01\x61b\x02\x61c\x03";
+/// Where `CHOICE` holds the values of `a`, `b` and `c`, and the drops failing there.
+const CHOICE_DROPS: [(usize, usize); 3] = [(3, 0), (6, 1), (9, 2)];
+
 /// `Positional`, `(Tracked, Tracked, u32)` and `[Tracked; 3]` alike: elements 1 and 2 decode to
 /// `Tracked`.
 const POSITIONAL: &[u8] = b"\x83\x01\x02\x03";
@@ -166,6 +177,23 @@ fn an_option_drops_its_payload_pending_or_moved_into_some() {
             assert_eq!(drops_after::<Maybe>(&MAYBE[..value], chunk), (None, drops));
         }
         assert_eq!(drops_after::<Maybe>(MAYBE, chunk), (None, 2));
+    }
+}
+
+#[test]
+fn an_untagged_variant_drops_what_its_payload_initialized() {
+    for chunk in [1, 4, 64] {
+        for (value, drops) in CHOICE_DROPS {
+            assert_eq!(
+                drops_after::<Choice>(&[&CHOICE[..value], b"\xf5"].concat(), chunk),
+                (Some(ErrorKind::TypeMismatch), drops)
+            );
+            assert_eq!(
+                drops_after::<Choice>(&CHOICE[..value], chunk),
+                (None, drops)
+            );
+        }
+        assert_eq!(drops_after::<Choice>(CHOICE, chunk), (None, 2));
     }
 }
 

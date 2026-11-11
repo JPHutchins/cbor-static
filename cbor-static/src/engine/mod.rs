@@ -20,10 +20,11 @@ pub use decode::{
     MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT,
     MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
     MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION,
+    UNTAGGED as DECODE_UNTAGGED,
 };
 pub use encode::{
     ARRAY as ENCODE_ARRAY, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
-    MAP as ENCODE_MAP, OPTION as ENCODE_OPTION,
+    MAP as ENCODE_MAP, OPTION as ENCODE_OPTION, UNTAGGED as ENCODE_UNTAGGED,
 };
 pub use glue::{
     assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, some, some_ptr, write_tag,

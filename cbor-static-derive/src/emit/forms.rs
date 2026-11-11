@@ -1,0 +1,110 @@
+//! What each enum representation (D-10) changes in the derive output: its ops, how a variant is
+//! identified in the layout, the layout's extra entries, and the classes of initial byte its
+//! values start with.
+
+use proc_macro2::{Literal, TokenStream};
+use quote::quote;
+
+use super::text_key;
+use crate::model::{EnumForm, Payload, Variant};
+
+pub struct Ops {
+    pub encode: TokenStream,
+    pub decode: TokenStream,
+}
+
+/// The ops, or `None` for a representation R-009 has not reached yet.
+pub fn ops(form: &EnumForm) -> Option<Ops> {
+    let (encode, decode) = match form {
+        EnumForm::External => (quote!(__p::ENCODE_EXTERNAL), quote!(__p::DECODE_EXTERNAL)),
+        EnumForm::Untagged => (quote!(__p::ENCODE_UNTAGGED), quote!(__p::DECODE_UNTAGGED)),
+        EnumForm::Index
+        | EnumForm::CborTag
+        | EnumForm::Internal { .. }
+        | EnumForm::Adjacent { .. } => {
+            return None;
+        }
+    };
+    Some(Ops { encode, decode })
+}
+
+/// How the layout identifies `variant`. An untagged variant's classes depend on its payload type,
+/// so the layout holds a placeholder that only the decoder's own layout fills in.
+pub fn variant_key(form: &EnumForm, variant: &Variant) -> TokenStream {
+    match (form, variant.cbor_tag) {
+        (EnumForm::Index, _) => quote!(__p::Key::None),
+        (EnumForm::CborTag, Some(tag)) => quote!(__p::Key::Tag(#tag)),
+        (EnumForm::Untagged, _) => quote!(__p::Key::Lead(__p::Lead::NONE)),
+        _ => text_key(&variant.name),
+    }
+}
+
+/// Entries after the variants: the tag and content keys of internally and adjacently tagged enums.
+pub fn extras(form: &EnumForm) -> Vec<TokenStream> {
+    match form {
+        EnumForm::Internal { tag } => vec![text_key(tag)],
+        EnumForm::Adjacent { tag, content } => vec![text_key(tag), text_key(content)],
+        EnumForm::External | EnumForm::Index | EnumForm::CborTag | EnumForm::Untagged => vec![],
+    }
+}
+
+/// The classes of initial byte the enum's values start with.
+pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenStream {
+    match form {
+        EnumForm::External => union(variants.iter().map(|variant| match variant.payload {
+            Payload::Unit => quote!(__p::Lead::TEXT),
+            Payload::Newtype(_) | Payload::Struct(_) => quote!(__p::Lead::MAP),
+        })),
+        EnumForm::Index => quote!(__p::Lead::ARRAY),
+        EnumForm::CborTag => quote!(__p::Lead::TAG),
+        EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => quote!(__p::Lead::MAP),
+        EnumForm::Untagged => union(variants.iter().map(|variant| variant_lead(variant, path))),
+    }
+}
+
+/// The layout the decoder walks: `LAYOUT`, or for an untagged enum the same placements with each
+/// variant's classes, behind asserts that no two variants share one (D-10).
+pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenStream {
+    if !matches!(form, EnumForm::Untagged) {
+        return quote!(LAYOUT);
+    }
+    let leads: Vec<TokenStream> = variants
+        .iter()
+        .map(|variant| variant_lead(variant, path))
+        .collect();
+    let disjoint =
+        variants
+            .iter()
+            .zip(&leads)
+            .enumerate()
+            .flat_map(|(at, (a, a_lead))| {
+                variants.iter().zip(&leads).skip(at + 1).map(move |(b, b_lead)| {
+            let message = format!(
+                "cbor-static: untagged variants `{}` and `{}` can start with the same item",
+                a.ident, b.ident
+            );
+            quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
+        })
+            });
+    let len = Literal::usize_unsuffixed(2 * variants.len());
+    quote!({
+        #(#disjoint)*
+        &__p::Layout { names: &__p::names::<#len>(&[#(__p::Key::Lead(#leads)),*]), fields: LAYOUT.fields }
+    })
+}
+
+/// A unit variant is null; a struct variant is a map.
+fn variant_lead(variant: &Variant, path: &TokenStream) -> TokenStream {
+    match &variant.payload {
+        Payload::Unit => quote!(__p::Lead::NULL),
+        Payload::Newtype(ty) => quote!(<#ty as #path>::LEAD),
+        Payload::Struct(_) => quote!(__p::Lead::MAP),
+    }
+}
+
+fn union(leads: impl Iterator<Item = TokenStream>) -> TokenStream {
+    leads.fold(
+        quote!(__p::Lead::NONE),
+        |all, lead| quote!(#all.union(#lead)),
+    )
+}

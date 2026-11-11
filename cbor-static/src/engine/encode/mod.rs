@@ -6,6 +6,7 @@ mod elements;
 mod enums;
 mod map;
 mod option;
+mod untagged;
 
 use core::mem::MaybeUninit;
 use core::ptr;
@@ -15,6 +16,7 @@ pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use map::MAP;
 pub use option::OPTION;
+pub use untagged::UNTAGGED;
 
 use super::pending::Pending;
 use super::{Progress, frame_mut, top_field};

@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::Ident;
 
 use super::structs::decode_map_ops;
-use super::{Trait, child, impls, key, layout, level, not_yet, text_key};
+use super::{Body, Trait, child, forms, impls, key, layout, level, not_yet};
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
 
@@ -20,14 +20,9 @@ pub fn enumeration(
     form: &EnumForm,
     directions: Directions,
 ) -> TokenStream {
-    match form {
-        EnumForm::External => {}
-        EnumForm::Index => return not_yet("`#[cbor(index)]`"),
-        EnumForm::CborTag => return not_yet("`#[cbor(cbor_tag)]`"),
-        EnumForm::Internal { .. } => return not_yet("`#[serde(tag)]`"),
-        EnumForm::Adjacent { .. } => return not_yet("`#[serde(tag, content)]`"),
-        EnumForm::Untagged => return not_yet("`#[serde(untagged)]`"),
-    }
+    let Some(ops) = forms::ops(form) else {
+        return not_yet("this enum representation");
+    };
     let ident = &item.ident;
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let statics = item.lifetime.as_ref().map(|_| quote!(<'static>));
@@ -61,13 +56,23 @@ pub fn enumeration(
     };
     let variant_layout = layout(
         &format_ident!("LAYOUT"),
-        variants.iter().zip(&shadows).map(|(variant, shadow)| {
-            let offset = shadow
-                .as_ref()
-                .filter(|_| matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust)
-                .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
-            (text_key(&variant.name), offset, false)
-        }),
+        variants
+            .iter()
+            .zip(&shadows)
+            .map(|(variant, shadow)| {
+                let offset = shadow
+                    .as_ref()
+                    .filter(|_| {
+                        matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust
+                    })
+                    .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
+                (forms::variant_key(form, variant), offset, false)
+            })
+            .chain(
+                forms::extras(form)
+                    .into_iter()
+                    .map(|key| (key, quote!(0), false)),
+            ),
     );
     let payload_layouts = variants
         .iter()
@@ -89,10 +94,18 @@ pub fn enumeration(
     let definitions = shadows.iter().flatten().map(|s| &s.definition);
     let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows));
     let encode = impls(item, directions, Trait::Encode, |path| {
-        encode_kind(variants, repr, path)
+        encode_kind(variants, repr, &ops.encode, path)
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
-        decode_kind(variants, &shadows, repr, generics.as_ref(), path)
+        decode_kind(
+            variants,
+            &shadows,
+            repr,
+            generics.as_ref(),
+            form,
+            &ops.decode,
+            path,
+        )
     });
     quote! {
         #(#definitions)*
@@ -211,11 +224,7 @@ fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenS
     }
 }
 
-fn encode_kind(
-    variants: &[Variant],
-    repr: Repr,
-    path: &TokenStream,
-) -> (TokenStream, TokenStream, TokenStream) {
+fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &TokenStream) -> Body {
     let glue = (repr == Repr::Rust).then(|| quote!(Some(__p::field_ptr_of::<Self>)));
     let field_ptr = glue.clone().unwrap_or_else(|| quote!(None));
     let index = glue
@@ -231,11 +240,12 @@ fn encode_kind(
 		}
 	});
     let (stack, depth) = stack(variants, path);
-    (
-        quote!(__p::EncKind::Enum { ops: &__p::ENCODE_EXTERNAL, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
+    Body {
+        kind: quote!(__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
         stack,
         depth,
-    )
+        lead: TokenStream::new(),
+    }
 }
 
 fn decode_kind(
@@ -243,8 +253,10 @@ fn decode_kind(
     shadows: &[Option<Shadow>],
     repr: Repr,
     generics: Option<&TokenStream>,
+    form: &EnumForm,
+    ops: &TokenStream,
     path: &TokenStream,
-) -> (TokenStream, TokenStream, TokenStream) {
+) -> Body {
     let entries = variants.iter().enumerate().map(|(index, variant)| {
 		let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
 		let assemble = match repr {
@@ -279,14 +291,16 @@ fn decode_kind(
             }
         });
     let (stack, depth) = stack(variants, path);
-    (
-        quote!({
+    let layout = forms::decode_layout(form, variants, path);
+    Body {
+        kind: quote!({
             #(#fits)*
-            __p::DecKind::Enum { ops: &__p::DECODE_EXTERNAL, layout: LAYOUT, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
+            __p::DecKind::Enum { ops: &#ops, layout: #layout, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
         }),
         stack,
         depth,
-    )
+        lead: forms::lead(form, variants, path),
+    }
 }
 
 fn stack(variants: &[Variant], path: &TokenStream) -> (TokenStream, TokenStream) {
