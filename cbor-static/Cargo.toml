@@ -13,6 +13,7 @@ cbor-static-derive = { path = "../cbor-static-derive", version = "=0.0.0" }
 
 [dev-dependencies]
 proc-macro2 = "1"
+proptest = { version = "1", default-features = false, features = ["std"] }
 quote = "1"
 syn = { version = "2", features = ["full"] }
 

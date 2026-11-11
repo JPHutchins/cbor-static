@@ -1,0 +1,2 @@
+[build]
+rustflags = ["--cfg", "cbor_static_f16"]

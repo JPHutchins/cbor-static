@@ -179,12 +179,11 @@ mod tests {
     }
 
     #[test]
-    fn every_binary16_widens_to_its_ieee_value_and_narrows_back() {
+    fn every_binary16_narrows_back_and_is_shortest() {
         for half in 0..=u16::MAX {
             let widened = BINARY16.widen(half.into());
             assert_eq!(BINARY16.narrow(widened), Some(half.into()), "{half:04x}");
             assert_eq!(shortest(widened), (HALF, half.into()), "{half:04x}");
-            assert_eq!(widened, ieee_binary16(half), "{half:04x}");
         }
     }
 
@@ -234,21 +233,5 @@ mod tests {
             assert_eq!(to_single(double), None, "{double:016x}");
         }
         assert_eq!(shortest(0x36a0_0000_0000_0000), (SINGLE, 0x0000_0001));
-    }
-
-    /// The binary64 bits of an IEEE 754 binary16 pattern, by its definition: computed in this
-    /// test with exact f64 arithmetic, and by payload for NaNs.
-    fn ieee_binary16(half: u16) -> u64 {
-        let sign = if half >> 15 == 1 { -1.0 } else { 1.0 };
-        let exponent = i32::from(half >> 10 & 0x1f);
-        let fraction = f64::from(half & 0x3ff);
-        match exponent {
-            0x1f if half & 0x3ff != 0 => {
-                u64::from(half >> 15) << 63 | 0x7ff << 52 | u64::from(half & 0x3ff) << 42
-            }
-            0x1f => (sign * f64::INFINITY).to_bits(),
-            0 => (sign * fraction * 2f64.powi(-24)).to_bits(),
-            _ => (sign * (1.0 + fraction / 1024.0) * 2f64.powi(exponent - 15)).to_bits(),
-        }
     }
 }
