@@ -9,8 +9,7 @@ from harness.backends.backend import ROOT, path_dependency
 from harness.backends.cbor_static import CBOR_STATIC
 from harness.elf import symbols
 from harness.gate import load
-from harness.generate import crate_name
-from harness.measure import CRATES, GATE_TARGET, HARNESS, build, elf_path, target_dir, write_crate
+from harness.measure import CRATES, GATE_TARGET, HARNESS, build, elf_path, measured_elf, write_crate
 from harness.templates import render
 
 if TYPE_CHECKING:
@@ -49,24 +48,17 @@ FIXTURES: Final = {
 def machinery() -> int:
 	rows = [m for m in load() if m.backend == CBOR_STATIC.name and m.target == GATE_TARGET]
 	failures = [
-		f"{elf.name} ({m.profile}) lacks {', '.join(sorted(set(MACHINERY) - set(matched(names(elf), MACHINERY))))}"
+		f"{measured_elf(m).name} ({m.profile}) lacks "
+		f"{', '.join(sorted(set(MACHINERY) - set(matched(names(measured_elf(m)), MACHINERY))))}"
 		for m in rows
-		for elf in (
-			elf_path(
-				target_dir(m.backend, m.shape, m.target),
-				m.target,
-				m.profile,
-				crate_name(m.shape, CBOR_STATIC, m.message_count),
-			),
-		)
-		if len(matched(names(elf), MACHINERY)) < len(MACHINERY)
+		if len(matched(names(measured_elf(m)), MACHINERY)) < len(MACHINERY)
 	]
 	print("\n".join(failures) or f"machinery present in all {len(rows)} gate ELFs: {', '.join(MACHINERY)}")
 	return 1 if failures or not rows else 0
 
 
 def fixtures() -> int:
-	scalars, numbers = fixture("scalars"), fixture("numbers")
+	scalars, numbers = names(fixture("scalars")), names(fixture("numbers"))
 	forbidden = matched(
 		scalars, (*OPTIONAL_KINDS, "enc_str", "dec_str", "enc_bytes", "dec_bytes", "core::fmt")
 	)
@@ -84,7 +76,7 @@ def fixtures() -> int:
 	return 1 if forbidden or absent else 0
 
 
-def fixture(name: str) -> frozenset[str]:
+def fixture(name: str) -> Path:
 	crate = write_crate(
 		CRATES / f"fixture-{name}",
 		{
@@ -97,7 +89,7 @@ def fixture(name: str) -> frozenset[str]:
 		},
 	)
 	build(crate, GATE_TARGET, "release", (), HARNESS / "fixtures")
-	return names(elf_path(HARNESS / "fixtures", GATE_TARGET, "release", f"fixture-{name}"))
+	return elf_path(HARNESS / "fixtures", GATE_TARGET, "release", f"fixture-{name}")
 
 
 def matched(names: frozenset[str], patterns: tuple[str, ...]) -> tuple[str, ...]:

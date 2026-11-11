@@ -6,6 +6,7 @@ per-type flash is its fixture's delta against a reference fixture that lacks onl
 import argparse
 import csv
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from harness.backends.cbor_static import CBOR_STATIC
@@ -16,7 +17,6 @@ from harness.templates import render
 
 if TYPE_CHECKING:
 	from collections.abc import Sequence
-	from pathlib import Path
 
 DECODE: Final = "cbor_static::engine::decode"
 ENCODE: Final = "cbor_static::engine::encode"
@@ -121,7 +121,27 @@ def cost(feature: Feature, profile: str) -> Cost:
 
 def flash(template: str, count: int, cell: str, profile: str) -> int:
 	"""Flash of a firmware round-tripping `count` types made from `template`."""
-	return sizes(fixture(f"r009-{template}-n{count}", (template,) * count, cell, profile)).flash
+	return sizes(fixture(fixture_name(template, count), (template,) * count, cell, profile)).flash
+
+
+def fixture_name(template: str, count: int) -> str:
+	return f"r009-{template}-n{count}"
+
+
+def built() -> tuple[Path, ...]:
+	"""The ELFs `cost` built for every feature and its reference, where a run built them."""
+	return tuple(
+		filter(
+			Path.is_file,
+			(
+				elf_path(FEATURES_DIR / feature.template, GATE_TARGET, profile, fixture_name(template, count))
+				for feature in FEATURES
+				for template in (feature.template, feature.reference)
+				for count in COUNTS
+				for profile in PROFILES
+			),
+		)
+	)
 
 
 def fixture(name: str, templates: Sequence[str], cell: str, profile: str) -> Path:

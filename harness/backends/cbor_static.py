@@ -58,3 +58,4 @@ def roundtrip(msg: Message) -> str:
 CBOR_STATIC: Final = backend("cbor-static")
 CBOR_STATIC_REPR: Final = backend("cbor-static-repr", repr_attr="\n#[repr(C, u8)]")
 CBOR_STATIC_ONESHOT: Final = backend("cbor-static-oneshot", rustflags=("--cfg", "cbor_static_oneshot"))
+VARIANTS: Final = (CBOR_STATIC, CBOR_STATIC_REPR, CBOR_STATIC_ONESHOT)
