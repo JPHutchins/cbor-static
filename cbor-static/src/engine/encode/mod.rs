@@ -1,12 +1,14 @@
 //! The encode core: leaves, output chunking and the frame stack. Every structural form is reached
 //! only through the [`EncOps`] in its descriptor, so a firmware links only the forms it uses (D-22).
 
+mod array;
 mod enums;
 mod map;
 
 use core::mem::MaybeUninit;
 use core::ptr;
 
+pub use array::ARRAY;
 pub use enums::EXTERNAL;
 pub use map::MAP;
 
@@ -22,6 +24,9 @@ type OnOpen = fn(
     &'static EncKind,
     *const u8,
 ) -> Result<Option<Child>, ErrorKind>;
+
+/// A frame's `field` before it reaches field 0.
+const BEFORE_FIRST: u8 = u8::MAX;
 
 /// One structural form's encode handlers.
 pub struct EncOps {

@@ -2,15 +2,13 @@
 
 use core::mem::MaybeUninit;
 
-use super::{Child, EncOps, Part, State, desc, field_addr, opened, present};
+use super::{BEFORE_FIRST, Child, EncOps, Part, State, desc, field_addr, opened, present};
 use crate::engine::pending::Pending;
 use crate::engine::push;
 use crate::error::ErrorKind;
 use crate::schema::EncKind;
 use crate::stack::{Frame, Phase};
 use crate::wire::Major;
-
-const BEFORE_FIRST: u8 = u8::MAX;
 
 pub static MAP: EncOps = EncOps { open, next };
 

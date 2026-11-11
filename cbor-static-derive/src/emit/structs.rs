@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Type;
 
-use super::{Trait, child, impls, key, layout, level, not_yet, static_type};
+use super::{Trait, child, impls, key, layout, level, static_type};
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
 
@@ -26,16 +26,16 @@ pub fn structure(
             )
         }),
     );
-    let decode_ops = match form {
-        StructForm::Map { unknown } => decode_map_ops(fields, unknown),
-        StructForm::Array => return not_yet("`#[cbor(array)]`"),
+    let (encode_ops, decode_ops) = match form {
+        StructForm::Map { unknown } => (quote!(__p::ENCODE_MAP), decode_map_ops(fields, unknown)),
+        StructForm::Array => (quote!(__p::ENCODE_ARRAY), quote!(__p::DECODE_ARRAY)),
     };
     let types: Vec<&Type> = fields.iter().map(|field| &field.ty).collect();
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::ENCODE));
         (
-            quote!(__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
+            quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
             depth,
         )

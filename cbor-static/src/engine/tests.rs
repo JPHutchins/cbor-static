@@ -49,6 +49,17 @@ struct Outer {
     second: Pair,
 }
 
+#[derive(crate::Decode)]
+#[cbor(array)]
+struct Positional {
+    a: Tracked,
+    b: Tracked,
+    c: u32,
+}
+
+/// `Positional` and `(Tracked, Tracked, u32)` alike: elements 1 and 2 decode to `Tracked`.
+const POSITIONAL: &[u8] = b"\x83\x01\x02\x03";
+
 const COMPLETE: &[u8] =
     b"\xa2\x65first\xa3\x61a\x01\x61b\x02\x61c\x03\x66second\xa3\x61a\x04\x61b\x05\x61c\x06";
 const DUPLICATE_A: &[u8] = b"\xa2\x65first\xa3\x61a\x01\x61a\x02";
@@ -68,9 +79,9 @@ fn after_key(key: usize) -> usize {
     key + 1 + usize::from(COMPLETE[key] & 0x1f)
 }
 
-fn drops_after(bytes: &[u8], chunk: usize) -> (Option<ErrorKind>, usize) {
+fn drops_after<T: for<'de> Decode<'de>>(bytes: &[u8], chunk: usize) -> (Option<ErrorKind>, usize) {
     DROPS.with(|drops| drops.set(0));
-    let mut slot = MaybeUninit::<Outer>::uninit();
+    let mut slot = MaybeUninit::<T>::uninit();
     let mut decoder = Decoder::new(&mut slot);
     let error = bytes
         .chunks(chunk)
@@ -85,12 +96,12 @@ fn an_error_drops_exactly_the_initialized_fields() {
     for chunk in [1, 7, 64] {
         assert_eq!(
             value_offsets()
-                .map(|value| drops_after(&[&COMPLETE[..value], b"\xf5"].concat(), chunk))
+                .map(|value| drops_after::<Outer>(&[&COMPLETE[..value], b"\xf5"].concat(), chunk))
                 .collect::<Vec<_>>(),
             DROPS_BEFORE_EACH_VALUE.map(|drops| (Some(ErrorKind::TypeMismatch), drops))
         );
         assert_eq!(
-            drops_after(DUPLICATE_A, chunk),
+            drops_after::<Outer>(DUPLICATE_A, chunk),
             (Some(ErrorKind::DuplicateKey), 1)
         );
     }
@@ -101,11 +112,32 @@ fn an_abandoned_decoder_drops_what_it_initialized() {
     for chunk in [1, 7, 64] {
         assert_eq!(
             value_offsets()
-                .map(|value| drops_after(&COMPLETE[..value], chunk))
+                .map(|value| drops_after::<Outer>(&COMPLETE[..value], chunk))
                 .collect::<Vec<_>>(),
             DROPS_BEFORE_EACH_VALUE.map(|drops| (None, drops))
         );
-        assert_eq!(drops_after(COMPLETE, chunk), (None, 4));
+        assert_eq!(drops_after::<Outer>(COMPLETE, chunk), (None, 4));
+    }
+}
+
+#[test]
+fn positional_forms_drop_exactly_the_initialized_elements() {
+    for chunk in [1, 2, 64] {
+        for (element, drops) in [(1, 0), (2, 1), (3, 2)] {
+            let failing = [&POSITIONAL[..element], b"\xf5"].concat();
+            for outcome in [
+                drops_after::<Positional>(&failing, chunk),
+                drops_after::<(Tracked, Tracked, u32)>(&failing, chunk),
+            ] {
+                assert_eq!(outcome, (Some(ErrorKind::TypeMismatch), drops));
+            }
+            for outcome in [
+                drops_after::<Positional>(&POSITIONAL[..element], chunk),
+                drops_after::<(Tracked, Tracked, u32)>(&POSITIONAL[..element], chunk),
+            ] {
+                assert_eq!(outcome, (None, drops));
+            }
+        }
     }
 }
 

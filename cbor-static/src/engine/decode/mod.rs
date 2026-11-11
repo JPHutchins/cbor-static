@@ -1,12 +1,14 @@
 //! The decode core: header assembly, leaves and the frame stack. Every structural form is reached
 //! only through the [`DecOps`] in its descriptor, so a firmware links only the forms it uses (D-22).
 
+mod array;
 mod enums;
 mod map;
 
 use core::mem::MaybeUninit;
 use core::ptr;
 
+pub use array::ARRAY;
 pub use enums::EXTERNAL;
 pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
 
@@ -406,6 +408,11 @@ fn next_entry(
             Ok(Entry::Item(header))
         }
     }
+}
+
+/// `named` for forms whose entries have no names.
+fn unnamed(_: &mut State, _: &mut [MaybeUninit<Frame>], _: Option<u8>) -> Result<Flow, ErrorKind> {
+    Err(ErrorKind::Unsupported)
 }
 
 fn entries(header: Header) -> Result<u64, ErrorKind> {

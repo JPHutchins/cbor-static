@@ -182,7 +182,7 @@ fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
 }
 
 /// Writes the default of every field the map did not contain.
-fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
+pub(super) fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
     let DecKind::Struct { layout, kinds, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
     };
@@ -205,7 +205,7 @@ fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
 
 /// Drops exactly the fields the map initialized.
 #[inline(never)]
-fn drop(frame: &Frame) {
+pub(super) fn drop(frame: &Frame) {
     if let DecKind::Struct { layout, kinds, .. } = desc(frame) {
         (0..kinds.len())
             .filter_map(|f| u8::try_from(f).ok())

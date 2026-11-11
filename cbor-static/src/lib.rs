@@ -48,11 +48,28 @@
 //! );
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
+//!
+//! Positional structs, whose trailing `None`s are truncated, and tuples (D-09, D-20):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[cbor(array)]
+//! struct Point {
+//!     at: (i32, i32),
+//!     label: Option<u32>,
+//! }
+//!
+//! let mut out = [0u8; 8];
+//! let len = cbor_static::encode_into(&Point { at: (1, -2), label: None }, &mut out)?;
+//! assert_eq!(&out[..len], b"\x81\x82\x01\x21");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
 
 extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+mod containers;
 mod engine;
 mod error;
 mod keys;
@@ -105,9 +122,10 @@ pub fn decode_into<'de, 's, T: Decode<'de>>(
 #[doc(hidden)]
 pub mod __private {
     pub use crate::engine::{
-        DECODE_EXTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY,
-        DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, ENCODE_EXTERNAL, ENCODE_MAP, Pending, assemble,
-        drop_fn, field_ptr_of, index_of, index_tag, offset, write_tag,
+        DECODE_ARRAY, DECODE_EXTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT,
+        DECODE_MAP_INT_DENY, DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, ENCODE_ARRAY,
+        ENCODE_EXTERNAL, ENCODE_MAP, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag,
+        offset, write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::schema::{
