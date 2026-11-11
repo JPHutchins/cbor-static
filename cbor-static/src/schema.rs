@@ -1,7 +1,7 @@
 #![deny(unsafe_code)]
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
-use crate::engine::{Item, Next, Pending};
+use crate::engine::{DecOps, EncOps, Item, Next, Pending};
 use crate::error::ErrorKind;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
@@ -67,11 +67,13 @@ pub enum EncKind {
         absent: Option<AbsentFn>,
     },
     Struct {
+        ops: &'static EncOps,
         layout: &'static Layout,
         kinds: &'static [&'static EncKind],
         field_ptr: Option<FieldPtrFn>,
     },
     Enum {
+        ops: &'static EncOps,
         layout: &'static Layout,
         payloads: &'static [Option<&'static EncKind>],
         index: IndexFn,
@@ -86,11 +88,13 @@ pub enum DecKind {
         drop: Option<WriteFn>,
     },
     Struct {
+        ops: &'static DecOps,
         layout: &'static Layout,
         kinds: &'static [&'static DecKind],
         drop: Option<WriteFn>,
     },
     Enum {
+        ops: &'static DecOps,
         layout: &'static Layout,
         variants: &'static [DecVariant],
         drop: Option<WriteFn>,

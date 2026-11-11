@@ -76,7 +76,8 @@ pub fn decode_into<'de, 's, T: Decode<'de>>(
 #[doc(hidden)]
 pub mod __private {
     pub use crate::engine::{
-        Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, write_tag,
+        DECODE_EXTERNAL, DECODE_MAP, ENCODE_EXTERNAL, ENCODE_MAP, Pending, assemble, drop_fn,
+        field_ptr_of, index_of, index_tag, offset, write_tag,
     };
     pub use crate::schema::{
         Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout,

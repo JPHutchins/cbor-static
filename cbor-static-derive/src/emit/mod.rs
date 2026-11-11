@@ -42,7 +42,7 @@ fn structure(item: &Item, fields: &[Field], directions: Directions) -> TokenStre
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::ENCODE));
         (
-            quote!(__p::EncKind::Struct { layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
+            quote!(__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
             depth,
         )
@@ -51,7 +51,7 @@ fn structure(item: &Item, fields: &[Field], directions: Directions) -> TokenStre
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::DECODE));
         (
-            quote!(__p::DecKind::Struct { layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
+            quote!(__p::DecKind::Struct { ops: &__p::DECODE_MAP, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
         )

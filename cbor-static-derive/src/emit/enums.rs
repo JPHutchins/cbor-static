@@ -215,12 +215,12 @@ fn encode_kind(
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
 			let kinds = fields.iter().map(|Field { ty, .. }| quote!(<#ty as #path>::ENCODE));
-			quote!(Some(&__p::EncKind::Struct { layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
+			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
 		}
 	});
     let (stack, depth) = stack(variants, path);
     (
-        quote!(__p::EncKind::Enum { layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
+        quote!(__p::EncKind::Enum { ops: &__p::ENCODE_EXTERNAL, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
         stack,
         depth,
     )
@@ -245,7 +245,7 @@ fn decode_kind(
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
 				let kinds = fields.iter().map(|Field { ty, .. }| quote!(<#ty as #path>::DECODE));
-				quote!(Some(&__p::DecKind::Struct { layout: #name, kinds: &[#(#kinds),*], drop: None }))
+				quote!(Some(&__p::DecKind::Struct { ops: &__p::DECODE_MAP, layout: #name, kinds: &[#(#kinds),*], drop: None }))
 			}
 		};
 		quote!(__p::DecVariant { payload: #payload, assemble: #assemble })
@@ -269,7 +269,7 @@ fn decode_kind(
     (
         quote!({
             #(#fits)*
-            __p::DecKind::Enum { layout: LAYOUT, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
+            __p::DecKind::Enum { ops: &__p::DECODE_EXTERNAL, layout: LAYOUT, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
         }),
         stack,
         depth,

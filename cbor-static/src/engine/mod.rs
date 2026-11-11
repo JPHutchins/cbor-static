@@ -15,7 +15,8 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr;
 
-pub use decode::{Item, Next};
+pub use decode::{DecOps, EXTERNAL as DECODE_EXTERNAL, Item, MAP as DECODE_MAP, Next};
+pub use encode::{EXTERNAL as ENCODE_EXTERNAL, EncOps, MAP as ENCODE_MAP};
 pub use glue::{assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, write_tag};
 pub(crate) use leaf::{
     DEC_BYTES, DEC_STR, ENC_BYTES, ENC_STR, absent_option, dec_i128, dec_option, dec_scalar,

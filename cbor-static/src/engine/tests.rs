@@ -129,6 +129,7 @@ enum Unlisted {
 
 unsafe impl Encode for Unlisted {
     const ENCODE: &'static EncKind = &EncKind::Enum {
+        ops: &super::ENCODE_EXTERNAL,
         layout: &Layout {
             names: b"",
             fields: &[],
