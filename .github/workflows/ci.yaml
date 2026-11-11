@@ -33,7 +33,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
-      RUSTC_WRAPPER: ${{ matrix.task != 'miri' && 'sccache' || '' }}
+      RUSTC_WRAPPER: ${{ !contains(fromJSON('["miri", "kani"]'), matrix.task) && 'sccache' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

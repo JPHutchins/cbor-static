@@ -38,6 +38,7 @@ impl<'a> TokenWriter<'a> {
     /// let mut writer = TokenWriter::new(&mut out);
     /// assert_eq!(writer.write(Token::Unsigned(500)).map_err(|e| e.kind).err(), Some(ErrorKind::BufferTooSmall));
     /// assert_eq!(writer.write(Token::Array(None)).map_err(|e| e.kind).err(), Some(ErrorKind::Unsupported));
+    /// assert_eq!(writer.write(Token::Simple(22)).map_err(|e| e.kind).err(), Some(ErrorKind::Unsupported));
     /// assert_eq!(writer.write(Token::Simple(24)).map_err(|e| e.kind).err(), Some(ErrorKind::NotWellFormed));
     /// assert_eq!(writer.write(Token::Simple(32))?.written(), 2);
     /// # Ok::<(), cbor_static::Error>(())
@@ -45,7 +46,8 @@ impl<'a> TokenWriter<'a> {
     ///
     /// # Errors
     /// - [`ErrorKind::BufferTooSmall`] when the rest of the buffer cannot hold it;
-    /// - [`ErrorKind::Unsupported`] for an indefinite length or a break;
+    /// - [`ErrorKind::Unsupported`] for an indefinite length, a break, or a simple value with a
+    ///   token of its own (20 to 23), so every token written reads back as itself;
     /// - [`ErrorKind::NotWellFormed`] for the simple values 24 to 31, which have no encoding.
     #[inline(never)]
     pub fn write(&mut self, token: Token<'_>) -> Result<&mut Self, Error> {
@@ -84,7 +86,9 @@ fn encoding(token: Token<'_>) -> Result<(Head, &[u8]), ErrorKind> {
         Token::Array(Some(n)) => Ok((Head::new(Major::Array, n), &[])),
         Token::Map(Some(n)) => Ok((Head::new(Major::Map, n), &[])),
         Token::Tag(n) => Ok((Head::new(Major::Tag, n), &[])),
-        Token::Simple(value @ (0..24 | 32..)) => Ok((Head::new(Major::Simple, value.into()), &[])),
+        Token::Simple(value @ (0..FALSE | 32..)) => {
+            Ok((Head::new(Major::Simple, value.into()), &[]))
+        }
         Token::Simple(24..32) => Err(ErrorKind::NotWellFormed),
         Token::Bool(value) => Ok((
             Head::new(Major::Simple, if value { TRUE } else { FALSE }.into()),
@@ -93,7 +97,8 @@ fn encoding(token: Token<'_>) -> Result<(Head, &[u8]), ErrorKind> {
         Token::Null => Ok((Head::new(Major::Simple, NULL.into()), &[])),
         Token::Undefined => Ok((Head::new(Major::Simple, UNDEFINED.into()), &[])),
         Token::Float(value) => Ok((Head::float(float::shortest(value.to_bits())), &[])),
-        Token::BytesIndefinite
+        Token::Simple(FALSE..24)
+        | Token::BytesIndefinite
         | Token::TextIndefinite
         | Token::Array(None)
         | Token::Map(None)

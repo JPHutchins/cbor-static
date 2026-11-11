@@ -5,9 +5,6 @@
 
 mod common;
 
-use std::num::NonZero;
-use std::thread;
-
 use common::{float_bits, float_encoded, halves, ieee_binary16};
 
 #[test]
@@ -46,6 +43,9 @@ fn every_half_matches_the_f16_primitive() {
 #[test]
 #[ignore = "all 2^32 binary32 patterns: `camas f32` runs it in release"]
 fn every_single_decodes_to_its_ieee_value_and_reencodes_at_its_narrowest() {
+    use std::num::NonZero;
+    use std::thread;
+
     let halves = halves();
     let threads = thread::available_parallelism().map_or(1, NonZero::get);
     thread::scope(|scope| {

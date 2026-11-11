@@ -18,7 +18,7 @@ use crate::engine::skip::item_len;
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, INDEFINITE, Phase};
-use crate::wire::{Header, Major, header_len, length, parse};
+use crate::wire::{Header, Major, length};
 
 pub static INTERNAL: DecOps = DecOps {
     value: Begin::Header(internal),
@@ -187,15 +187,16 @@ fn tagged(layout: &Layout, variants: usize, count: u64, bytes: &[u8]) -> Result<
         if left == 0 {
             return Err(ErrorKind::MissingField);
         }
-        let key = head(bytes, at)?;
+        let (key, name) = text(bytes, at)?;
         match (left, key.is_break()) {
             (INDEFINITE, true) => return Err(ErrorKind::MissingField),
             (INDEFINITE, false) => {}
             _ => left -= 1,
         }
         let value = at + item_len(bytes.get(at..).unwrap_or(&[]))?;
-        if text(bytes, at, key)?.is_some_and(|key| named(layout, tag.clone(), key).is_some()) {
-            return text(bytes, value, head(bytes, value)?)?
+        if name.is_some_and(|key| named(layout, tag.clone(), key).is_some()) {
+            return text(bytes, value)?
+                .1
                 .ok_or(ErrorKind::TypeMismatch)
                 .and_then(|name| {
                     named(layout, 0..variants, name).ok_or(ErrorKind::UnknownVariant)
@@ -205,29 +206,17 @@ fn tagged(layout: &Layout, variants: usize, count: u64, bytes: &[u8]) -> Result<
     }
 }
 
-/// The header of the item at `at`.
-fn head(bytes: &[u8], at: usize) -> Result<Header, ErrorKind> {
-    let initial = *bytes.get(at).ok_or(ErrorKind::NeedContiguous)?;
-    parse(
-        bytes
-            .get(at..at + header_len(initial)?)
-            .ok_or(ErrorKind::NeedContiguous)?,
-    )
-}
-
-/// The payload of the item at `at` with header `header`, when it is a definite text.
-fn text(bytes: &[u8], at: usize, header: Header) -> Result<Option<&[u8]>, ErrorKind> {
-    if header.major != Major::Text || header.indefinite() {
-        return Ok(None);
+/// The header of the item at `at`, and its payload when it is a definite text.
+fn text(bytes: &[u8], at: usize) -> Result<(Header, Option<&[u8]>), ErrorKind> {
+    let mut input = Input::new(bytes.get(at..).unwrap_or(&[]));
+    let header = input.take_head()?.ok_or(ErrorKind::NeedContiguous)?;
+    match (header.major, header.indefinite()) {
+        (Major::Text, false) => input
+            .take_exact(length(header.arg)?)
+            .map(|payload| (header, Some(payload)))
+            .ok_or(ErrorKind::NeedContiguous),
+        _ => Ok((header, None)),
     }
-    let start = at + header_len(*bytes.get(at).ok_or(ErrorKind::NeedContiguous)?)?;
-    length(header.arg).and_then(|len| {
-        bytes
-            .get(start..)
-            .and_then(|rest| rest.get(..len))
-            .map(Some)
-            .ok_or(ErrorKind::NeedContiguous)
-    })
 }
 
 /// The entry among `entries` whose text name is `name`.

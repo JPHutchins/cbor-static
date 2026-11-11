@@ -130,8 +130,8 @@ fn collapsed_streams<'a>(files: &[(&'a str, &[u8])]) -> Vec<(&'a str, usize)> {
                     assert_eq!(
                         bitwise(&compared),
                         bitwise(vector.decoded),
-                        "{name}: {}",
-                        vector.description
+                        "{name}: {description}",
+                        description = vector.description
                     );
                     bitwise(&compared) != bitwise(&encoded)
                 })
@@ -154,8 +154,8 @@ fn reproduced(files: &[(&str, &[u8])]) -> usize {
                     assert_eq!(
                         reencoded(&tokens(vector.encoded)),
                         vector.encoded,
-                        "{name}: {}",
-                        vector.description
+                        "{name}: {description}",
+                        description = vector.description
                     );
                 })
                 .count()

@@ -121,18 +121,29 @@ fn mutation() -> impl Strategy<Value = Mutation> {
     ]
 }
 
-/// A head of `major` and `arg`, with its argument in the shortest form (`width` 0) or in 1, 2, 4
-/// or 8 bytes when it fits there.
+/// A head of `major` and `arg`: its argument in the shortest form, widened to 1, 2, 4 or 8 bytes by
+/// `width` 1 to 4 where it fits there.
 fn head(out: &mut Vec<u8>, major: u8, arg: u64, width: u8) {
+    let shortest = match arg {
+        0..0x18 => 0,
+        0x18..0x100 => 1,
+        0x100..0x1_0000 => 2,
+        0x1_0000..0x1_0000_0000 => 4,
+        _ => 8,
+    };
+    let len = [0, 1, 2, 4, 8][usize::from(width)].max(shortest);
     let bytes = arg.to_be_bytes();
-    match (width, arg) {
-        (1, 0..0x100) => out.extend([major << 5 | 0x18, bytes[7]]),
-        (2, 0..0x1_0000) => out.extend([&[major << 5 | 0x19], &bytes[6..]].concat()),
-        (3, 0..0x1_0000_0000) => out.extend([&[major << 5 | 0x1a], &bytes[4..]].concat()),
-        (4, _) => out.extend([&[major << 5 | 0x1b], &bytes[..]].concat()),
-        (_, 0..24) => out.push(major << 5 | bytes[7]),
-        _ => head(out, major, arg, 4),
-    }
+    out.push(
+        major << 5
+            | match len {
+                0 => bytes[7],
+                1 => 0x18,
+                2 => 0x19,
+                4 => 0x1a,
+                _ => 0x1b,
+            },
+    );
+    out.extend(&bytes[8 - len..]);
 }
 
 fn length(len: usize) -> u64 {

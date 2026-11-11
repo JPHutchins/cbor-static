@@ -34,9 +34,22 @@ const PROBE_PREFIX: [u8; 3] = *b"\xa1\x61x";
 impl From<ErrorKind> for Class {
     fn from(kind: ErrorKind) -> Self {
         match kind {
+            ErrorKind::UnexpectedEnd | ErrorKind::NeedContiguous | ErrorKind::LimitExceeded => {
+                Self::Truncated
+            }
             ErrorKind::NotWellFormed => Self::Malformed,
             ErrorKind::InvalidUtf8 => Self::InvalidUtf8,
-            _ => Self::Truncated,
+            ErrorKind::TypeMismatch
+            | ErrorKind::OutOfRange
+            | ErrorKind::DuplicateKey
+            | ErrorKind::MissingField
+            | ErrorKind::UnknownVariant
+            | ErrorKind::UnexpectedTag
+            | ErrorKind::IndefiniteString
+            | ErrorKind::Unsupported
+            | ErrorKind::BufferTooSmall
+            | ErrorKind::TrailingInput
+            | ErrorKind::UnknownField => panic!("{kind:?} is not a well-formedness error"),
         }
     }
 }

@@ -3,6 +3,7 @@ use core::mem::MaybeUninit;
 use crate::error::ErrorKind;
 use crate::wire::{Header, header_len, parse};
 
+#[derive(Clone, Debug)]
 pub struct Input<'a> {
     bytes: &'a [u8],
     pub at: usize,
@@ -37,6 +38,17 @@ impl<'a> Input<'a> {
         let taken = self.rest().get(..len)?;
         self.at += taken.len();
         Some(taken)
+    }
+
+    /// The head at the cursor, taken whole, or `None` while this chunk ends inside it.
+    ///
+    /// # Errors
+    /// [`ErrorKind::NotWellFormed`] for a head RFC 8949 reserves.
+    pub fn take_head(&mut self) -> Result<Option<Header>, ErrorKind> {
+        let Some(&initial) = self.rest().first() else {
+            return Ok(None);
+        };
+        self.take_exact(header_len(initial)?).map(parse).transpose()
     }
 
     pub fn take_rest(&mut self) -> &'a [u8] {

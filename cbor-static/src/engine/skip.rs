@@ -1,9 +1,10 @@
 use core::mem::MaybeUninit;
 
 use super::bit;
+use super::input::Input;
 use super::text::Utf8;
 use crate::error::ErrorKind;
-use crate::wire::{Header, Major, header_len, length, parse};
+use crate::wire::{Header, Major, length};
 
 const MAX_INDEFINITE: u8 = 64;
 const MAX_SAVED: usize = 8;
@@ -149,7 +150,6 @@ impl Skip {
             return Err(ErrorKind::LimitExceeded);
         }
         let level = bit(self.walk.levels);
-        self.maps = self.maps << 1 | u64::from(map);
         if self.walk.pending > 0 {
             self.saved
                 .get_mut(usize::from(self.walk.saved_len))
@@ -160,6 +160,7 @@ impl Skip {
         } else {
             self.indefinite &= !level;
         }
+        self.maps = self.maps << 1 | u64::from(map);
         self.walk.levels += 1;
         self.walk.pending = 0;
         Ok(())
@@ -189,27 +190,15 @@ impl Skip {
 /// # Errors
 /// [`ErrorKind::NeedContiguous`] when `bytes` ends inside the item; any error skipping it would.
 pub fn item_len(bytes: &[u8]) -> Result<usize, ErrorKind> {
+    let mut input = Input::new(bytes);
     let mut skip = Skip::started(1);
-    let mut at = 0;
     while !skip.done() {
-        let wanted = length(skip.payload_left())?;
-        if wanted > 0 {
-            skip.payload(
-                bytes
-                    .get(at..)
-                    .and_then(|rest| rest.get(..wanted))
-                    .ok_or(ErrorKind::NeedContiguous)?,
-            )?;
-            at += wanted;
-            continue;
+        match length(skip.payload_left())? {
+            0 => skip.on_header(input.take_head()?.ok_or(ErrorKind::NeedContiguous)?)?,
+            wanted => skip.payload(input.take_exact(wanted).ok_or(ErrorKind::NeedContiguous)?)?,
         }
-        let len = header_len(*bytes.get(at).ok_or(ErrorKind::NeedContiguous)?)?;
-        skip.on_header(parse(
-            bytes.get(at..at + len).ok_or(ErrorKind::NeedContiguous)?,
-        )?)?;
-        at += len;
     }
-    Ok(at)
+    Ok(input.at)
 }
 
 #[cfg(test)]
@@ -362,18 +351,17 @@ mod proofs {
             },
             indefinite: kani::any(),
             maps: kani::any(),
-            saved: [MaybeUninit::new(kani::any()); MAX_SAVED],
+            saved: core::array::from_fn(|_| MaybeUninit::new(kani::any())),
         };
         kani::assume(holds(&skip));
         skip
     }
 
     #[kani::proof]
-    fn a_header_keeps_the_invariant_without_overflow() {
+    fn every_header_keeps_the_invariant_without_overflow() {
         let mut skip = any_skip();
-        if skip.on_header(any_header()).is_ok() {
-            assert!(holds(&skip));
-        }
+        let _ = skip.on_header(any_header());
+        assert!(holds(&skip));
     }
 
     #[kani::proof]

@@ -127,6 +127,8 @@ fn the_writer_rejects_indefinite_tokens_and_writes_nothing_on_error() {
         Token::Array(None),
         Token::Map(None),
         Token::Break,
+        Token::Simple(20),
+        Token::Simple(23),
     ] {
         assert_eq!(
             TokenWriter::new(&mut [0; 4])
