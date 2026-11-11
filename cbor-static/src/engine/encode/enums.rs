@@ -47,7 +47,7 @@ fn open(
     }
 }
 
-fn next(_: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
+pub(super) fn next(_: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
     let EncKind::Enum {
         layout,
         payloads,

@@ -4,8 +4,9 @@
 
 use core::mem::MaybeUninit;
 
+use super::enums::assembled;
 use super::option::{done, holds_nothing, payload_only};
-use super::{After, Begin, DecOps, Flow, State, at, desc, expect, open, top, unnamed};
+use super::{Begin, DecOps, Flow, State, at, expect, open, top, unnamed};
 use crate::engine::NULL_ITEM;
 use crate::error::ErrorKind;
 use crate::lead::Lead;
@@ -16,7 +17,7 @@ pub static UNTAGGED: DecOps = DecOps {
     value: Begin::Peek(value),
     entry: payload_only,
     named: unnamed,
-    child_done,
+    child_done: assembled,
     close: done,
     drop: holds_nothing,
 };
@@ -48,18 +49,6 @@ fn value(
             .unwrap_or(&NULL_ITEM),
         at(dst, layout, variant),
     ))
-}
-
-fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
-    let DecKind::Enum { variants, .. } = desc(frame) else {
-        return Err(ErrorKind::Unsupported);
-    };
-    let variant = variants
-        .get(usize::from(frame.field))
-        .ok_or(ErrorKind::Unsupported)?;
-    unsafe { (variant.assemble)(frame.base) };
-    frame.phase = Phase::EnumDone;
-    Ok(After::Close)
 }
 
 /// The classes variant `index`'s payload can start with.

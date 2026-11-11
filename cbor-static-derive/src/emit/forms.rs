@@ -18,12 +18,9 @@ pub fn ops(form: &EnumForm) -> Option<Ops> {
     let (encode, decode) = match form {
         EnumForm::External => (quote!(__p::ENCODE_EXTERNAL), quote!(__p::DECODE_EXTERNAL)),
         EnumForm::Untagged => (quote!(__p::ENCODE_UNTAGGED), quote!(__p::DECODE_UNTAGGED)),
-        EnumForm::Index
-        | EnumForm::CborTag
-        | EnumForm::Internal { .. }
-        | EnumForm::Adjacent { .. } => {
-            return None;
-        }
+        EnumForm::Index => (quote!(__p::ENCODE_INDEX), quote!(__p::DECODE_INDEX)),
+        EnumForm::CborTag => (quote!(__p::ENCODE_CBOR_TAG), quote!(__p::DECODE_CBOR_TAG)),
+        EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => return None,
     };
     Some(Ops { encode, decode })
 }

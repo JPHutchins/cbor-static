@@ -94,6 +94,30 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! Integer-indexed and CBOR-tag-discriminated enums (D-10):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[cbor(index)]
+//! enum Command {
+//!     Ping,
+//!     Set(u32),
+//! }
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! enum Envelope {
+//!     #[cbor(cbor_tag = 18)]
+//!     Signed(u32),
+//!     #[cbor(cbor_tag = 17)]
+//!     Maced(u32),
+//! }
+//!
+//! let mut out = [0u8; 8];
+//! let len = cbor_static::encode_into(&(Command::Set(5), Envelope::Maced(1)), &mut out)?;
+//! assert_eq!(&out[..len], b"\x82\x82\x01\x05\xd1\x01");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
 //! Variants that can start with the same item do not compile:
 //!
 //! ```compile_fail,E0080
@@ -166,10 +190,11 @@ pub fn decode_into<'de, 's, T: Decode<'de>>(
 #[doc(hidden)]
 pub mod __private {
     pub use crate::engine::{
-        DECODE_ARRAY, DECODE_EXTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT,
-        DECODE_MAP_INT_DENY, DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED,
-        ENCODE_ARRAY, ENCODE_EXTERNAL, ENCODE_MAP, ENCODE_UNTAGGED, Pending, assemble, drop_fn,
-        field_ptr_of, index_of, index_tag, offset, write_tag,
+        DECODE_ARRAY, DECODE_CBOR_TAG, DECODE_EXTERNAL, DECODE_INDEX, DECODE_MAP, DECODE_MAP_DENY,
+        DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY,
+        DECODE_UNTAGGED, ENCODE_ARRAY, ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_MAP,
+        ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
+        write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::lead::Lead;

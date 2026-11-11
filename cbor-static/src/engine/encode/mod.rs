@@ -2,8 +2,10 @@
 //! only through the [`EncOps`] in its descriptor, so a firmware links only the forms it uses (D-22).
 
 mod array;
+mod cbor_tag;
 mod elements;
 mod enums;
+mod index;
 mod map;
 mod option;
 mod untagged;
@@ -12,8 +14,10 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use array::ARRAY;
+pub use cbor_tag::CBOR_TAG;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
+pub use index::INDEX;
 pub use map::MAP;
 pub use option::OPTION;
 pub use untagged::UNTAGGED;

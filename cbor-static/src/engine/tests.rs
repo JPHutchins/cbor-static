@@ -79,6 +79,19 @@ const CHOICE: &[u8] = b"\xa3\x61a\x01\x61b\x02\x61c\x03";
 /// Where `CHOICE` holds the values of `a`, `b` and `c`, and the drops failing there.
 const CHOICE_DROPS: [(usize, usize); 3] = [(3, 0), (6, 1), (9, 2)];
 
+#[derive(crate::Decode)]
+#[cbor(index)]
+enum Indexed {
+    Unit,
+    Pair(Pair),
+}
+
+#[derive(crate::Decode)]
+enum CborTagged {
+    #[cbor(cbor_tag = 5)]
+    Pair(Pair),
+}
+
 /// `Positional`, `(Tracked, Tracked, u32)` and `[Tracked; 3]` alike: elements 1 and 2 decode to
 /// `Tracked`.
 const POSITIONAL: &[u8] = b"\x83\x01\x02\x03";
@@ -180,20 +193,31 @@ fn an_option_drops_its_payload_pending_or_moved_into_some() {
     }
 }
 
+/// `T` decodes `CHOICE` after `prefix` as a `Pair` payload: failing or abandoning at each of its
+/// values drops exactly the fields initialized so far.
+fn drops_inside_payload<T: for<'de> Decode<'de>>(prefix: &[u8], chunk: usize) {
+    let complete = [prefix, CHOICE].concat();
+    for (value, drops) in CHOICE_DROPS {
+        let at = prefix.len() + value;
+        assert_eq!(
+            drops_after::<T>(&[&complete[..at], b"\xf5"].concat(), chunk),
+            (Some(ErrorKind::TypeMismatch), drops)
+        );
+        assert_eq!(drops_after::<T>(&complete[..at], chunk), (None, drops));
+    }
+}
+
 #[test]
-fn an_untagged_variant_drops_what_its_payload_initialized() {
+fn enum_variants_drop_what_their_payload_initialized() {
     for chunk in [1, 4, 64] {
-        for (value, drops) in CHOICE_DROPS {
-            assert_eq!(
-                drops_after::<Choice>(&[&CHOICE[..value], b"\xf5"].concat(), chunk),
-                (Some(ErrorKind::TypeMismatch), drops)
-            );
-            assert_eq!(
-                drops_after::<Choice>(&CHOICE[..value], chunk),
-                (None, drops)
-            );
-        }
+        drops_inside_payload::<Choice>(b"", chunk);
+        drops_inside_payload::<Indexed>(b"\x82\x01", chunk);
+        drops_inside_payload::<CborTagged>(b"\xc5", chunk);
         assert_eq!(drops_after::<Choice>(CHOICE, chunk), (None, 2));
+        assert_eq!(
+            drops_after::<Indexed>(&[b"\x83\x01".as_slice(), CHOICE, b"\x00"].concat(), chunk),
+            (Some(ErrorKind::TypeMismatch), 2)
+        );
     }
 }
 

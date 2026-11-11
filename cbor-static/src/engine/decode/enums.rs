@@ -105,7 +105,7 @@ fn named(
     }
 }
 
-fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
+pub(super) fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
     let DecKind::Enum { variants, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
     };
@@ -117,14 +117,14 @@ fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
     Ok(After::Entry)
 }
 
-fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
+pub(super) fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
     match frame.phase {
         Phase::EnumDone => Ok(()),
         _ => Err(ErrorKind::TypeMismatch),
     }
 }
 
-fn drop(frame: &Frame) {
+pub(super) fn drop(frame: &Frame) {
     if let (
         DecKind::Enum {
             drop: Some(drop), ..
@@ -134,4 +134,9 @@ fn drop(frame: &Frame) {
     {
         unsafe { drop(frame.base) };
     }
+}
+
+/// For a frame whose only entry is its payload: builds the variant and closes with it.
+pub(super) fn assembled(frame: &mut Frame) -> Result<After, ErrorKind> {
+    child_done(frame).map(|_| After::Close)
 }
