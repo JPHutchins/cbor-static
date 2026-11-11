@@ -161,6 +161,8 @@ fn frames<S>(stack: &mut MaybeUninit<S>, depth: usize) -> &mut [MaybeUninit<Fram
 }
 
 pub(crate) fn bit(index: u8) -> u64 {
+    #[cfg(kani)]
+    kani::assert(index < 64, "a bit index names one of 64 levels");
     1u64.checked_shl(u32::from(index)).unwrap_or(0)
 }
 

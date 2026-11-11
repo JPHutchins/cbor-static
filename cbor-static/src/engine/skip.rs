@@ -297,3 +297,119 @@ mod tests {
         );
     }
 }
+
+#[cfg(kani)]
+mod proofs {
+    use core::mem::MaybeUninit;
+
+    use super::{MAX_INDEFINITE, MAX_SAVED, Skip, Walk};
+    use crate::engine::text::Utf8;
+    use crate::error::ErrorKind;
+    use crate::wire::{Header, INDEFINITE, Major};
+
+    const MAJORS: [Major; 8] = [
+        Major::Uint,
+        Major::Nint,
+        Major::Bytes,
+        Major::Text,
+        Major::Array,
+        Major::Map,
+        Major::Tag,
+        Major::Simple,
+    ];
+    const BREAK: Header = Header {
+        major: Major::Simple,
+        info: INDEFINITE,
+        arg: 0,
+    };
+
+    /// Any header: the skip reads only its major type, whether it is indefinite, and its argument.
+    fn any_header() -> Header {
+        let (major, info): (usize, u8) = (kani::any(), kani::any());
+        kani::assume(major < MAJORS.len() && (info < 28 || info == INDEFINITE));
+        Header {
+            major: MAJORS[major],
+            info,
+            arg: kani::any(),
+        }
+    }
+
+    fn open(levels: u8) -> u64 {
+        u64::MAX.checked_shr(64 - u32::from(levels)).unwrap_or(0)
+    }
+
+    /// The skip state's invariant between headers.
+    fn holds(skip: &Skip) -> bool {
+        skip.walk.levels <= MAX_INDEFINITE
+            && skip.maps & !open(skip.walk.levels) == 0
+            && usize::from(skip.walk.saved_len) <= MAX_SAVED
+            && (skip.indefinite & open(skip.walk.levels)).count_ones()
+                == u32::from(skip.walk.saved_len)
+    }
+
+    /// Any state that satisfies the invariant.
+    fn any_skip() -> Skip {
+        let chunked: bool = kani::any();
+        let skip = Skip {
+            walk: Walk {
+                pending: kani::any(),
+                levels: kani::any(),
+                saved_len: kani::any(),
+                payload_left: kani::any(),
+                text: kani::any(),
+                chunked: chunked.then(|| any_header().major),
+                utf8: Utf8::new(),
+            },
+            indefinite: kani::any(),
+            maps: kani::any(),
+            saved: [MaybeUninit::new(kani::any()); MAX_SAVED],
+        };
+        kani::assume(holds(&skip));
+        skip
+    }
+
+    #[kani::proof]
+    fn a_header_keeps_the_invariant_without_overflow() {
+        let mut skip = any_skip();
+        if skip.on_header(any_header()).is_ok() {
+            assert!(holds(&skip));
+        }
+    }
+
+    #[kani::proof]
+    fn opening_past_64_levels_or_8_saved_counts_is_limit_exceeded() {
+        let mut skip = any_skip();
+        let header = any_header();
+        kani::assume(
+            skip.walk.chunked.is_none()
+                && matches!(header.major, Major::Array | Major::Map)
+                && header.indefinite(),
+        );
+        let saves = skip.walk.pending > 1 || (skip.walk.pending == 0 && skip.maps & 1 == 1);
+        let full = skip.walk.levels == MAX_INDEFINITE
+            || (saves && usize::from(skip.walk.saved_len) == MAX_SAVED);
+        assert_eq!(skip.on_header(header).is_err(), full);
+    }
+
+    #[kani::proof]
+    fn an_indefinite_map_closes_only_on_a_key_boundary() {
+        let mut skip = any_skip();
+        kani::assume(
+            skip.walk.levels > 0
+                && skip.maps & 1 == 1
+                && skip.walk.pending == 0
+                && skip.walk.chunked.is_none()
+                && skip.walk.payload_left == 0,
+        );
+        let (key, value) = (any_header(), any_header());
+        let scalar = |header: &Header| {
+            matches!(header.major, Major::Uint | Major::Nint | Major::Simple) && !header.is_break()
+        };
+        kani::assume(scalar(&key) && scalar(&value));
+        let mut unpaired = skip.clone();
+        assert!(unpaired.on_header(key).is_ok());
+        assert_eq!(unpaired.on_header(BREAK), Err(ErrorKind::NotWellFormed));
+        assert!(skip.on_header(key).is_ok() && skip.on_header(value).is_ok());
+        assert_eq!(skip.on_header(BREAK), Ok(()));
+    }
+}
