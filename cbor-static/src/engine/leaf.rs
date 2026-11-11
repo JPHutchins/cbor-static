@@ -3,6 +3,7 @@
     reason = "every field pointer is a descriptor offset taken with offset_of!, so it is aligned"
 )]
 
+use super::text::validate;
 use super::{Item, Next, Pending};
 use crate::error::ErrorKind;
 use crate::scalar::Scalar;
@@ -184,8 +185,8 @@ unsafe fn enc_str(src: *const u8, out: &mut Pending) {
 
 unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     match item.header.major {
-        Major::Text => core::str::from_utf8(item.payload)
-            .map_err(|_| ErrorKind::InvalidUtf8)
+        Major::Text => validate(item.payload)
+            .map(|()| unsafe { core::str::from_utf8_unchecked(item.payload) })
             .map(unsafe { store::<&str>(dst) }),
         _ => Err(ErrorKind::TypeMismatch),
     }
