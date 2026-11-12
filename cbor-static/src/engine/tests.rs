@@ -8,6 +8,8 @@ use crate::error::{Error, ErrorKind};
 use crate::scalar::Scalar;
 use crate::schema::{DecKind, Decode, EncKind, Encode, Layout};
 
+mod drops;
+
 std::thread_local! {
     static DROPS: Cell<usize> = const { Cell::new(0) };
 }
