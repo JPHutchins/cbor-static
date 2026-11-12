@@ -37,17 +37,21 @@ use crate::wire::{Header, Major, length};
 use entries::{Entry, entries, next_entry, unnamed};
 use steps::{name, skip_unknown, start_name, start_skip};
 
-/// A header plus, for definite strings, its payload, and the profile decoding it.
+/// A header plus its payload, and the profile decoding it. A definite string's payload is its own;
+/// an indefinite string's is the rest of the chunk, from which a leaf that accepts chunks takes
+/// them.
 pub struct Item<'a> {
     pub header: Header,
     pub payload: &'a [u8],
     pub strict: Option<&'static StrictOps>,
 }
 
-/// What a leaf decoder needs next: nothing, or the following item decoded as another kind.
+/// What a leaf decoder needs next: nothing; the following item decoded as another kind; or, having
+/// taken an indefinite string's chunks and break from its payload, that many bytes consumed.
 pub enum Next {
     Done,
     Then(&'static DecKind),
+    Took(usize),
 }
 
 /// The core's continuation: what the next bytes of input mean.
@@ -243,7 +247,7 @@ fn value(
     match state.target.kind {
         DecKind::Leaf { decode, .. } => {
             let payload = match (header.major, header.indefinite()) {
-                (Major::Bytes | Major::Text, true) => return Err(ErrorKind::IndefiniteString),
+                (Major::Bytes | Major::Text, true) => input.rest(),
                 (Major::Bytes | Major::Text, false) => input
                     .take_exact(length(header.arg)?)
                     .ok_or(ErrorKind::NeedContiguous)?,
@@ -260,6 +264,11 @@ fn value(
                 )
             }? {
                 Next::Done => complete(state, frames).map(|()| Flow::Continue),
+                Next::Took(taken) => input
+                    .take_exact(taken)
+                    .ok_or(ErrorKind::Unsupported)
+                    .and_then(|_| complete(state, frames))
+                    .map(|()| Flow::Continue),
                 Next::Then(next) => {
                     state.target.kind = next;
                     Ok(Flow::Continue)

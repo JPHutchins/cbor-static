@@ -3,6 +3,7 @@
     reason = "every field pointer is a descriptor offset taken with offset_of!, so it is aligned"
 )]
 
+use super::chunks;
 use super::text::utf8;
 use super::{Item, Next, Pending};
 use crate::error::ErrorKind;
@@ -171,20 +172,19 @@ pub unsafe fn dec_i128(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind>
 }
 
 unsafe fn dec_u128_digits(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
-    digits(item).map(unsafe { store::<u128>(dst) })
+    digits(item).map(|stored| unsafe { store_then::<u128>(dst, stored) })
 }
 
 unsafe fn dec_i128_positive(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     digits(item)
-        .and_then(|n| i128::try_from(n).map_err(|_| ErrorKind::OutOfRange))
-        .map(unsafe { store::<i128>(dst) })
+        .and_then(|(n, next)| Ok((i128::try_from(n).map_err(|_| ErrorKind::OutOfRange)?, next)))
+        .map(|stored| unsafe { store_then::<i128>(dst, stored) })
 }
 
 unsafe fn dec_i128_negative(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     digits(item)
-        .and_then(|n| i128::try_from(n).map_err(|_| ErrorKind::OutOfRange))
-        .map(|n| !n)
-        .map(unsafe { store::<i128>(dst) })
+        .and_then(|(n, next)| Ok((!i128::try_from(n).map_err(|_| ErrorKind::OutOfRange)?, next)))
+        .map(|stored| unsafe { store_then::<i128>(dst, stored) })
 }
 
 unsafe fn dec_null(_: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
@@ -205,8 +205,9 @@ unsafe fn enc_str(src: *const u8, out: &mut Pending) {
 }
 
 unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
-    match item.header.major {
-        Major::Text => utf8(item.payload).map(unsafe { store::<&str>(dst) }),
+    match (item.header.major, item.header.indefinite()) {
+        (Major::Text, false) => utf8(item.payload).map(unsafe { store::<&str>(dst) }),
+        (Major::Text, true) => Err(ErrorKind::IndefiniteString),
         _ => Err(ErrorKind::TypeMismatch),
     }
 }
@@ -218,8 +219,9 @@ unsafe fn enc_bytes(src: *const u8, out: &mut Pending) {
 }
 
 unsafe fn dec_bytes(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
-    match item.header.major {
-        Major::Bytes => Ok(unsafe { store::<&[u8]>(dst) }(item.payload)),
+    match (item.header.major, item.header.indefinite()) {
+        (Major::Bytes, false) => Ok(unsafe { store::<&[u8]>(dst) }(item.payload)),
+        (Major::Bytes, true) => Err(ErrorKind::IndefiniteString),
         _ => Err(ErrorKind::TypeMismatch),
     }
 }
@@ -238,20 +240,29 @@ fn bignum(out: &mut Pending, major: Major, tag: u64, magnitude: u128) {
     }
 }
 
-fn digits(item: &Item<'_>) -> Result<u128, ErrorKind> {
-    match item.header.major {
-        Major::Bytes => {
-            if let Some(strict) = item.strict {
-                (strict.bignum)(item.payload)?;
-            }
-            let significant = item.payload.iter().skip_while(|&&b| b == 0);
-            if significant.clone().count() > 16 {
-                return Err(ErrorKind::OutOfRange);
-            }
-            Ok(significant.fold(0, |acc, &b| acc << 8 | u128::from(b)))
-        }
-        _ => Err(ErrorKind::TypeMismatch),
+/// A bignum's magnitude, from digits in a definite or an indefinite byte string, and how the
+/// decoder goes on after them.
+fn digits(item: &Item<'_>) -> Result<(u128, Next), ErrorKind> {
+    let (digits, next) = chunks::of::<[u8]>(item)?;
+    if let Some(strict) = item.strict {
+        (strict.bignum)(item.payload)?;
     }
+    let significant = digits
+        .into_iter()
+        .flatten()
+        .copied()
+        .skip_while(|&b| b == 0);
+    if significant.clone().count() > 16 {
+        return Err(ErrorKind::OutOfRange);
+    }
+    Ok((significant.fold(0, |acc, b| acc << 8 | u128::from(b)), next))
+}
+
+/// # Safety
+/// As [`store`].
+unsafe fn store_then<T>(dst: *mut u8, (value, next): (T, Next)) -> Next {
+    unsafe { dst.cast::<T>().write(value) };
+    next
 }
 
 /// # Safety

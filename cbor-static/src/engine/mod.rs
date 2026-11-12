@@ -2,6 +2,7 @@
 //! The one module that dereferences descriptor offsets. Every other module denies `unsafe`, except
 //! to declare or implement the codec traits (D-24a).
 
+mod chunks;
 mod decode;
 mod encode;
 mod glue;
@@ -16,6 +17,7 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr;
 
+pub use chunks::{Chunk, ChunkIter, Chunks};
 pub use decode::{
     ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, CBOR_TAG as DECODE_CBOR_TAG, DecOps,
     ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, INDEX as DECODE_INDEX,
@@ -30,6 +32,7 @@ pub use encode::{
     INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION,
     UNTAGGED as ENCODE_UNTAGGED,
 };
+use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 pub use glue::{
     FieldPtrFn, IndexFn, SomeFn, WriteFn, assemble, drop_fn, field_ptr_of, index_of, index_tag,
     offset, some, some_ptr, write_tag,

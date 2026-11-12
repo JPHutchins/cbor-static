@@ -3,7 +3,7 @@
 mod common;
 
 use cbor_static::ErrorKind;
-use common::{decode, decode_strict, encode};
+use common::{chunked_decode, decode, decode_strict, encode};
 
 #[test]
 fn integer_fields_reject_floats_and_float_fields_reject_integers() {
@@ -180,6 +180,26 @@ fn an_empty_bignum_is_zero_or_minus_one() {
     assert_eq!(decode::<u128>(b"\xc2\x40"), Ok(0));
     assert_eq!(decode::<i128>(b"\xc2\x40"), Ok(0));
     assert_eq!(decode::<i128>(b"\xc3\x40"), Ok(-1));
+}
+
+#[test]
+fn bignum_digits_may_come_in_chunks_from_contiguous_input() {
+    let chunked = b"\xc2\x5f\x41\x01\x40\x48\0\0\0\0\0\0\0\0\xff";
+    assert_eq!(decode::<u128>(chunked), Ok(1 << 64));
+    assert_eq!(decode::<i128>(b"\xc3\x5f\x41\x01\xff"), Ok(-2));
+    assert_eq!(decode::<u128>(b"\xc2\x5f\xff"), Ok(0));
+    assert_eq!(
+        chunked_decode::<u128>(chunked, 4),
+        Err(ErrorKind::NeedContiguous)
+    );
+    assert_eq!(
+        decode_strict::<u128>(chunked),
+        Err(ErrorKind::NotDeterministic)
+    );
+    assert_eq!(
+        decode::<u128>(b"\xc2\x5f\x61a\xff"),
+        Err(ErrorKind::NotWellFormed)
+    );
 }
 
 #[test]

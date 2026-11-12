@@ -3,6 +3,7 @@
 
 mod array;
 mod cbor_tag;
+mod chunks;
 mod elements;
 mod enums;
 mod index;
@@ -16,6 +17,7 @@ use core::ptr;
 
 pub use array::ARRAY;
 pub use cbor_tag::CBOR_TAG;
+pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
