@@ -49,44 +49,46 @@ pub trait Scalar: Copy + 'static {
 #[repr(transparent)]
 pub struct Tagged<const TAG: u64, T>(pub T);
 
-impl Scalar for u32 {
-    const LEAD: Lead = Lead::UINT;
+/// Unsigned integers, `usize` included: no target's `usize` is wider than the wire's `u64`, and
+/// decoding narrows with a check (D-12, D-25).
+macro_rules! unsigned {
+	($($ty:ty),+) => {$(
+		impl Scalar for $ty {
+			const LEAD: Lead = Lead::UINT;
 
-    fn encode(self, out: &mut Pending) {
-        out.head(Major::Uint, self.into());
-    }
+			fn encode(self, out: &mut Pending) {
+				out.head(Major::Uint, u64::try_from(self).unwrap_or(u64::MAX));
+			}
 
-    fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        Self::try_from(unsigned(item)?).map_err(|_| ErrorKind::OutOfRange)
-    }
+			fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
+				Self::try_from(unsigned(item)?).map_err(|_| ErrorKind::OutOfRange)
+			}
+		}
+	)+};
 }
 
-impl Scalar for u64 {
-    const LEAD: Lead = Lead::UINT;
+/// Signed integers, `isize` included, as [`unsigned!`].
+macro_rules! signed {
+	($($ty:ty),+) => {$(
+		impl Scalar for $ty {
+			const LEAD: Lead = Lead::UINT.union(Lead::NINT);
 
-    fn encode(self, out: &mut Pending) {
-        out.head(Major::Uint, self);
-    }
+			fn encode(self, out: &mut Pending) {
+				match i64::try_from(self).unwrap_or(i64::MIN) {
+					value @ 0.. => out.head(Major::Uint, value.cast_unsigned()),
+					value => out.head(Major::Nint, (!value).cast_unsigned()),
+				}
+			}
 
-    fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        unsigned(item)
-    }
+			fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
+				Self::try_from(signed(item)?).map_err(|_| ErrorKind::OutOfRange)
+			}
+		}
+	)+};
 }
 
-impl Scalar for i32 {
-    const LEAD: Lead = Lead::UINT.union(Lead::NINT);
-
-    fn encode(self, out: &mut Pending) {
-        match i64::from(self) {
-            value @ 0.. => out.head(Major::Uint, value.cast_unsigned()),
-            value => out.head(Major::Nint, (!value).cast_unsigned()),
-        }
-    }
-
-    fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        Self::try_from(signed(item)?).map_err(|_| ErrorKind::OutOfRange)
-    }
-}
+unsigned!(u8, u16, u32, u64, usize);
+signed!(i8, i16, i32, i64, isize);
 
 impl Scalar for bool {
     const LEAD: Lead = Lead::BOOL;
@@ -207,7 +209,9 @@ macro_rules! leaf {
     };
 }
 
-scalar!(u32, u64, i32, bool, f32, f64);
+scalar!(
+    u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, bool, f32, f64
+);
 leaf!(
     u128,
     Lead::UINT.union(Lead::TAG),
