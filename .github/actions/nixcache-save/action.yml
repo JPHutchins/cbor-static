@@ -36,6 +36,8 @@ runs:
         GH_TOKEN: ${{ github.token }}
         KEEP: ${{ steps.prepare.outputs.key }}
       run: |
+        gh cache list --ref "$GITHUB_REF" --key "$KEEP" --json key --jq '.[].key' | grep -xF "$KEEP" > /dev/null \
+          || { echo "::error::$KEEP was not saved; keeping this branch's other entries"; exit 1; }
         gh cache list --ref "$GITHUB_REF" --key "nixcache-$RUNNER_OS-" --limit 100 --json id,key \
           --jq '.[] | select(.key != env.KEEP) | .id' \
           | while read -r id; do gh cache delete "$id"; done

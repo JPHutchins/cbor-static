@@ -50,6 +50,8 @@ jobs:
       - run: nix develop -c camas ${{ matrix.task }}
 
   nix:
+    needs: ci
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
