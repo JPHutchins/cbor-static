@@ -7,8 +7,10 @@ mod chunks;
 mod elements;
 mod enums;
 mod index;
+mod linear_map;
 mod map;
 mod option;
+mod seq;
 mod tagged;
 mod untagged;
 
@@ -21,8 +23,10 @@ pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+pub use linear_map::LINEAR_MAP;
 pub use map::MAP;
 pub use option::OPTION;
+pub use seq::SEQ;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
 
@@ -144,7 +148,9 @@ fn emit(
             | EncKind::Enum { ops, .. }
             | EncKind::Array { ops, .. }
             | EncKind::Option { ops, .. }
-            | EncKind::Chunks { ops } => match (ops.open)(state, frames, next.kind, next.at)? {
+            | EncKind::Chunks { ops }
+            | EncKind::Seq { ops, .. }
+            | EncKind::Map { ops, .. } => match (ops.open)(state, frames, next.kind, next.at)? {
                 Some(child) => next = child,
                 None => return Ok(()),
             },
@@ -219,7 +225,9 @@ fn ops(kind: &EncKind) -> Result<&'static EncOps, ErrorKind> {
         | EncKind::Enum { ops, .. }
         | EncKind::Array { ops, .. }
         | EncKind::Option { ops, .. }
-        | EncKind::Chunks { ops } => Ok(ops),
+        | EncKind::Chunks { ops }
+        | EncKind::Seq { ops, .. }
+        | EncKind::Map { ops, .. } => Ok(ops),
         EncKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

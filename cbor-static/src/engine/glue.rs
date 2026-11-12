@@ -7,6 +7,17 @@ pub type FieldPtrFn = unsafe fn(*const u8, u8) -> *const u8;
 /// The payload of an `Option`, or null for `None`.
 pub type SomeFn = unsafe fn(*const u8) -> *const u8;
 pub type WriteFn = unsafe fn(*mut u8);
+/// Sets a sequence's length to `len`, committing the elements before it, and returns the slot of
+/// element `len`, or null at capacity.
+pub type AtFn = unsafe fn(*mut u8, usize) -> *mut u8;
+/// A sequence's first element and its length.
+pub type ViewFn = unsafe fn(*const u8) -> (*const u8, usize);
+/// Whether the key of a map's entry `len`, decoded but not committed, differs from every earlier
+/// one.
+pub type FreshFn = unsafe fn(*const u8, usize) -> bool;
+pub type LenFn = unsafe fn(*const u8) -> usize;
+/// A map's entry `index`: its key and value, or nulls past the end.
+pub type EntryFn = unsafe fn(*const u8, usize) -> (*const u8, *const u8);
 
 /// # Safety
 /// `e` points to a valid `E`.

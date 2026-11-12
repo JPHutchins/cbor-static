@@ -7,9 +7,11 @@ mod elements;
 mod entries;
 mod enums;
 mod index;
+mod linear_map;
 mod map;
 mod option;
 mod owned;
+mod seq;
 mod steps;
 mod tagged;
 mod untagged;
@@ -22,9 +24,11 @@ pub use cbor_tag::CBOR_TAG;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+pub use linear_map::LINEAR_MAP;
 pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
 pub use option::OPTION;
 pub use owned::{AppendFn, BYTES as BYTES_OWNED, BeginFn, FinishFn, TEXT as TEXT_OWNED};
+pub use seq::SEQ;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
 
@@ -286,7 +290,9 @@ fn value(
         | DecKind::Enum { ops, .. }
         | DecKind::Array { ops, .. }
         | DecKind::Option { ops, .. }
-        | DecKind::Owned { ops, .. } => match ops.value {
+        | DecKind::Owned { ops, .. }
+        | DecKind::Seq { ops, .. }
+        | DecKind::Map { ops, .. } => match ops.value {
             Begin::Header(on_header) => on_header(state, frames, input, header),
             Begin::Peek(_) => Err(ErrorKind::Unsupported),
         },
@@ -381,7 +387,9 @@ fn ops(kind: &DecKind) -> Result<&'static DecOps, ErrorKind> {
         | DecKind::Enum { ops, .. }
         | DecKind::Array { ops, .. }
         | DecKind::Option { ops, .. }
-        | DecKind::Owned { ops, .. } => Ok(ops),
+        | DecKind::Owned { ops, .. }
+        | DecKind::Seq { ops, .. }
+        | DecKind::Map { ops, .. } => Ok(ops),
         DecKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

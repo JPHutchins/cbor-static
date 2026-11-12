@@ -2,6 +2,8 @@
 //! The one module that dereferences descriptor offsets. Every other module denies `unsafe`, except
 //! to declare or implement the codec traits (D-24a).
 
+#[cfg(feature = "heapless")]
+mod capacity;
 mod chunks;
 mod decode;
 mod encode;
@@ -18,25 +20,28 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr;
 
+#[cfg(feature = "heapless")]
+pub(crate) use capacity::{assemble as assemble_map, at, entry, fresh, len_of, shadow_fits, view};
 pub use chunks::{Chunk, ChunkIter, Chunks};
 pub use decode::{
     ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, AppendFn, BYTES_OWNED, BeginFn,
     CBOR_TAG as DECODE_CBOR_TAG, DecOps, ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL,
-    FinishFn, INDEX as DECODE_INDEX, INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP,
-    MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY,
-    MAP_MIXED as DECODE_MAP_MIXED, MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
-    OPTION as DECODE_OPTION, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
+    FinishFn, INDEX as DECODE_INDEX, INTERNAL as DECODE_INTERNAL, Item,
+    LINEAR_MAP as DECODE_LINEAR_MAP, MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY,
+    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
+    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION, SEQ as DECODE_SEQ,
+    TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 pub use encode::{
     ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, CBOR_TAG as ENCODE_CBOR_TAG,
     ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps, INDEX as ENCODE_INDEX,
-    INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION,
-    UNTAGGED as ENCODE_UNTAGGED,
+    INTERNAL as ENCODE_INTERNAL, LINEAR_MAP as ENCODE_LINEAR_MAP, MAP as ENCODE_MAP,
+    OPTION as ENCODE_OPTION, SEQ as ENCODE_SEQ, UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 pub use glue::{
-    FieldPtrFn, IndexFn, SomeFn, WriteFn, assemble, drop_fn, field_ptr_of, index_of, index_tag,
-    offset, some, some_ptr, wraps, write_tag,
+    AtFn, EntryFn, FieldPtrFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn, assemble, drop_fn,
+    field_ptr_of, index_of, index_tag, offset, some, some_ptr, wraps, write_tag,
 };
 pub(crate) use input::Input;
 pub(crate) use leaf::{

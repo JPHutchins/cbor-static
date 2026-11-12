@@ -170,6 +170,20 @@ FEATURES: Final = (
 		(f"{DECODE}::owned::BYTES", f"{STRINGS}::bounded::append_vec::<8, u8>"),
 		cargo_features=(HEAPLESS,),
 	),
+	Feature(
+		"heapless `Vec`",
+		"heapless_vec",
+		"struct",
+		(f"{DECODE}::seq::SEQ", f"{ENCODE}::seq::SEQ"),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
+		"heapless `LinearMap`",
+		"heapless_map",
+		"struct",
+		(f"{DECODE}::linear_map::LINEAR_MAP", f"{ENCODE}::linear_map::LINEAR_MAP"),
+		cargo_features=(HEAPLESS,),
+	),
 )
 BY_TEMPLATE: Final = {feature.template: feature for feature in FEATURES}
 

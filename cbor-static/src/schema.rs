@@ -2,8 +2,9 @@
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
 use crate::engine::{
-    AbsentFn, AppendFn, BeginFn, DECODE_OPTION, DecOps, DecodeFn, ENCODE_OPTION, EncOps, EncodeFn,
-    FieldPtrFn, FinishFn, IndexFn, SomeFn, WriteFn, absent_option, drop_fn, none, some, some_ptr,
+    AbsentFn, AppendFn, AtFn, BeginFn, DECODE_OPTION, DecOps, DecodeFn, ENCODE_OPTION, EncOps,
+    EncodeFn, EntryFn, FieldPtrFn, FinishFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn,
+    absent_option, drop_fn, none, some, some_ptr,
 };
 use crate::lead::Lead;
 
@@ -159,6 +160,21 @@ pub enum EncKind {
     },
     /// [`crate::Chunks`]: a string its ops write chunk by chunk.
     Chunks { ops: &'static EncOps },
+    /// A sequence of `elem`s, `stride` bytes apart, that `view` finds.
+    Seq {
+        ops: &'static EncOps,
+        elem: &'static EncKind,
+        stride: usize,
+        view: ViewFn,
+    },
+    /// A map of `len` entries of `key` and `value`, each found by `entry`.
+    Map {
+        ops: &'static EncOps,
+        key: &'static EncKind,
+        value: &'static EncKind,
+        len: LenFn,
+        entry: EntryFn,
+    },
 }
 
 /// `repr(C, u8)` keeps `ops` (or a leaf's `decode`) and `drop` each at one offset in every variant,
@@ -208,6 +224,38 @@ pub enum DecKind {
         append: AppendFn,
         finish: FinishFn,
     },
+    /// A sequence of up to a capacity of `elem`s, each decoded in the slot `at` gives.
+    Seq {
+        ops: &'static DecOps,
+        begin: BeginFn,
+        drop: Option<WriteFn>,
+        elem: &'static DecKind,
+        at: AtFn,
+    },
+    /// A map of up to a capacity of entries of `key` and `value`, decoded through `glue`.
+    Map {
+        ops: &'static DecOps,
+        key: &'static DecKind,
+        drop: Option<WriteFn>,
+        value: &'static DecKind,
+        glue: &'static MapGlue,
+    },
+}
+
+/// How a map's entries decode in place: into a shadow sequence of `(K, V)` in the map's slot, which
+/// `assemble` turns into the map once every entry is in.
+pub struct MapGlue {
+    /// Writes the empty shadow.
+    pub begin: BeginFn,
+    /// The shadow's [`AtFn`].
+    pub at: AtFn,
+    /// The offsets of the key and the value in an entry.
+    pub key_at: usize,
+    pub value_at: usize,
+    pub fresh: FreshFn,
+    pub drop_key: Option<WriteFn>,
+    pub drop_shadow: Option<WriteFn>,
+    pub assemble: WriteFn,
 }
 
 pub struct DecVariant {
@@ -297,14 +345,43 @@ impl DecKind {
                 append,
                 finish,
             },
+            Self::Seq {
+                ops,
+                begin,
+                elem,
+                at,
+                ..
+            } => Self::Seq {
+                ops,
+                begin,
+                drop,
+                elem,
+                at,
+            },
+            Self::Map {
+                ops,
+                key,
+                value,
+                glue,
+                ..
+            } => Self::Map {
+                ops,
+                key,
+                drop,
+                value,
+                glue,
+            },
         }
     }
 
     pub(crate) const fn layout(&self) -> Option<&'static Layout> {
         match self {
-            Self::Leaf { .. } | Self::Array { .. } | Self::Option { .. } | Self::Owned { .. } => {
-                None
-            }
+            Self::Leaf { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Owned { .. }
+            | Self::Seq { .. }
+            | Self::Map { .. } => None,
             Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
         }
     }
@@ -316,16 +393,21 @@ impl DecKind {
             | Self::Enum { drop, .. }
             | Self::Array { drop, .. }
             | Self::Option { drop, .. }
-            | Self::Owned { drop, .. } => *drop,
+            | Self::Owned { drop, .. }
+            | Self::Seq { drop, .. }
+            | Self::Map { drop, .. } => *drop,
         }
     }
 
     pub(crate) const fn default_fn(&self) -> Option<WriteFn> {
         match self {
             Self::Leaf { default, .. } | Self::Option { default, .. } => *default,
-            Self::Struct { .. } | Self::Enum { .. } | Self::Array { .. } | Self::Owned { .. } => {
-                None
-            }
+            Self::Struct { .. }
+            | Self::Enum { .. }
+            | Self::Array { .. }
+            | Self::Owned { .. }
+            | Self::Seq { .. }
+            | Self::Map { .. } => None,
         }
     }
 }
