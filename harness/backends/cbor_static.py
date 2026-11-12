@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 	from collections.abc import Callable
 
 DERIVE: Final = "#[derive(cbor_static::Cbor)]"
+ROUNDTRIP: Final = "roundtrip"
 
 
 def backend(name: str, repr_attr: str = "", rustflags: tuple[str, ...] = ()) -> Backend:
@@ -49,10 +50,13 @@ def enum_def(repr_attr: str) -> Callable[[EnumDef], str]:
 	)
 
 
-def roundtrip(msg: Message) -> str:
-	return (
-		f"fn {msg.fn_name}(input: &[u8], out: &mut [u8]) -> usize {{ roundtrip::<{msg.name}>(input, out) }}\n"
-	)
+def roundtrip(msg: Message, decoding: str = ROUNDTRIP) -> str:
+	r"""`msg`'s round trip through `decoding`, a generic function of the prelude.
+
+	>>> roundtrip(Message("T0", ()), "roundtrip_strict")
+	'fn roundtrip_t0(input: &[u8], out: &mut [u8]) -> usize { roundtrip_strict::<T0>(input, out) }\n'
+	"""
+	return f"fn {msg.fn_name}(input: &[u8], out: &mut [u8]) -> usize {{ {decoding}::<{msg.name}>(input, out) }}\n"
 
 
 CBOR_STATIC: Final = backend("cbor-static")
