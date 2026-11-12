@@ -8,8 +8,13 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+heapless = ["dep:heapless"]
+nightly = []
+
 [dependencies]
 cbor-static-derive = { path = "../cbor-static-derive", version = "=0.0.0" }
+heapless = { version = "0.9.3", optional = true, default-features = false }
 
 [dev-dependencies]
 proc-macro2 = "1"
