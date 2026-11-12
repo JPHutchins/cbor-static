@@ -1,9 +1,16 @@
 """Every check for cbor-static, local and CI."""
 
+import os
+import sys
 import tomllib
 from pathlib import Path
 
 from camas import Claude, Config, Parallel, Project, Task
+
+if "CBOR_STATIC_DEV_SHELL" not in os.environ and not any(
+	arg.startswith("--github-matrix") for arg in sys.argv
+):
+	sys.exit("cbor-static: run camas inside the dev shell, e.g. `nix develop -c camas <task>`")
 
 ROOT = Path(__file__).parent
 TRIPLES = tuple(tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["targets"])
@@ -22,6 +29,9 @@ tasks_check = (
 	| Task("uv run mypy tasks.py")
 )
 rust_fmt_check = Task("cargo fmt --all --check")
+nix_fmt = Task("treefmt", mutates=True)
+nix_fmt_check = Task("treefmt --ci")
+flake = Task("nix flake check")
 clippy = Task(
 	"cargo clippy --workspace --all-targets -- -D warnings",
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/clippy"},
@@ -46,17 +56,8 @@ build = Parallel(
 	matrix={"TRIPLE": TRIPLES},
 )
 miri = Task("cargo miri test -p cbor-static", cwd="nightly", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"})
-doctor = (
-	Task("git submodule update --init")
-	| (
-		Task("rustup toolchain install", help="installs what rust-toolchain.toml declares")
-		+ Task("rustup toolchain install", cwd="nightly")
-	)
-	| Task("uv sync --locked")
-)
-
-fix = rust_fmt | tasks_fix | harness
-check = rust_fmt_check | clippy | unit | usize16 | tasks_check | harness
+fix = rust_fmt | tasks_fix | nix_fmt | harness
+check = rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | tasks_check | harness
 f32 = Task(
 	"cargo test --release -p cbor-static --test floats -- --ignored",
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},
@@ -67,7 +68,7 @@ kani = (
 	+ Task("cargo kani setup")
 	+ Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
 )
-ci = (check - unit) | test | build | miri | f32 | kani
+ci = (check - unit) | test | build | miri | f32 | kani | flake
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
