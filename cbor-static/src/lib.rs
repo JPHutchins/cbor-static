@@ -92,6 +92,15 @@
 //! struct Meters(#[serde(rename = "m")] u32);
 //! ```
 //!
+//! Nor does any attribute on a newtype variant's field, which nothing would honour:
+//!
+//! ```compile_fail
+//! #[derive(cbor_static::Cbor)]
+//! enum Frame {
+//!     Raw(#[cbor(bytes)] [u8; 4]),
+//! }
+//! ```
+//!
 //! An `Option` of a nested type is null or the value (D-08, D-20):
 //!
 //! ```

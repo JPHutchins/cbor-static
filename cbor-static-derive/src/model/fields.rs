@@ -23,16 +23,13 @@ pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
     check_name(&name, variant.span())?;
     let payload = match &variant.fields {
         Fields::Unit => Payload::Unit,
-        Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => Payload::Newtype(
-            unnamed
-                .unnamed
-                .iter()
-                .map(|f| f.ty.clone())
-                .next()
-                .ok_or_else(|| {
-                    syn::Error::new(unnamed.span(), "cbor-static: empty tuple variant")
-                })?,
-        ),
+        Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => {
+            let field = unnamed.unnamed.first().ok_or_else(|| {
+                syn::Error::new(unnamed.span(), "cbor-static: empty tuple variant")
+            })?;
+            bare(&field.attrs, "a newtype variant's field")?;
+            Payload::Newtype(field.ty.clone())
+        }
         Fields::Unnamed(unnamed) => {
             return Err(syn::Error::new(
                 unnamed.span(),
