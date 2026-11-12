@@ -10,7 +10,7 @@ use crate::half::F16;
 use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
 use crate::stack::{Level, depth_of};
-use crate::wire::{FALSE, Major, TRUE, float};
+use crate::wire::{FALSE, Major, NULL, TRUE, float};
 
 /// A single-item value with no nesting and no borrowed payload.
 pub trait Scalar: Copy + 'static {
@@ -90,6 +90,22 @@ macro_rules! signed {
 
 unsigned!(u8, u16, u32, u64, usize);
 signed!(i8, i16, i32, i64, isize);
+
+/// `()`, and through it every unit struct, is `null` (D-08).
+impl Scalar for () {
+    const LEAD: Lead = Lead::NULL;
+
+    fn encode(self, out: &mut Pending) {
+        out.head(Major::Simple, NULL.into());
+    }
+
+    fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
+        match (item.header.major, item.header.info) {
+            (Major::Simple, NULL) => Ok(()),
+            _ => Err(ErrorKind::TypeMismatch),
+        }
+    }
+}
 
 impl Scalar for bool {
     const LEAD: Lead = Lead::BOOL;
@@ -210,9 +226,8 @@ macro_rules! leaf {
     };
 }
 
-scalar!(
-    u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, bool, f32, f64, F16
-);
+scalar!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+scalar!((), bool, f32, f64, F16);
 #[cfg(feature = "nightly")]
 scalar!(f16);
 leaf!(

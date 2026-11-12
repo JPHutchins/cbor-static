@@ -63,6 +63,13 @@ FEATURES: Final = (
 		"`#[cbor(array)]`", "array_struct", "struct", (f"{DECODE}::array::ARRAY", f"{ENCODE}::array::ARRAY")
 	),
 	Feature("tuple", "tuple", "struct", (f"{DECODE}::array::ARRAY", f"{ENCODE}::array::ARRAY")),
+	Feature("tuple struct", "tuple_struct", "struct", (f"{DECODE}::array::ARRAY", f"{ENCODE}::array::ARRAY")),
+	Feature(
+		"unit and newtype structs",
+		"shapes",
+		"struct",
+		tuple(f"{LEAF}::{kind}_scalar::<()>" for kind in ("enc", "dec")),
+	),
 	Feature(
 		"`[T; N]`",
 		"fixed_array",

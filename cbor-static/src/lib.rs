@@ -66,6 +66,32 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! Unit, newtype and tuple structs take serde's shapes: null, the field, and an array of every
+//! field (D-08):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Ping;
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Meters(u32);
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Span(u32, Option<u32>);
+//!
+//! let mut out = [0u8; 8];
+//! let len = cbor_static::encode_into(&(Ping, Meters(1000), Span(1, None)), &mut out)?;
+//! assert_eq!(&out[..len], b"\x83\xf6\x19\x03\xe8\x82\x01\xf6");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! Their fields are positional, so a key attribute does not compile:
+//!
+//! ```compile_fail
+//! #[derive(cbor_static::Cbor)]
+//! struct Meters(#[serde(rename = "m")] u32);
+//! ```
+//!
 //! An `Option` of a nested type is null or the value (D-08, D-20):
 //!
 //! ```
@@ -275,7 +301,7 @@ pub mod __private {
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
         ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
         ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
-        write_tag,
+        wraps, write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::lead::Lead;

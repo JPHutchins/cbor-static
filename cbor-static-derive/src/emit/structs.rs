@@ -39,7 +39,7 @@ pub fn structure(
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::ENCODE));
         Body {
-            kind: quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
+            kind: quote!(&__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
             depth,
             lead: lead.clone(),
@@ -49,7 +49,7 @@ pub fn structure(
         let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
         let kinds = types.iter().map(|ty| quote!(<#ty as #path>::DECODE));
         Body {
-            kind: quote!(__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
+            kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
             lead,
@@ -59,6 +59,43 @@ pub fn structure(
     quote! {
         #layout
         #labels
+        #encode
+        #decode
+    }
+}
+
+/// A unit or newtype struct (D-08): the descriptor of the `inner` type it wraps at `offset`, with
+/// a const assert that it does. A decoded value drops as the wrapper, which may have its own `Drop`.
+pub fn transparent(
+    item: &Item,
+    inner: &TokenStream,
+    offset: &TokenStream,
+    directions: Directions,
+) -> TokenStream {
+    let wraps = quote!(assert!(
+        __p::wraps::<Self, #inner>(#offset),
+        "cbor-static: a unit or newtype struct must be laid out as what it wraps"
+    ););
+    let encode = impls(item, directions, Trait::Encode, |path| Body {
+        kind: quote!({ #wraps <#inner as #path>::ENCODE }),
+        stack: quote!(<#inner as #path>::Stack),
+        depth: quote!(<#inner as #path>::MAX_DEPTH),
+        lead: TokenStream::new(),
+    });
+    let decode = impls(item, directions, Trait::Decode, |path| Body {
+        kind: quote!({
+            #wraps
+            if ::core::mem::needs_drop::<Self>() {
+                &<#inner as #path>::DECODE.dropped_by(__p::drop_fn::<Self>())
+            } else {
+                <#inner as #path>::DECODE
+            }
+        }),
+        stack: quote!(<#inner as #path>::Stack),
+        depth: quote!(<#inner as #path>::MAX_DEPTH),
+        lead: quote!(<#inner as #path>::LEAD),
+    });
+    quote! {
         #encode
         #decode
     }
@@ -88,7 +125,7 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| match &field.key {
             Key::Label { label, variant } => Some((label, variant)),
-            Key::Text(_) | Key::Int(_) => None,
+            Key::Text(_) | Key::Int(_) | Key::Position => None,
         })
         .unzip();
     labels.first().map(|label| {

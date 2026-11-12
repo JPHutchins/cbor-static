@@ -239,7 +239,7 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
 	});
     let (stack, depth) = stack(variants, path, false);
     Body {
-        kind: quote!(__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
+        kind: quote!(&__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
         stack,
         depth,
         lead: TokenStream::new(),
@@ -291,7 +291,7 @@ fn decode_kind(
     let (stack, depth) = stack(variants, path, unit_payload_frames(form));
     let layout = forms::decode_layout(form, variants, path);
     Body {
-        kind: quote!({
+        kind: quote!(&{
             #(#fits)*
             __p::DecKind::Enum { ops: &#ops, layout: #layout, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
         }),

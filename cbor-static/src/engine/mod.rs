@@ -35,7 +35,7 @@ pub use encode::{
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 pub use glue::{
     FieldPtrFn, IndexFn, SomeFn, WriteFn, assemble, drop_fn, field_ptr_of, index_of, index_tag,
-    offset, some, some_ptr, write_tag,
+    offset, some, some_ptr, wraps, write_tag,
 };
 pub(crate) use input::Input;
 pub(crate) use leaf::{

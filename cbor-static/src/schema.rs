@@ -179,6 +179,65 @@ pub trait Assemble<const V: u8>: Sized {
 }
 
 impl DecKind {
+    /// This kind for a type that holds exactly the one it describes and drops through `drop`.
+    #[must_use]
+    pub const fn dropped_by(&self, drop: Option<WriteFn>) -> Self {
+        match *self {
+            Self::Leaf {
+                decode, default, ..
+            } => Self::Leaf {
+                decode,
+                default,
+                drop,
+            },
+            Self::Struct {
+                ops, layout, kinds, ..
+            } => Self::Struct {
+                ops,
+                layout,
+                drop,
+                kinds,
+            },
+            Self::Enum {
+                ops,
+                layout,
+                variants,
+                ..
+            } => Self::Enum {
+                ops,
+                layout,
+                drop,
+                variants,
+            },
+            Self::Array {
+                ops,
+                elem,
+                len,
+                stride,
+                ..
+            } => Self::Array {
+                ops,
+                elem,
+                drop,
+                len,
+                stride,
+            },
+            Self::Option {
+                ops,
+                default,
+                some,
+                assemble,
+                ..
+            } => Self::Option {
+                ops,
+                default,
+                drop,
+                some,
+                assemble,
+            },
+        }
+    }
+
     pub(crate) const fn layout(&self) -> Option<&'static Layout> {
         match self {
             Self::Leaf { .. } | Self::Array { .. } | Self::Option { .. } => None,

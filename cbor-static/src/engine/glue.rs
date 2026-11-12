@@ -75,6 +75,13 @@ pub const fn drop_fn<T>() -> Option<WriteFn> {
     }
 }
 
+/// Whether `S` holds exactly a `T` at `offset`: what lets a unit or newtype struct reuse `T`'s
+/// descriptor.
+#[must_use]
+pub const fn wraps<S, T>(offset: usize) -> bool {
+    offset == 0 && size_of::<S>() == size_of::<T>() && align_of::<S>() == align_of::<T>()
+}
+
 /// # Panics
 /// If `bytes` exceeds `u32::MAX`.
 #[must_use]

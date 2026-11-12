@@ -2,7 +2,7 @@ use proc_macro2::Span;
 use quote::format_ident;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
-use syn::{Fields, Ident, Member, Path, Type};
+use syn::{Attribute, Fields, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::{Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
@@ -60,12 +60,7 @@ pub fn fields_of<'a>(
     form: StructForm,
     keys: Option<&Path>,
 ) -> syn::Result<Vec<Field>> {
-    if fields.len() > MAX_FIELDS {
-        return Err(syn::Error::new(
-            Span::call_site(),
-            "cbor-static: at most 64 fields per struct",
-        ));
-    }
+    within_limit(fields.len())?;
     fields
         .map(|field| {
             let attrs = attrs::parse(&field.attrs)?
@@ -125,6 +120,44 @@ pub fn fields_of<'a>(
             })
         })
         .collect()
+}
+
+/// A tuple struct's fields, in order: never omitted, so every one is written, as serde does.
+pub fn positional(fields: &[&syn::Field]) -> syn::Result<Vec<Field>> {
+    within_limit(fields.len())?;
+    fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            bare(&field.attrs, "a tuple struct's field")?;
+            Ok(Field {
+                member: Member::Unnamed(Index::from(index)),
+                ty: field.ty.clone(),
+                key: Key::Position,
+                omit_if_absent: false,
+            })
+        })
+        .collect()
+}
+
+fn within_limit(fields: usize) -> syn::Result<()> {
+    if fields > MAX_FIELDS {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: at most 64 fields per struct",
+        ));
+    }
+    Ok(())
+}
+
+/// Rejects every `#[cbor]` and `#[serde]` attribute in `attrs`.
+pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
+    attrs::parse(attrs)?.first().map_or(Ok(()), |attr| {
+        Err(syn::Error::new(
+            attr.span,
+            format!("cbor-static: {position} takes no attributes"),
+        ))
+    })
 }
 
 /// The `keys = Label` variant a field maps to: its name in `UpperCamelCase`.
