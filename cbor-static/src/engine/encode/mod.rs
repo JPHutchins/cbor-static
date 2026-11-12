@@ -143,7 +143,8 @@ fn emit(
             EncKind::Struct { ops, .. }
             | EncKind::Enum { ops, .. }
             | EncKind::Array { ops, .. }
-            | EncKind::Option { ops, .. } => match (ops.open)(state, frames, next.kind, next.at)? {
+            | EncKind::Option { ops, .. }
+            | EncKind::Chunks { ops } => match (ops.open)(state, frames, next.kind, next.at)? {
                 Some(child) => next = child,
                 None => return Ok(()),
             },
@@ -217,7 +218,8 @@ fn ops(kind: &EncKind) -> Result<&'static EncOps, ErrorKind> {
         EncKind::Struct { ops, .. }
         | EncKind::Enum { ops, .. }
         | EncKind::Array { ops, .. }
-        | EncKind::Option { ops, .. } => Ok(ops),
+        | EncKind::Option { ops, .. }
+        | EncKind::Chunks { ops } => Ok(ops),
         EncKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

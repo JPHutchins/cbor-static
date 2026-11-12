@@ -4,27 +4,22 @@
 
 use core::mem::MaybeUninit;
 
-use super::frame_mut;
-use super::skip::item_len;
 use crate::error::ErrorKind;
 use crate::schema::Layout;
-use crate::stack::{Frame, Phase};
-use crate::wire::{Head, INDEFINITE, Major, float, parse};
+use crate::stack::Frame;
+use crate::wire::Header;
 
-/// Each check rejects with [`ErrorKind::NotDeterministic`], or, for an entry no field claims,
-/// [`ErrorKind::UnknownField`].
+/// One check per place `Strict` looks. Each rejects with [`ErrorKind::NotDeterministic`], or, for
+/// an entry no field claims, [`ErrorKind::UnknownField`].
 pub struct StrictOps {
-    /// Every head read, whole: preferred arguments, shortest floats, the canonical NaN, definite
-    /// lengths.
-    pub(super) head: fn(&[u8]) -> Result<(), ErrorKind>,
-    /// The field a map's frame takes next, against the field before it, by their pre-encoded keys.
+    /// Every head read, which it parses.
+    pub(super) head: fn(&[u8]) -> Result<Header, ErrorKind>,
+    /// The field a map's frame takes next.
     pub(super) order: fn(&Layout, &Frame, u8) -> Result<(), ErrorKind>,
-    /// A bignum's digits: no leading zero, and too many for major type 0 or 1.
     pub(super) bignum: fn(&[u8]) -> Result<(), ErrorKind>,
-    /// An entry no field of the top frame of `depth` claims, which only an internally tagged map's
-    /// tag may be.
+    /// An entry the top frame of a depth does not claim.
     pub(super) unknown: fn(&mut [MaybeUninit<Frame>], u8) -> Result<(), ErrorKind>,
-    /// The entries of a map held whole in this chunk: keys rising, any tag key included.
+    /// A map held whole in this chunk, of a count of entries.
     pub(super) sorted: fn(&[u8], u64) -> Result<(), ErrorKind>,
 }
 
@@ -36,9 +31,12 @@ pub static STRICT: StrictOps = StrictOps {
     sorted,
 };
 
-fn head(bytes: &[u8]) -> Result<(), ErrorKind> {
+fn head(bytes: &[u8]) -> Result<Header, ErrorKind> {
+    use crate::wire::{Head, INDEFINITE, Major, float, parse};
+
     let header = parse(bytes)?;
     deterministic(match (header.major, header.info) {
+        (Major::Simple, INDEFINITE) => true,
         (_, INDEFINITE) => false,
         (Major::Simple, float::HALF | float::SINGLE | float::DOUBLE) => {
             float::deterministic(header.info, header.arg)
@@ -46,6 +44,7 @@ fn head(bytes: &[u8]) -> Result<(), ErrorKind> {
         (Major::Simple, _) => true,
         (major, _) => bytes.len() == Head::new(major, header.arg).as_bytes().len(),
     })
+    .map(|()| header)
 }
 
 fn order(layout: &Layout, frame: &Frame, field: u8) -> Result<(), ErrorKind> {
@@ -57,6 +56,9 @@ fn bignum(digits: &[u8]) -> Result<(), ErrorKind> {
 }
 
 fn unknown(frames: &mut [MaybeUninit<Frame>], depth: u8) -> Result<(), ErrorKind> {
+    use super::frame_mut;
+    use crate::stack::Phase;
+
     let frame = frame_mut(frames, depth.checked_sub(1).ok_or(ErrorKind::Unsupported)?)?;
     match frame.phase {
         Phase::TagAhead => {
@@ -68,13 +70,17 @@ fn unknown(frames: &mut [MaybeUninit<Frame>], depth: u8) -> Result<(), ErrorKind
 }
 
 fn sorted(bytes: &[u8], count: u64) -> Result<(), ErrorKind> {
+    use super::skip::item_len;
+
     (0..count)
         .try_fold((0, [].as_slice()), |(at, previous), _| {
             let rest = bytes.get(at..).unwrap_or(&[]);
             let key = rest.get(..item_len(rest)?).unwrap_or(&[]);
-            let value = at + key.len();
-            let next = value + item_len(bytes.get(value..).unwrap_or(&[]))?;
-            deterministic(previous < key).map(|()| (next, key))
+            deterministic(previous < key)?;
+            Ok((
+                at + key.len() + item_len(rest.get(key.len()..).unwrap_or(&[]))?,
+                key,
+            ))
         })
         .map(|_| ())
 }
@@ -106,11 +112,11 @@ mod tests {
             (b"\x5f", false),
             (b"\xbf", false),
             (b"\xf8\x20", true),
-            (b"\xff", false),
+            (b"\xff", true),
         ];
         for (bytes, accepted) in cases {
             assert_eq!(
-                head(bytes),
+                head(bytes).map(|_| ()),
                 if accepted {
                     Ok(())
                 } else {

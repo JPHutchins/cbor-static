@@ -133,7 +133,6 @@ impl State {
         Self::under(kind, dst, None)
     }
 
-    /// A state under the `Strict` profile.
     #[inline(never)]
     pub(crate) const fn strict(kind: &'static DecKind, dst: *mut u8) -> Self {
         Self::under(kind, dst, Some(&STRICT))
@@ -253,23 +252,28 @@ fn value(
                     .ok_or(ErrorKind::NeedContiguous)?,
                 _ => &[],
             };
-            match unsafe {
-                decode(
-                    state.target.dst,
-                    &Item {
-                        header,
-                        payload,
-                        strict: state.strict,
-                    },
-                )
-            }? {
-                Next::Done => complete(state, frames).map(|()| Flow::Continue),
-                Next::Took(taken) => input
+            match (
+                unsafe {
+                    decode(
+                        state.target.dst,
+                        &Item {
+                            header,
+                            payload,
+                            strict: state.strict,
+                        },
+                    )
+                }?,
+                header.indefinite(),
+            ) {
+                (Next::Done | Next::Then(_), true) => Err(ErrorKind::IndefiniteString),
+                (Next::Took(_), false) => Err(ErrorKind::Unsupported),
+                (Next::Done, false) => complete(state, frames).map(|()| Flow::Continue),
+                (Next::Took(taken), true) => input
                     .take_exact(taken)
                     .ok_or(ErrorKind::Unsupported)
                     .and_then(|_| complete(state, frames))
                     .map(|()| Flow::Continue),
-                Next::Then(next) => {
+                (Next::Then(next), false) => {
                     state.target.kind = next;
                     Ok(Flow::Continue)
                 }

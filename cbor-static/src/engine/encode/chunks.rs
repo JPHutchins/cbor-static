@@ -8,14 +8,13 @@
 
 use core::mem::MaybeUninit;
 
-use super::{Child, EncOps, Part, State, opened};
+use super::{Child, EncOps, Part, State};
 use crate::engine::chunks::sealed::Chunk;
 use crate::engine::chunks::{Chunks, Span};
 use crate::engine::pending::Pending;
-use crate::engine::push;
 use crate::error::ErrorKind;
 use crate::schema::EncKind;
-use crate::stack::{Frame, Phase};
+use crate::stack::Frame;
 
 pub static TEXT: EncOps = EncOps {
     open: open::<str>,
@@ -32,6 +31,10 @@ fn open<T: ?Sized + Chunk>(
     kind: &'static EncKind,
     at: *const u8,
 ) -> Result<Option<Child>, ErrorKind> {
+    use super::opened;
+    use crate::engine::push;
+    use crate::stack::Phase;
+
     let span = unsafe { at.cast::<Chunks<'_, T>>().read() }.span;
     state.pending.head(
         T::MAJOR,

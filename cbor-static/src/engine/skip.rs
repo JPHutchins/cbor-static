@@ -190,8 +190,23 @@ impl Skip {
 /// # Errors
 /// [`ErrorKind::NeedContiguous`] when `bytes` ends inside the item; any error skipping it would.
 pub fn item_len(bytes: &[u8]) -> Result<usize, ErrorKind> {
-    let mut input = Input::new(bytes);
+    walk(&mut Skip::started(1), bytes)
+}
+
+/// The length of the rest of the item `header` began, all of which `rest` must hold.
+///
+/// # Errors
+/// As [`item_len`].
+#[inline(never)]
+pub fn rest_len(header: Header, rest: &[u8]) -> Result<usize, ErrorKind> {
     let mut skip = Skip::started(1);
+    skip.on_header(header)?;
+    walk(&mut skip, rest)
+}
+
+/// Feeds `bytes` to `skip` until it is done, returning how many it took.
+fn walk(skip: &mut Skip, bytes: &[u8]) -> Result<usize, ErrorKind> {
+    let mut input = Input::new(bytes);
     while !skip.done() {
         match length(skip.payload_left())? {
             0 => skip.on_header(input.take_head()?.ok_or(ErrorKind::NeedContiguous)?)?,

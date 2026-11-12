@@ -8,14 +8,12 @@
 use core::fmt;
 use core::marker::PhantomData;
 
-use super::input::Input;
-use super::text::validate;
-use super::{BYTE_CHUNKS, Item, Next, TEXT_CHUNKS};
+use super::{Item, Next};
 use crate::error::ErrorKind;
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode, Layout};
+use crate::schema::{DecKind, Decode, EncKind, Encode};
 use crate::stack::Level;
-use crate::wire::{Major, length};
+use crate::wire::Major;
 
 /// A text (`Chunks<'de, str>`) or byte (`Chunks<'de, [u8]>`) string borrowed from the input, as the
 /// chunks it arrived in: one for a definite string, any number for an indefinite one. Every chunk
@@ -67,7 +65,8 @@ impl Chunk for str {}
 impl Chunk for [u8] {}
 
 pub(super) mod sealed {
-    use super::{BYTE_CHUNKS, EncKind, FIELDLESS, Lead, Major, TEXT_CHUNKS};
+    use super::{EncKind, Lead, Major};
+    use crate::engine::{BYTE_CHUNKS, TEXT_CHUNKS};
 
     pub trait Chunk {
         const MAJOR: Major;
@@ -75,19 +74,14 @@ pub(super) mod sealed {
         const ENCODE: &'static EncKind;
 
         /// # Safety
-        /// `chunk` is a chunk of [`Chunk::MAJOR`] that passed [`super::checked`].
+        /// `chunk` is a chunk of a string of [`Chunk::MAJOR`], checked when it was decoded.
         unsafe fn assume(chunk: &[u8]) -> &Self;
     }
 
     impl Chunk for str {
         const MAJOR: Major = Major::Text;
         const LEAD: Lead = Lead::TEXT;
-        const ENCODE: &'static EncKind = &EncKind::Struct {
-            ops: &TEXT_CHUNKS,
-            layout: &FIELDLESS,
-            kinds: &[],
-            field_ptr: None,
-        };
+        const ENCODE: &'static EncKind = &EncKind::Chunks { ops: &TEXT_CHUNKS };
 
         unsafe fn assume(chunk: &[u8]) -> &Self {
             unsafe { core::str::from_utf8_unchecked(chunk) }
@@ -97,24 +91,13 @@ pub(super) mod sealed {
     impl Chunk for [u8] {
         const MAJOR: Major = Major::Bytes;
         const LEAD: Lead = Lead::BYTES;
-        const ENCODE: &'static EncKind = &EncKind::Struct {
-            ops: &BYTE_CHUNKS,
-            layout: &FIELDLESS,
-            kinds: &[],
-            field_ptr: None,
-        };
+        const ENCODE: &'static EncKind = &EncKind::Chunks { ops: &BYTE_CHUNKS };
 
         unsafe fn assume(chunk: &[u8]) -> &Self {
             chunk
         }
     }
 }
-
-/// `Chunks` encode through their own ops, as a struct with no fields.
-static FIELDLESS: Layout = Layout {
-    names: &[],
-    fields: &[],
-};
 
 /// The chunks of a [`Chunks`], in order.
 ///
@@ -161,6 +144,9 @@ impl<T: ?Sized> Clone for ChunkIter<'_, T> {
 impl<'de> Span<'de> {
     /// The first chunk, and the span after it.
     pub(super) fn split_first(self) -> Option<(&'de [u8], Self)> {
+        use super::input::Input;
+        use crate::wire::length;
+
         match self {
             Self::Definite(payload) => Some((payload, Self::Indefinite(&[]))),
             Self::Indefinite(items) => {
@@ -243,22 +229,33 @@ unsafe fn decode<T: ?Sized + Chunk>(dst: *mut u8, item: &Item<'_>) -> Result<Nex
 }
 
 /// The string `item` holds as chunks of `T`, and how the decoder goes on: an indefinite string
-/// takes its chunks and break from the rest of the input.
+/// takes its chunks and break from the rest of the input, which must hold them.
 ///
 /// # Errors
-/// [`ErrorKind::TypeMismatch`] for another item; for chunks, any [`run`] error.
+/// [`ErrorKind::TypeMismatch`] for another item; [`ErrorKind::InvalidUtf8`] for text that is not;
+/// for chunks, any error skipping the string would.
 pub(super) fn of<'a, T: ?Sized + Chunk>(
     item: &Item<'a>,
 ) -> Result<(Chunks<'a, T>, Next), ErrorKind> {
+    use super::skip::rest_len;
+    use super::text::validate;
+
     match (
         item.header.major == <T as sealed::Chunk>::MAJOR,
         item.header.indefinite(),
     ) {
         (false, _) => Err(ErrorKind::TypeMismatch),
-        (true, false) => checked(<T as sealed::Chunk>::MAJOR, item.payload)
-            .map(|()| (Span::Definite(item.payload), Next::Done)),
-        (true, true) => run(item.payload, <T as sealed::Chunk>::MAJOR)
-            .map(|(items, taken)| (Span::Indefinite(items), Next::Took(taken))),
+        (true, false) => match item.header.major {
+            Major::Text => validate(item.payload),
+            _ => Ok(()),
+        }
+        .map(|()| (Span::Definite(item.payload), Next::Done)),
+        (true, true) => rest_len(item.header, item.payload).map(|taken| {
+            (
+                Span::Indefinite(item.payload.get(..taken.saturating_sub(1)).unwrap_or(&[])),
+                Next::Took(taken),
+            )
+        }),
     }
     .map(|(span, next)| {
         (
@@ -271,80 +268,50 @@ pub(super) fn of<'a, T: ?Sized + Chunk>(
     })
 }
 
-/// The chunks of an indefinite string of `major` at the start of `rest`, and the length of those
-/// chunks and the break that ends them.
-///
-/// # Errors
-/// [`ErrorKind::NeedContiguous`] when `rest` ends first; [`ErrorKind::NotWellFormed`] for a chunk
-/// of another type or of indefinite length; any [`checked`] error.
-#[inline(never)]
-fn run(rest: &[u8], major: Major) -> Result<(&[u8], usize), ErrorKind> {
-    let mut input = Input::new(rest);
-    loop {
-        let at = input.at;
-        let header = input.take_head()?.ok_or(ErrorKind::NeedContiguous)?;
-        if header.is_break() {
-            return Ok((rest.get(..at).unwrap_or(&[]), input.at));
-        }
-        if header.major != major || header.indefinite() {
-            return Err(ErrorKind::NotWellFormed);
-        }
-        checked(
-            major,
-            input
-                .take_exact(length(header.arg)?)
-                .ok_or(ErrorKind::NeedContiguous)?,
-        )?;
-    }
-}
-
-/// A chunk of `major`: text must be UTF-8, each chunk by itself (RFC 8949 §3.2.3).
-///
-/// # Errors
-/// [`ErrorKind::InvalidUtf8`] for text that is not.
-fn checked(major: Major, chunk: &[u8]) -> Result<(), ErrorKind> {
-    match major {
-        Major::Text => validate(chunk),
-        _ => Ok(()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::vec::Vec;
 
-    use super::{Span, run};
+    use super::{Chunks, Span, of};
+    use crate::engine::{Item, Next};
     use crate::error::ErrorKind;
-    use crate::wire::Major;
+    use crate::wire::{Header, Major};
 
-    type Run = Result<(&'static [u8], usize), ErrorKind>;
+    /// The chunks an indefinite text string's `rest` holds, and the bytes they and the break took.
+    fn text(rest: &[u8]) -> Result<(Vec<&str>, usize), ErrorKind> {
+        of::<str>(&Item {
+            header: Header {
+                major: Major::Text,
+                info: 31,
+                arg: 0,
+            },
+            payload: rest,
+            strict: None,
+        })
+        .map(|(chunks, next)| {
+            (
+                chunks.into_iter().collect(),
+                match next {
+                    Next::Took(taken) => taken,
+                    Next::Done | Next::Then(_) => 0,
+                },
+            )
+        })
+    }
 
     #[test]
     fn a_run_ends_at_its_break_and_holds_only_definite_chunks_of_its_type() {
-        let cases: [(&[u8], Run); 7] = [
-            (b"\xff", Ok((b"", 1))),
-            (b"\x61a\x60\xff\x01", Ok((b"\x61a\x60", 4))),
-            (b"\x61a", Err(ErrorKind::NeedContiguous)),
-            (b"\x62a", Err(ErrorKind::NeedContiguous)),
-            (b"\x41a\xff", Err(ErrorKind::NotWellFormed)),
-            (b"\x7f\xff\xff", Err(ErrorKind::NotWellFormed)),
-            (b"\x62\xc3\x28\xff", Err(ErrorKind::InvalidUtf8)),
-        ];
-        for (rest, expected) in cases {
-            assert_eq!(run(rest, Major::Text), expected, "{rest:x?}");
+        assert_eq!(text(b"\xff"), Ok((Vec::new(), 1)));
+        assert_eq!(text(b"\x61a\x60\xff\x01"), Ok((Vec::from(["a", ""]), 4)));
+        for (rest, error) in [
+            (b"\x61a".as_slice(), ErrorKind::NeedContiguous),
+            (b"\x62a", ErrorKind::NeedContiguous),
+            (b"\x41a\xff", ErrorKind::NotWellFormed),
+            (b"\x7f\xff\xff", ErrorKind::NotWellFormed),
+            (b"\x62\xc3\x28\xff", ErrorKind::InvalidUtf8),
+        ] {
+            assert_eq!(text(rest), Err(error), "{rest:x?}");
         }
-        assert_eq!(
-            run(b"\x41a\x40\xff", Major::Bytes),
-            Ok((b"\x41a\x40".as_slice(), 4))
-        );
-        assert_eq!(
-            run(b"\x41\xff\xff", Major::Bytes),
-            Ok((b"\x41\xff".as_slice(), 3))
-        );
-        assert_eq!(
-            run(b"\x61a\xff", Major::Bytes),
-            Err(ErrorKind::NotWellFormed)
-        );
     }
 
     #[test]
@@ -356,6 +323,16 @@ mod tests {
         assert_eq!(
             chunks(Span::Indefinite(b"\x41a\x40\x42bc")),
             [b"a".as_slice(), b"", b"bc"]
+        );
+        assert_eq!(
+            Chunks::<str> {
+                span: Span::Definite(b"abc"),
+                chunk: core::marker::PhantomData
+            },
+            Chunks {
+                span: Span::Indefinite(b"\x61a\x60\x62bc"),
+                chunk: core::marker::PhantomData
+            }
         );
     }
 }

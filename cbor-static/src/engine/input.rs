@@ -61,10 +61,9 @@ impl<'a> Input<'a> {
 
 /// The header `bytes` hold, unless `Strict` rejects it.
 fn admitted(bytes: &[u8], strict: Option<&'static StrictOps>) -> Result<Option<Header>, ErrorKind> {
-    if let Some(strict) = strict {
-        (strict.head)(bytes)?;
-    }
-    parse(bytes).map(Some)
+    strict
+        .map_or_else(|| parse(bytes), |strict| (strict.head)(bytes))
+        .map(Some)
 }
 
 impl Carry {

@@ -13,6 +13,7 @@ use super::{
     Begin, DecOps, Entry, Flow, State, Target, at, desc, end, entries, expect, next_entry, open,
     skip_unknown, start_name, start_skip, top, unnamed,
 };
+use crate::engine::StrictOps;
 use crate::engine::input::Input;
 use crate::engine::skip::item_len;
 use crate::error::ErrorKind;
@@ -63,7 +64,7 @@ fn internal(
     else {
         return Err(ErrorKind::Unsupported);
     };
-    let (count, variant) = tagged_map(state, layout, variants.len(), input, header)?;
+    let (count, variant) = tagged_map(state.strict, layout, variants.len(), input, header)?;
     open(state, frames, Phase::EnumPayload, 0)?;
     top(state.depth, frames)?.field = variant;
     state.target = Target {
@@ -93,7 +94,7 @@ fn adjacent(
     else {
         return Err(ErrorKind::Unsupported);
     };
-    let (count, variant) = tagged_map(state, layout, variants.len(), input, header)?;
+    let (count, variant) = tagged_map(state.strict, layout, variants.len(), input, header)?;
     open(state, frames, Phase::EnumName, count)?;
     top(state.depth, frames)?.field = variant;
     Ok(Flow::Continue)
@@ -173,7 +174,7 @@ fn adjacent_close(frame: &mut Frame) -> Result<(), ErrorKind> {
 /// The entries of the map `header` opens, and the variant its tag names; under `Strict`, the map's
 /// keys, the tag key included, must rise.
 fn tagged_map(
-    state: &State,
+    strict: Option<&'static StrictOps>,
     layout: &Layout,
     variants: usize,
     input: &Input,
@@ -183,7 +184,7 @@ fn tagged_map(
         return Err(ErrorKind::TypeMismatch);
     }
     let count = entries(header)?;
-    if let Some(strict) = state.strict {
+    if let Some(strict) = strict {
         (strict.sorted)(input.rest(), count)?;
     }
     Ok((count, tagged(layout, variants, count, input.rest())?))

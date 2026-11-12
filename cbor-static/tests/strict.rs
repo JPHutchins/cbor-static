@@ -66,6 +66,20 @@ fn non_preferred_heads_are_not_deterministic() {
 }
 
 #[test]
+fn a_stray_break_is_malformed_under_either_profile() {
+    strictly::<[u32; 1]>(
+        b"\x81\xff",
+        Err(ErrorKind::NotWellFormed),
+        Err(ErrorKind::NotWellFormed),
+    );
+    strictly::<One>(
+        b"\xa1\xff",
+        Err(ErrorKind::NotWellFormed),
+        Err(ErrorKind::NotWellFormed),
+    );
+}
+
+#[test]
 fn non_shortest_floats_are_not_deterministic() {
     accepted::<f64>(b"\xf9\x3c\x00", 1.0);
     accepted::<f64>(b"\xfa\x47\xc3\x50\x00", 100_000.0);

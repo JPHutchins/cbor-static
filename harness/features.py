@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 DECODE: Final = "cbor_static::engine::decode"
 ENCODE: Final = "cbor_static::engine::encode"
 STRICT: Final = "cbor_static::engine::strict"
-CHUNKS: Final = "cbor_static::engine::chunks"
 FEATURES_DIR: Final = HARNESS / "features"
 COUNTS: Final = (1, 8)
 
@@ -89,7 +88,7 @@ FEATURES: Final = (
 		"chunks",
 		"strings",
 		(
-			f"{CHUNKS}::run",
+			"cbor_static::engine::skip::rest_len",
 			f"{ENCODE}::chunks::TEXT",
 			f"{ENCODE}::chunks::BYTES",
 		),
