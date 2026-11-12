@@ -8,7 +8,7 @@ use crate::engine::{
     exactly, nothing, offset, within,
 };
 use crate::lead::Lead;
-use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, FieldLayout, Layout};
+use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, FieldLayout, Layout, sealed};
 use crate::stack::{Level, Widest, deeper};
 
 /// A tuple element `at` bytes in: positional, so it has no name and is never omitted.
@@ -88,9 +88,10 @@ unsafe impl<'de, T: Decode<'de>, const N: usize> Decode<'de> for [T; N] {
     const LEAD: Lead = Lead::ARRAY;
 }
 
+impl<const N: usize> sealed::ByteString for [u8; N] {}
+
 /// `#[cbor(bytes)]`: a byte string of exactly `N` bytes, which may arrive in chunks.
-#[allow(unsafe_code)]
-unsafe impl<const N: usize> ByteString for [u8; N] {
+impl<const N: usize> ByteString for [u8; N] {
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,

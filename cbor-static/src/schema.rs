@@ -13,7 +13,8 @@ use crate::lead::Lead;
 /// # Safety
 /// The engine trusts the descriptor without checking it against `Self`. `ENCODE` must describe
 /// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
-/// `Encode::ENCODE` (or, for a `#[cbor(bytes)]` field, its [`ByteString::ENCODE_BYTES`]), and every
+/// `Encode::ENCODE` (or, for a `#[cbor(bytes)]` field, its sealed [`ByteString::ENCODE_BYTES`]),
+/// and every
 /// handler reads only a valid `Self` or field of it. `Stack` must hold
 /// `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting `ENCODE` reaches.
 /// `OPTION_ENCODE` must describe `Option<Self>` within `Stack`.
@@ -40,7 +41,8 @@ pub unsafe trait Encode: Sized {
 /// # Safety
 /// The engine trusts the descriptor without checking it against `Self`. `DECODE` must describe
 /// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
-/// `Decode::DECODE` (or, for a `#[cbor(bytes)]` field, its [`ByteString::DECODE_BYTES`]), every
+/// `Decode::DECODE` (or, for a `#[cbor(bytes)]` field, its sealed [`ByteString::DECODE_BYTES`]),
+/// every
 /// handler writes only a valid `Self` or field of it, and the drop handler
 /// drops exactly what was written. `Self` borrows the input only through lifetimes `'de`
 /// outlives. `Stack` must hold `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting
@@ -98,15 +100,28 @@ pub unsafe trait Decode<'de>: Sized {
 /// }
 /// ```
 ///
-/// # Safety
-/// `ENCODE_BYTES` and `DECODE_BYTES` must describe `Self` as the [`Encode`] and [`Decode`] kinds
-/// do, with neither reaching a nested frame.
-#[allow(unsafe_code)]
-pub unsafe trait ByteString: Sized {
+/// The engine trusts these kinds, so the trait is sealed: only cbor-static implements it.
+///
+/// ```compile_fail,E0277
+/// struct Mine([u8; 2]);
+///
+/// impl cbor_static::ByteString for Mine {
+///     const ENCODE_BYTES: &'static cbor_static::__private::EncKind =
+///         <[u8; 2] as cbor_static::ByteString>::ENCODE_BYTES;
+///     const DECODE_BYTES: &'static cbor_static::__private::DecKind =
+///         <[u8; 2] as cbor_static::ByteString>::DECODE_BYTES;
+/// }
+/// ```
+pub trait ByteString: sealed::ByteString {
     #[doc(hidden)]
     const ENCODE_BYTES: &'static EncKind;
     #[doc(hidden)]
     const DECODE_BYTES: &'static DecKind;
+}
+
+/// The types whose byte-string kinds cbor-static describes, so the engine may trust them.
+pub(crate) mod sealed {
+    pub trait ByteString {}
 }
 
 /// Field or variant names (pre-encoded text items, concatenated) and per-entry placement.

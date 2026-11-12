@@ -11,7 +11,7 @@ use crate::engine::{
     entry, fresh, len_of, shadow_fits, view,
 };
 use crate::lead::Lead;
-use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue};
+use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue, sealed};
 use crate::stack::{Level, Widest, deeper};
 
 #[allow(unsafe_code)]
@@ -179,8 +179,9 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
 /// assert_eq!(&out[..len], b"\xa1\x67payload\x43\x01\x02\x03");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
-#[allow(unsafe_code)]
-unsafe impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
+impl<const N: usize, L: LenType> sealed::ByteString for Vec<u8, N, L> {}
+
+impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,
