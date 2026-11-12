@@ -6,7 +6,7 @@ mod common;
 use core::mem::MaybeUninit;
 
 use cbor_static::{Cbor, DateTime, Epoch, ErrorKind, SelfDescribed, Tagged};
-use common::{chunked_decode, decode, decode_strict, encode, golden};
+use common::{chunked_decode, chunked_encode, decode, decode_strict, encode, golden};
 
 #[derive(Cbor, Clone, Copy, Debug, PartialEq)]
 struct Point {
@@ -34,6 +34,24 @@ fn a_tag_wraps_any_value() {
     golden(&Tagged::<6, Shape>(Shape::Dot), b"\xc6\x63Dot");
     golden(&Tagged::<1, Tagged<2, u64>>(Tagged(7)), b"\xc1\xc2\x07");
     golden(&[Some(Tagged::<7, u32>(1)), None], b"\x82\xc7\x01\xf6");
+}
+
+#[test]
+fn a_tag_is_written_before_its_value_so_any_value_fits_under_any_tags() {
+    golden(
+        &SelfDescribed(Tagged::<0x1_0000_0000, u64>(u64::MAX)),
+        b"\xd9\xd9\xf7\xdb\x00\x00\x00\x01\x00\x00\x00\x00\x1b\xff\xff\xff\xff\xff\xff\xff\xff",
+    );
+    let bignum = [b"\xc5\xc2\x50".as_slice(), &[0xff; 16]].concat();
+    assert_eq!(encode(&Tagged::<5, u128>(u128::MAX)), bignum);
+    for chunk in 1..=bignum.len() {
+        assert_eq!(
+            chunked_encode(&Tagged::<5, u128>(u128::MAX), chunk),
+            bignum,
+            "in chunks of {chunk}"
+        );
+    }
+    assert_eq!(decode::<Tagged<5, u128>>(&bignum), Ok(Tagged(u128::MAX)));
 }
 
 #[test]

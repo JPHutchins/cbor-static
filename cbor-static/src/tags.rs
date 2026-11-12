@@ -81,8 +81,8 @@ unsafe impl<const TAG: u64, T: Encode> Encode for Tagged<TAG, T> {
         inner: T::ENCODE,
         tag: &TAG,
     };
-    type Stack = T::Stack;
-    const MAX_DEPTH: usize = T::MAX_DEPTH;
+    type Stack = Level<T::Stack>;
+    const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
 }
 
 #[allow(unsafe_code)]
@@ -105,8 +105,8 @@ unsafe impl<T: Encode> Encode for SelfDescribed<T> {
         inner: T::ENCODE,
         tag: &SELF_DESCRIBE,
     };
-    type Stack = T::Stack;
-    const MAX_DEPTH: usize = T::MAX_DEPTH;
+    type Stack = Level<T::Stack>;
+    const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
 }
 
 #[allow(unsafe_code)]
