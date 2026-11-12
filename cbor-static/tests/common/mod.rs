@@ -31,6 +31,33 @@ where
     }
 }
 
+/// `golden` for a type that is not `Copy`, compared where it was decoded.
+pub fn golden_in_place<T>(value: &T, bytes: &[u8])
+where
+    T: Encode + for<'de> Decode<'de> + PartialEq + Debug,
+{
+    assert_eq!(encode(value), bytes, "encode");
+    for chunk in 1..=64 {
+        assert_eq!(
+            chunked_encode(value, chunk),
+            bytes,
+            "encode in chunks of {chunk}"
+        );
+        let mut slot = MaybeUninit::uninit();
+        let mut decoder = Decoder::<T>::new(&mut slot);
+        for piece in bytes.chunks(chunk) {
+            if let Ok(Fed::Done(_)) = decoder.feed(piece) {
+                break;
+            }
+        }
+        assert_eq!(
+            decoder.finish().map(|decoded| &*decoded == value),
+            Ok(true),
+            "decode in chunks of {chunk}"
+        );
+    }
+}
+
 /// `golden` for internally and adjacently tagged values, whose decoding needs contiguous input
 /// (D-10, D-16): encoding still resumes at every chunk size, and decoding in chunks either
 /// succeeds or reports `NeedContiguous`.

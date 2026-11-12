@@ -6,6 +6,7 @@ per-type flash is its fixture's delta against a reference fixture that lacks onl
 import argparse
 import csv
 import sys
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -23,7 +24,10 @@ DECODE: Final = "cbor_static::engine::decode"
 ENCODE: Final = "cbor_static::engine::encode"
 STRICT: Final = "cbor_static::engine::strict"
 LEAF: Final = "cbor_static::engine::leaf"
+STRINGS: Final = "cbor_static::engine::strings"
 NIGHTLY: Final = "nightly"
+HEAPLESS: Final = "heapless"
+MANIFEST: Final = tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())
 FEATURES_DIR: Final = HARNESS / "features"
 COUNTS: Final = (1, 8)
 
@@ -140,6 +144,32 @@ FEATURES: Final = (
 		tuple(f"{LEAF}::{kind}_scalar::<f16>" for kind in ("enc", "dec")),
 		cargo_features=(NIGHTLY,),
 	),
+	Feature(
+		"`char`",
+		"chars",
+		"struct",
+		(f"{DECODE}::owned::TEXT", f"{STRINGS}::ENC_CHAR", f"{STRINGS}::DEC_CHAR"),
+	),
+	Feature(
+		"`[u8; N]` under `#[cbor(bytes)]`",
+		"byte_array",
+		"struct",
+		(f"{DECODE}::owned::BYTES", f"{STRINGS}::within::<4>", f"{STRINGS}::exactly::<4>"),
+	),
+	Feature(
+		"heapless `String`",
+		"heapless_string",
+		"struct",
+		(f"{DECODE}::owned::TEXT", f"{STRINGS}::bounded::enc_string::<8, u8>"),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
+		"heapless `Vec<u8>` under `#[cbor(bytes)]`",
+		"heapless_bytes",
+		"struct",
+		(f"{DECODE}::owned::BYTES", f"{STRINGS}::bounded::append_vec::<8, u8>"),
+		cargo_features=(HEAPLESS,),
+	),
 )
 BY_TEMPLATE: Final = {feature.template: feature for feature in FEATURES}
 
@@ -229,11 +259,7 @@ def fixture(
 		write_crate(
 			CRATES / "features" / name,
 			{
-				"Cargo.toml": render(
-					"Cargo.toml",
-					name=name,
-					dependencies=path_dependency("cbor-static", ROOT / "cbor-static", cargo_features),
-				),
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=dependencies(cargo_features)),
 				**pinned(cargo_features),
 				"src/main.rs": render(
 					"main.rs",
@@ -257,6 +283,29 @@ def fixture(
 		target_dir,
 	)
 	return elf_path(target_dir, GATE_TARGET, profile, name)
+
+
+def dependencies(cargo_features: tuple[str, ...]) -> str:
+	"""cbor-static with `cargo_features`, and each crate they enable at cbor-static's own version of
+	it, so the firmware can name its types.
+
+	>>> print(dependencies((HEAPLESS,)).splitlines()[1])
+	heapless = { version = "0.9.3", default-features = false }
+	"""
+	return "\n".join(
+		(
+			path_dependency("cbor-static", ROOT / "cbor-static", cargo_features),
+			*(
+				f'{crate} = {{ version = "{MANIFEST["dependencies"][crate]["version"]}", default-features = false }}'
+				for crate in (
+					enabled.removeprefix("dep:")
+					for feature in cargo_features
+					for enabled in MANIFEST["features"][feature]
+					if enabled.startswith("dep:")
+				)
+			),
+		)
+	)
 
 
 def pinned(cargo_features: tuple[str, ...]) -> dict[str, str]:

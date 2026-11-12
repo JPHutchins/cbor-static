@@ -2,8 +2,8 @@
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
 use crate::engine::{
-    AbsentFn, DECODE_OPTION, DecOps, DecodeFn, ENCODE_OPTION, EncOps, EncodeFn, FieldPtrFn,
-    IndexFn, SomeFn, WriteFn, absent_option, drop_fn, none, some, some_ptr,
+    AbsentFn, AppendFn, BeginFn, DECODE_OPTION, DecOps, DecodeFn, ENCODE_OPTION, EncOps, EncodeFn,
+    FieldPtrFn, FinishFn, IndexFn, SomeFn, WriteFn, absent_option, drop_fn, none, some, some_ptr,
 };
 use crate::lead::Lead;
 
@@ -12,7 +12,8 @@ use crate::lead::Lead;
 /// # Safety
 /// The engine trusts the descriptor without checking it against `Self`. `ENCODE` must describe
 /// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
-/// `Encode::ENCODE`, and every handler reads only a valid `Self` or field of it. `Stack` must hold
+/// `Encode::ENCODE` (or, for a `#[cbor(bytes)]` field, its [`ByteString::ENCODE_BYTES`]), and every
+/// handler reads only a valid `Self` or field of it. `Stack` must hold
 /// `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting `ENCODE` reaches.
 /// `OPTION_ENCODE` must describe `Option<Self>` within `Stack`.
 #[allow(unsafe_code)]
@@ -38,7 +39,8 @@ pub unsafe trait Encode: Sized {
 /// # Safety
 /// The engine trusts the descriptor without checking it against `Self`. `DECODE` must describe
 /// `Self` exactly: every offset is that of a field of `Self`, every kind is the field type's own
-/// `Decode::DECODE`, every handler writes only a valid `Self` or field of it, and the drop handler
+/// `Decode::DECODE` (or, for a `#[cbor(bytes)]` field, its [`ByteString::DECODE_BYTES`]), every
+/// handler writes only a valid `Self` or field of it, and the drop handler
 /// drops exactly what was written. `Self` borrows the input only through lifetimes `'de`
 /// outlives. `Stack` must hold `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting
 /// `DECODE` reaches. `OPTION_DECODE` must describe `Option<Self>`, and `OptionStack` must hold the
@@ -66,6 +68,44 @@ pub unsafe trait Decode<'de>: Sized {
     /// (D-10).
     #[doc(hidden)]
     const LEAD: Lead = Lead::ANY;
+}
+
+/// A byte array or vector's byte-string encoding, which a field selects with `#[cbor(bytes)]`;
+/// without it, these are arrays of integers, as in serde (#12 Q21). Neither kind opens a frame.
+///
+/// ```
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// struct Key {
+///     #[cbor(bytes)]
+///     id: [u8; 2],
+///     raw: [u8; 2],
+/// }
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::encode_into(&Key { id: [1, 2], raw: [1, 2] }, &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x62id\x42\x01\x02\x63raw\x82\x01\x02");
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
+/// Any other type does not compile:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Cbor)]
+/// struct Key {
+///     #[cbor(bytes)]
+///     id: [u16; 2],
+/// }
+/// ```
+///
+/// # Safety
+/// `ENCODE_BYTES` and `DECODE_BYTES` must describe `Self` as the [`Encode`] and [`Decode`] kinds
+/// do, with neither reaching a nested frame.
+#[allow(unsafe_code)]
+pub unsafe trait ByteString: Sized {
+    #[doc(hidden)]
+    const ENCODE_BYTES: &'static EncKind;
+    #[doc(hidden)]
+    const DECODE_BYTES: &'static DecKind;
 }
 
 /// Field or variant names (pre-encoded text items, concatenated) and per-entry placement.
@@ -159,6 +199,15 @@ pub enum DecKind {
         some: &'static DecKind,
         assemble: WriteFn,
     },
+    /// A string copied into the value, chunk by chunk: `begin` writes it empty, `append` copies
+    /// each segment of the payload, and `finish` checks the whole.
+    Owned {
+        ops: &'static DecOps,
+        begin: BeginFn,
+        drop: Option<WriteFn>,
+        append: AppendFn,
+        finish: FinishFn,
+    },
 }
 
 pub struct DecVariant {
@@ -235,12 +284,27 @@ impl DecKind {
                 some,
                 assemble,
             },
+            Self::Owned {
+                ops,
+                begin,
+                append,
+                finish,
+                ..
+            } => Self::Owned {
+                ops,
+                begin,
+                drop,
+                append,
+                finish,
+            },
         }
     }
 
     pub(crate) const fn layout(&self) -> Option<&'static Layout> {
         match self {
-            Self::Leaf { .. } | Self::Array { .. } | Self::Option { .. } => None,
+            Self::Leaf { .. } | Self::Array { .. } | Self::Option { .. } | Self::Owned { .. } => {
+                None
+            }
             Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
         }
     }
@@ -251,14 +315,17 @@ impl DecKind {
             | Self::Struct { drop, .. }
             | Self::Enum { drop, .. }
             | Self::Array { drop, .. }
-            | Self::Option { drop, .. } => *drop,
+            | Self::Option { drop, .. }
+            | Self::Owned { drop, .. } => *drop,
         }
     }
 
     pub(crate) const fn default_fn(&self) -> Option<WriteFn> {
         match self {
             Self::Leaf { default, .. } | Self::Option { default, .. } => *default,
-            Self::Struct { .. } | Self::Enum { .. } | Self::Array { .. } => None,
+            Self::Struct { .. } | Self::Enum { .. } | Self::Array { .. } | Self::Owned { .. } => {
+                None
+            }
         }
     }
 }

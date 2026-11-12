@@ -11,6 +11,7 @@ mod leaf;
 mod pending;
 mod skip;
 mod strict;
+mod strings;
 mod text;
 
 use core::marker::PhantomData;
@@ -19,12 +20,12 @@ use core::ptr;
 
 pub use chunks::{Chunk, ChunkIter, Chunks};
 pub use decode::{
-    ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, CBOR_TAG as DECODE_CBOR_TAG, DecOps,
-    ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, INDEX as DECODE_INDEX,
-    INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY,
-    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
-    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION,
-    UNTAGGED as DECODE_UNTAGGED,
+    ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, AppendFn, BYTES_OWNED, BeginFn,
+    CBOR_TAG as DECODE_CBOR_TAG, DecOps, ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL,
+    FinishFn, INDEX as DECODE_INDEX, INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP,
+    MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY,
+    MAP_MIXED as DECODE_MAP_MIXED, MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
+    OPTION as DECODE_OPTION, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 pub use encode::{
     ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, CBOR_TAG as ENCODE_CBOR_TAG,
@@ -49,6 +50,9 @@ pub(crate) use skip::Skip;
 pub(crate) use skip::item_len;
 use strict::STRICT;
 pub(crate) use strict::StrictOps;
+pub(crate) use strings::{DEC_CHAR, ENC_CHAR, enc_view, exactly, nothing, within};
+#[cfg(feature = "heapless")]
+pub(crate) use strings::{any_length, append_string, append_vec, empty, enc_string};
 pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};

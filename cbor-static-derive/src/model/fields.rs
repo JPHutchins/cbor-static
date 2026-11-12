@@ -2,7 +2,7 @@ use proc_macro2::Span;
 use quote::format_ident;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
-use syn::{Attribute, Fields, Ident, Index, Member, Path, Type};
+use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::{Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
@@ -117,25 +117,43 @@ pub fn fields_of<'a>(
                     StructForm::Map { .. } => attrs.skip_if_none,
                     StructForm::Array => is_option,
                 },
+                bytes: attrs.bytes,
             })
         })
         .collect()
 }
 
-/// A tuple struct's fields, in order: never omitted, so every one is written, as serde does.
-pub fn positional(fields: &[&syn::Field]) -> syn::Result<Vec<Field>> {
-    within_limit(fields.len())?;
+/// A tuple or newtype struct's fields, in order: never omitted, so every one is written, as serde
+/// does. Being positional, they take `#[cbor(bytes)]` and nothing else.
+pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
+    within_limit(fields.unnamed.len())?;
     fields
+        .unnamed
         .iter()
         .enumerate()
         .map(|(index, field)| {
-            bare(&field.attrs, "a tuple struct's field")?;
-            Ok(Field {
-                member: Member::Unnamed(Index::from(index)),
-                ty: field.ty.clone(),
-                key: Key::Position,
-                omit_if_absent: false,
-            })
+            match attrs::parse(&field.attrs)?
+                .into_iter()
+                .try_fold(FieldAttrs::default(), FieldAttrs::with)?
+            {
+                FieldAttrs {
+                    rename: None,
+                    default: false,
+                    skip_if_none: false,
+                    key: None,
+                    bytes,
+                } => Ok(Field {
+                    member: Member::Unnamed(Index::from(index)),
+                    ty: field.ty.clone(),
+                    key: Key::Position,
+                    omit_if_absent: false,
+                    bytes,
+                }),
+                _ => Err(syn::Error::new(
+                    field.span(),
+                    "cbor-static: a positional field takes only `#[cbor(bytes)]`",
+                )),
+            }
         })
         .collect()
 }

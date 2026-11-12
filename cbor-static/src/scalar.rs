@@ -2,8 +2,9 @@
 //! Leaf field types: each maps to engine handlers reached only through its own descriptor (D-22).
 
 use crate::engine::{
-    DEC_BYTES, DEC_STR, ENC_BYTES, ENC_STR, Item, Pending, absent_option, dec_i128, dec_option,
-    dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar, enc_tagged, enc_u128, none,
+    DEC_BYTES, DEC_CHAR, DEC_STR, ENC_BYTES, ENC_CHAR, ENC_STR, Item, Pending, absent_option,
+    dec_i128, dec_option, dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar,
+    enc_tagged, enc_u128, none,
 };
 use crate::error::ErrorKind;
 use crate::half::F16;
@@ -267,6 +268,23 @@ unsafe impl Encode for &str {
 #[allow(unsafe_code)]
 unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const DECODE: &'static DecKind = &DEC_STR;
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+    type OptionStack = Level<()>;
+    const LEAD: Lead = Lead::TEXT;
+}
+
+/// A one-character text string, which may arrive in chunks.
+#[allow(unsafe_code)]
+unsafe impl Encode for char {
+    const ENCODE: &'static EncKind = &ENC_CHAR;
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+}
+
+#[allow(unsafe_code)]
+unsafe impl Decode<'_> for char {
+    const DECODE: &'static DecKind = &DEC_CHAR;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;

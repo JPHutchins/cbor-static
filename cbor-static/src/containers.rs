@@ -4,10 +4,11 @@
 use core::mem::{offset_of, size_of};
 
 use crate::engine::{
-    DECODE_ARRAY, DECODE_ELEMENTS, ENCODE_ARRAY, ENCODE_ELEMENTS, drop_fn, offset,
+    BYTES_OWNED, DECODE_ARRAY, DECODE_ELEMENTS, ENCODE_ARRAY, ENCODE_ELEMENTS, drop_fn, enc_view,
+    exactly, nothing, offset, within,
 };
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode, FieldLayout, Layout};
+use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, FieldLayout, Layout};
 use crate::stack::{Level, Widest, deeper};
 
 /// A tuple element `at` bytes in: positional, so it has no name and is never omitted.
@@ -85,6 +86,22 @@ unsafe impl<'de, T: Decode<'de>, const N: usize> Decode<'de> for [T; N] {
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::ARRAY;
+}
+
+/// `#[cbor(bytes)]`: a byte string of exactly `N` bytes, which may arrive in chunks.
+#[allow(unsafe_code)]
+unsafe impl<const N: usize> ByteString for [u8; N] {
+    const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
+        encode: enc_view::<Self>,
+        absent: None,
+    };
+    const DECODE_BYTES: &'static DecKind = &DecKind::Owned {
+        ops: &BYTES_OWNED,
+        begin: nothing,
+        drop: None,
+        append: within::<N>,
+        finish: exactly::<N>,
+    };
 }
 
 tuple!(A 0);

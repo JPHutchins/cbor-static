@@ -26,7 +26,7 @@ pub enum Shape {
         form: StructForm,
     },
     Unit,
-    Newtype(Type),
+    Newtype(Box<Field>),
     Enum {
         variants: Vec<Variant>,
         repr: Repr,
@@ -83,6 +83,8 @@ pub struct Field {
     pub ty: Type,
     pub key: Key,
     pub omit_if_absent: bool,
+    /// `#[cbor(bytes)]`: the type's byte-string encoding, not its own (#12 Q21).
+    pub bytes: bool,
 }
 
 pub struct Variant {
@@ -105,13 +107,10 @@ impl Item {
                 Fields::Named(named) => structure(&ast.attrs, named.named.iter())?,
                 Fields::Unnamed(unnamed) => {
                     bare(&ast.attrs, "a tuple struct")?;
-                    match unnamed.unnamed.iter().collect::<Vec<_>>().as_slice() {
-                        [field] => {
-                            bare(&field.attrs, "a newtype struct's field")?;
-                            Shape::Newtype(field.ty.clone())
-                        }
-                        fields => Shape::Struct {
-                            fields: positional(fields)?,
+                    match <[Field; 1]>::try_from(positional(unnamed)?) {
+                        Ok([field]) => Shape::Newtype(Box::new(field)),
+                        Err(fields) => Shape::Struct {
+                            fields,
                             form: StructForm::Array,
                         },
                     }

@@ -191,6 +191,8 @@ extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(feature = "heapless")]
+mod bounded;
 mod containers;
 mod engine;
 mod error;
@@ -212,7 +214,7 @@ pub use engine::{Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, Progress};
 pub use error::{Error, ErrorKind};
 pub use half::F16;
 pub use scalar::Tagged;
-pub use schema::{Decode, Encode};
+pub use schema::{ByteString, Decode, Encode};
 pub use token::{Token, TokenWriter, Tokens};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.

@@ -3,8 +3,7 @@ mod forms;
 mod structs;
 
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
-use syn::Type;
+use quote::{ToTokens, format_ident, quote};
 
 use crate::Directions;
 use crate::model::{Item, Key, Shape};
@@ -18,13 +17,8 @@ enum Trait {
 pub fn item(item: &Item, directions: Directions) -> TokenStream {
     let body = match &item.shape {
         Shape::Struct { fields, form } => structs::structure(item, fields, *form, directions),
-        Shape::Unit => structs::transparent(item, &quote!(()), &quote!(0), directions),
-        Shape::Newtype(field) => structs::transparent(
-            item,
-            &quote!(#field),
-            &quote!(::core::mem::offset_of!(Self, 0)),
-            directions,
-        ),
+        Shape::Unit => structs::transparent(item, None, directions),
+        Shape::Newtype(field) => structs::transparent(item, Some(field.as_ref()), directions),
         Shape::Enum {
             variants,
             repr,
@@ -153,11 +147,31 @@ fn level(
     (quote!(__p::Level<#widest>), quote!(1 + #deepest))
 }
 
-fn child(ty: &Type, path: &TokenStream) -> (TokenStream, TokenStream) {
+fn child(ty: &impl ToTokens, path: &TokenStream) -> (TokenStream, TokenStream) {
     (
         quote!(<#ty as #path>::Stack),
         quote!(<#ty as #path>::MAX_DEPTH),
     )
+}
+
+/// A field's stack and depth: a `#[cbor(bytes)]` field's byte string opens no frame.
+fn field_child(ty: &impl ToTokens, bytes: bool, path: &TokenStream) -> (TokenStream, TokenStream) {
+    if bytes {
+        (quote!(()), quote!(0))
+    } else {
+        child(ty, path)
+    }
+}
+
+/// A field's descriptor under `which` trait at `path`: its type's own, or with `#[cbor(bytes)]`,
+/// its byte string's.
+fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream) -> TokenStream {
+    match (which, bytes) {
+        (Trait::Encode, false) => quote!(<#ty as #path>::ENCODE),
+        (Trait::Decode, false) => quote!(<#ty as #path>::DECODE),
+        (Trait::Encode, true) => quote!(<#ty as ::cbor_static::ByteString>::ENCODE_BYTES),
+        (Trait::Decode, true) => quote!(<#ty as ::cbor_static::ByteString>::DECODE_BYTES),
+    }
 }
 
 fn static_type(item: &Item) -> TokenStream {

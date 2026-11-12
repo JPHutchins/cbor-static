@@ -1,5 +1,6 @@
 //! R-131 (D-24, D-24a): `unsafe` appears only under `src/engine/`, apart from `unsafe impl` of the
-//! codec traits and the two `unsafe trait` declarations.
+//! codec traits and their `unsafe trait` declarations. `ByteString` is one: the engine trusts its
+//! kinds as it trusts `Encode`'s and `Decode`'s.
 
 use std::fs;
 use std::iter::once;
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 
-const CODEC_TRAITS: [&str; 2] = ["Encode", "Decode"];
+const CODEC_TRAITS: [&str; 3] = ["Encode", "Decode", "ByteString"];
 
 #[derive(Debug, PartialEq, Eq)]
 enum Unsafe {
@@ -60,6 +61,7 @@ fn codec_impls_and_declarations_are_allowed_in_items_and_macros() {
         "unsafe impl<F: Fn() -> u8> Encode for Wrapper<F> where F: Send {}",
         "macro_rules! leaf { ($ty:ty) => { unsafe impl<'de> Decode<'de> for $ty {} } }",
         "macro_rules! tuple { ($($T:ident),+) => { unsafe impl<$($T: Encode),+> Encode for ($($T,)+) {} } }",
+        "unsafe impl<const N: usize> ByteString for [u8; N] {}",
     ] {
         assert_eq!(uses(parsed(allowed)), [Unsafe::CodecImpl], "{allowed}");
     }
