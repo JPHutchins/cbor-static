@@ -1,5 +1,13 @@
 name: Nix
-description: Installs Nix for `nix develop -c camas <task>`.
+description: >-
+  Installs Nix with a local-only binary cache as an extra substituter: the store paths
+  cache.nixos.org can't serve, restored from the newest entry saved by this branch, the PR's
+  base branch or main.
+
+outputs:
+  cache-matched-key:
+    description: Key of the restored entry; empty when nothing was restored.
+    value: ${{ steps.restore.outputs.cache-matched-key }}
 
 runs:
   using: composite
@@ -7,3 +15,20 @@ runs:
     - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       with:
         install_url: https://releases.nixos.org/nix/nix-2.35.6/install
+        extra_nix_config: |
+          extra-substituters = file://${{ runner.temp }}/nixcache?trusted=1&priority=10
+
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/nixcache
+        key: nixcache-${{ runner.os }}-never-${{ github.sha }}
+        restore-keys: |
+          nixcache-${{ runner.os }}-${{ github.base_ref || github.ref_name }}-
+          nixcache-${{ runner.os }}-main-
+
+    - name: Ensure the binary cache exists
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/nixcache"
+        [ -e "$RUNNER_TEMP/nixcache/nix-cache-info" ] || echo 'StoreDir: /nix/store' > "$RUNNER_TEMP/nixcache/nix-cache-info"

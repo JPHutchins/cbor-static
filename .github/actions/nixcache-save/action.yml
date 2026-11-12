@@ -1,0 +1,41 @@
+name: Save the local-only binary cache
+description: >-
+  On branch pushes and branch dispatches, saves the binary cache for `roots` when its plan
+  changed, then deletes this branch's other entries. A pull_request run's save would land in
+  a scope no other run can restore from.
+
+inputs:
+  roots:
+    description: Installable whose plan the entry holds.
+    required: true
+  cache-matched-key:
+    description: The cache-matched-key output of the nix action.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      if: github.ref_type == 'branch' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      shell: bash
+      env:
+        ROOTS: ${{ inputs.roots }}
+        MATCHED_KEY: ${{ inputs.cache-matched-key }}
+      run: nix run .#nixcache-prepare -- "$RUNNER_TEMP/nixcache" "nixcache-$RUNNER_OS-$GITHUB_REF_NAME" "$MATCHED_KEY" "$ROOTS" >> "$GITHUB_OUTPUT"
+
+    - if: steps.prepare.outputs.changed == 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/nixcache
+        key: ${{ steps.prepare.outputs.key }}
+
+    - name: Delete this branch's superseded entries
+      if: steps.prepare.outputs.changed == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        KEEP: ${{ steps.prepare.outputs.key }}
+      run: |
+        gh cache list --ref "$GITHUB_REF" --key "nixcache-$RUNNER_OS-" --limit 100 --json id,key \
+          --jq '.[] | select(.key != env.KEEP) | .id' \
+          | while read -r id; do gh cache delete "$id"; done

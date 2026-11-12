@@ -50,3 +50,17 @@ jobs:
           key: cargo-registry-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-registry-
       - run: nix develop -c camas ${{ matrix.task }}
+
+  nix:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: nix
+        uses: ./.github/actions/nix
+      - uses: ./.github/actions/nixcache-save
+        with:
+          roots: .#nixcache-roots
+          cache-matched-key: ${{ steps.nix.outputs.cache-matched-key }}
