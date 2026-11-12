@@ -55,7 +55,7 @@ fn skip(
             state.step = ops(desc(top(state.depth, frames)?))?.entry;
             return Ok(Flow::Continue);
         }
-        let Some(header) = state.carry.header(input)? else {
+        let Some(header) = state.carry.header(input, state.strict)? else {
             return Ok(Flow::NeedInput);
         };
         skipping.on_header(header)?;
@@ -69,6 +69,20 @@ pub(super) fn start_name(state: &mut State, layout: &Layout, len: u64) -> Flow {
     });
     state.step = name;
     Flow::Continue
+}
+
+/// Skips the rest of an entry no field claims, which `Strict` admits only as an internally tagged
+/// map's tag.
+pub(super) fn skip_unknown(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    items: u64,
+    header: Option<Header>,
+) -> Result<Flow, ErrorKind> {
+    if let Some(strict) = state.strict {
+        (strict.unknown)(frames, state.depth)?;
+    }
+    start_skip(state, items, header)
 }
 
 /// Skips `items` whole items, the first of which may already have begun with `header`.

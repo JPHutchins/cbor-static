@@ -24,7 +24,7 @@ pub(super) fn next_entry(
     if top(state.depth, frames)?.remaining == 0 {
         return Ok(Entry::End);
     }
-    let Some(header) = state.carry.header(input)? else {
+    let Some(header) = state.carry.header(input, state.strict)? else {
         return Ok(Entry::Wait);
     };
     let frame = top(state.depth, frames)?;

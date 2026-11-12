@@ -29,18 +29,19 @@ pub use untagged::UNTAGGED;
 use super::input::{Carry, Input};
 use super::skip::Skip;
 use super::text::KeyMatch;
-use super::{Fed, frame_mut, push, top_field};
+use super::{Fed, StrictOps, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major, length};
 use entries::{Entry, entries, next_entry, unnamed};
-use steps::{name, start_name, start_skip};
+use steps::{name, skip_unknown, start_name, start_skip};
 
-/// A header plus, for definite strings, its payload.
+/// A header plus, for definite strings, its payload, and the profile decoding it.
 pub struct Item<'a> {
     pub header: Header,
     pub payload: &'a [u8],
+    pub strict: Option<&'static StrictOps>,
 }
 
 /// What a leaf decoder needs next: nothing, or the following item decoded as another kind.
@@ -113,6 +114,7 @@ pub struct State {
     offset: usize,
     carry: Carry,
     scratch: MaybeUninit<Scratch>,
+    strict: Option<&'static StrictOps>,
 }
 
 /// The key matcher and the skip, which are never live at the same time.
@@ -134,6 +136,14 @@ impl State {
             offset: 0,
             carry: Carry::new(),
             scratch: MaybeUninit::uninit(),
+            strict: None,
+        }
+    }
+
+    pub(crate) const fn enforcing(self, strict: &'static StrictOps) -> Self {
+        Self {
+            strict: Some(strict),
+            ..self
         }
     }
 }
@@ -217,7 +227,7 @@ fn value(
             None => Ok(Flow::NeedInput),
         };
     }
-    let Some(header) = state.carry.header(input)? else {
+    let Some(header) = state.carry.header(input, state.strict)? else {
         return Ok(Flow::NeedInput);
     };
     if header.is_break() {
@@ -232,7 +242,16 @@ fn value(
                     .ok_or(ErrorKind::NeedContiguous)?,
                 _ => &[],
             };
-            match unsafe { decode(state.target.dst, &Item { header, payload }) }? {
+            match unsafe {
+                decode(
+                    state.target.dst,
+                    &Item {
+                        header,
+                        payload,
+                        strict: state.strict,
+                    },
+                )
+            }? {
                 Next::Done => complete(state, frames).map(|()| Flow::Continue),
                 Next::Then(next) => {
                     state.target.kind = next;

@@ -241,6 +241,9 @@ fn bignum(out: &mut Pending, major: Major, tag: u64, magnitude: u128) {
 fn digits(item: &Item<'_>) -> Result<u128, ErrorKind> {
     match item.header.major {
         Major::Bytes => {
+            if let Some(strict) = item.strict {
+                (strict.bignum)(item.payload)?;
+            }
             let significant = item.payload.iter().skip_while(|&&b| b == 0);
             if significant.clone().count() > 16 {
                 return Err(ErrorKind::OutOfRange);

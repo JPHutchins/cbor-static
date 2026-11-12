@@ -5,6 +5,8 @@
 pub const HALF: u8 = 25;
 pub const SINGLE: u8 = 26;
 pub const DOUBLE: u8 = 27;
+/// The one NaN a deterministic encoder writes: `f9 7e00` (RFC 8949 §4.2.2).
+pub const CANONICAL_NAN: u64 = 0x7e00;
 
 const BINARY64_MANTISSA: u32 = 52;
 const BINARY64_FRACTION: u64 = (1 << BINARY64_MANTISSA) - 1;
@@ -45,6 +47,23 @@ pub fn value(info: u8, arg: u64) -> Option<u64> {
         DOUBLE => Some(arg),
         _ => None,
     }
+}
+
+/// Whether a float head is the one a deterministic encoder writes for its value: the shortest exact
+/// width, and for every NaN, [`CANONICAL_NAN`].
+pub fn deterministic(info: u8, arg: u64) -> bool {
+    value(info, arg).is_some_and(|bits| {
+        if nan(bits) {
+            (info, arg) == (HALF, CANONICAL_NAN)
+        } else {
+            shortest(bits) == (info, arg)
+        }
+    })
+}
+
+const fn nan(bits: u64) -> bool {
+    bits >> BINARY64_MANTISSA & BINARY64_SPECIAL == BINARY64_SPECIAL
+        && bits & BINARY64_FRACTION != 0
 }
 
 /// The binary64 bits of the binary32 `bits`.
@@ -127,7 +146,10 @@ impl Format {
 
 #[cfg(test)]
 mod tests {
-    use super::{BINARY16, DOUBLE, HALF, SINGLE, from_single, shortest, to_single, value};
+    use super::{
+        BINARY16, BINARY32, CANONICAL_NAN, DOUBLE, HALF, SINGLE, deterministic, from_single,
+        shortest, to_single, value,
+    };
 
     #[test]
     fn rfc8949_appendix_a_floats_take_their_shortest_width() {
@@ -185,6 +207,44 @@ mod tests {
             assert_eq!(BINARY16.narrow(widened), Some(half.into()), "{half:04x}");
             assert_eq!(shortest(widened), (HALF, half.into()), "{half:04x}");
         }
+    }
+
+    #[test]
+    fn every_binary16_is_deterministic_but_the_other_nans() {
+        for half in (0..=u16::MAX).step_by(if cfg!(miri) { 257 } else { 1 }) {
+            let nan = half & 0x7c00 == 0x7c00 && half & 0x3ff != 0;
+            assert_eq!(
+                deterministic(HALF, half.into()),
+                !nan || u64::from(half) == CANONICAL_NAN,
+                "{half:04x}"
+            );
+            let widened = BINARY16.widen(half.into());
+            assert!(!deterministic(DOUBLE, widened), "{half:04x}");
+            assert!(
+                BINARY32
+                    .narrow(widened)
+                    .is_none_or(|single| !deterministic(SINGLE, single)),
+                "{half:04x}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_wider_float_is_deterministic_only_when_no_narrower_width_is_exact() {
+        let cases: [(u8, u64, bool); 8] = [
+            (SINGLE, 0x47c3_5000, true),
+            (SINGLE, 0x3f80_0000, false),
+            (SINGLE, 0x7fc0_0001, false),
+            (DOUBLE, 0x3ff1_9999_9999_999a, true),
+            (DOUBLE, 0x40f8_6a00_0000_0000, false),
+            (DOUBLE, 0x7ff8_0000_0000_0001, false),
+            (HALF, 0xfe00, false),
+            (HALF, 0x7c00, true),
+        ];
+        for (info, arg, expected) in cases {
+            assert_eq!(deterministic(info, arg), expected, "{info} {arg:x}");
+        }
+        assert!(!deterministic(24, 0));
     }
 
     #[test]
