@@ -6,10 +6,7 @@
 mod codec;
 
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 
-use super::input::Input;
-use super::{Decoder, Fed};
 use crate::schema::Decode;
 
 /// One well-formed item, borrowed from the input.
@@ -273,6 +270,10 @@ impl<'de, K: Decode<'de>, V: Decode<'de>> Iterator for MapIter<'de, K, V> {
 
 /// The item at the front of `bytes`, which decoding has already checked, and the bytes after it.
 fn first<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<(T, &'de [u8])> {
+    use core::mem::MaybeUninit;
+
+    use super::{Decoder, Fed};
+
     let mut slot = MaybeUninit::<T>::uninit();
     let used = {
         let mut decoder = Decoder::new(&mut slot);
@@ -287,6 +288,8 @@ fn first<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<(T, &'de [u8])> {
 
 /// An array's or map's elements, after its head.
 fn after_head(bytes: &[u8]) -> &[u8] {
+    use super::input::Input;
+
     let mut input = Input::new(bytes);
     match input.take_head() {
         Ok(Some(_)) => input.rest(),

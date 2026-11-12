@@ -58,13 +58,11 @@ fn entry(
     Ok(expect(state, elem, slot(*at, frame.base, frame.seen)?))
 }
 
-#[expect(clippy::unnecessary_wraps, reason = "DecOps::child_done can fail")]
 fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
-    frame.seen += 1;
-    frame.field = u8::try_from(frame.seen).unwrap_or(u8::MAX);
-    if let DecKind::Seq { at, .. } = desc(frame) {
-        unsafe { at(frame.base, index(frame.seen)) };
-    }
+    let DecKind::Seq { at, .. } = desc(frame) else {
+        return Err(ErrorKind::Unsupported);
+    };
+    commit(frame, *at);
     Ok(After::Entry)
 }
 
@@ -75,6 +73,13 @@ fn drop(frame: &Frame) {
     {
         unsafe { drop(frame.base) };
     }
+}
+
+/// Counts one more element or entry complete, and commits it to the container's length.
+pub(super) fn commit(frame: &mut Frame, at: AtFn) {
+    frame.seen += 1;
+    frame.field = u8::try_from(frame.seen).unwrap_or(u8::MAX);
+    unsafe { at(frame.base, index(frame.seen)) };
 }
 
 /// The slot of element `len`, after committing the `len` before it.

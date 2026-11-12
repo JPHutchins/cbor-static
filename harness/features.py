@@ -186,7 +186,9 @@ FEATURES: Final = (
 		"struct",
 		(f"{ENCODE}::tag::TAG", f"{DECODE}::described::SELF_DESCRIBED"),
 	),
-	Feature("`RawCbor`", "raw", "struct", (f"{DECODE}::raw::RAW", "cbor_static::engine::raw::codec::ENC_RAW")),
+	Feature(
+		"`RawCbor`", "raw", "struct", (f"{DECODE}::raw::RAW", "cbor_static::engine::raw::codec::ENC_RAW")
+	),
 	Feature(
 		"`ArrayRef`",
 		"array_ref",
@@ -313,7 +315,7 @@ def fixture(
 	target_dir = FEATURES_DIR / cell
 	build(
 		write_crate(
-			CRATES / "features" / name,
+			CRATES / "features" / cell / name,
 			{
 				"Cargo.toml": render("Cargo.toml", name=name, dependencies=dependencies(cargo_features)),
 				**pinned(cargo_features),

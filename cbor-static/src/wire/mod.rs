@@ -63,6 +63,11 @@ impl Header {
     pub const fn is_break(self) -> bool {
         matches!(self.major, Major::Simple) && self.indefinite()
     }
+
+    /// The length of the head it was read from, which its additional information fixes.
+    pub const fn head_len(self) -> Result<usize, ErrorKind> {
+        header_len((self.major as u8) << 5 | self.info)
+    }
 }
 
 impl Head {

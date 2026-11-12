@@ -12,7 +12,7 @@ use crate::engine::input::Input;
 use crate::error::ErrorKind;
 use crate::schema::DecKind;
 use crate::stack::Frame;
-use crate::wire::{Header, Major, SELF_DESCRIBE, header_len};
+use crate::wire::{Header, Major, SELF_DESCRIBE};
 
 pub static SELF_DESCRIBED: DecOps = DecOps {
     value: Begin::Header(value),
@@ -33,7 +33,7 @@ fn value(
         return Err(ErrorKind::Unsupported);
     };
     if (header.major, header.arg) != (Major::Tag, SELF_DESCRIBE) {
-        let len = header_len((header.major as u8) << 5 | header.info)?;
+        let len = header.head_len()?;
         match input.at.checked_sub(len) {
             Some(start) => input.at = start,
             None => state.carry.restore(len),

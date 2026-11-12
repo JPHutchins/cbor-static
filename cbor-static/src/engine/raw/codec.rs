@@ -5,10 +5,9 @@
 )]
 
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 
 use super::{ArrayRef, MapRef, RawCbor, after_head};
-use crate::engine::{DECODE_RAW as RAW, Decoder, Fed, Item, Pending, StrictOps};
+use crate::engine::{DECODE_RAW as RAW, Item, Pending, StrictOps};
 use crate::error::ErrorKind;
 use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
@@ -98,6 +97,10 @@ fn used<'de, T: Decode<'de>>(
     bytes: &'de [u8],
     strict: Option<&'static StrictOps>,
 ) -> Result<usize, ErrorKind> {
+    use core::mem::MaybeUninit;
+
+    use crate::engine::{Decoder, Fed};
+
     let mut slot = MaybeUninit::<T>::uninit();
     let mut decoder = Decoder::under(&mut slot, strict);
     match decoder.feed(bytes).map_err(|error| error.kind)? {

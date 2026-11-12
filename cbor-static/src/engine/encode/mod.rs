@@ -121,6 +121,23 @@ pub fn resume(
     }
 }
 
+/// The encoding's next byte, or `None` past its end: no output buffer, so no build's drain can
+/// stall it.
+#[cfg(feature = "heapless")]
+pub(crate) fn next_byte(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+) -> Result<Option<u8>, ErrorKind> {
+    loop {
+        if let Some(byte) = state.pending.pop() {
+            return Ok(Some(byte));
+        }
+        if !advance(state, frames)? {
+            return Ok(None);
+        }
+    }
+}
+
 fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool, ErrorKind> {
     if !state.started {
         state.started = true;

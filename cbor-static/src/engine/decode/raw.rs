@@ -12,7 +12,7 @@ use crate::engine::skip::rest_len;
 use crate::error::ErrorKind;
 use crate::schema::DecKind;
 use crate::stack::Frame;
-use crate::wire::{Header, header_len};
+use crate::wire::Header;
 
 /// Checks and writes the value of the whole item, whose `payload` is its every byte, head included.
 pub type StoreFn = unsafe fn(*mut u8, &Item<'_>) -> Result<(), ErrorKind>;
@@ -35,7 +35,7 @@ fn value(
     let DecKind::Raw { store, .. } = state.target.kind else {
         return Err(ErrorKind::Unsupported);
     };
-    let head = header_len((header.major as u8) << 5 | header.info)?;
+    let head = header.head_len()?;
     let start = input
         .at
         .checked_sub(head)

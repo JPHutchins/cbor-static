@@ -6,7 +6,7 @@
 use core::mem::MaybeUninit;
 
 use super::array::{Element, element};
-use super::seq::{index, slot};
+use super::seq::{commit, index, slot};
 use super::{After, Begin, DecOps, Flow, State, desc, end, entries, expect, open, top, unnamed};
 use crate::engine::input::Input;
 use crate::error::ErrorKind;
@@ -105,9 +105,7 @@ fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
         return Err(ErrorKind::Unsupported);
     };
     if frame.phase == Phase::Value {
-        frame.seen += 1;
-        frame.field = u8::try_from(frame.seen).unwrap_or(u8::MAX);
-        unsafe { (glue.at)(frame.base, index(frame.seen)) };
+        commit(frame, glue.at);
         frame.phase = Phase::Key;
     } else {
         frame.phase = Phase::Value;

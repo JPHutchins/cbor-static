@@ -64,6 +64,14 @@ usize16 = Task(
 	},
 	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target; also the no-feature build, warnings denied",
 )
+oneshot = Task(
+	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test oneshot",
+	env={
+		"CARGO_TARGET_DIR": f"{TARGET_DIR}/oneshot-host",
+		"RUSTFLAGS": "--cfg cbor_static_oneshot -D warnings",
+	},
+	help="the one-shot engine build, on whole input",
+)
 test = Parallel(
 	Task(
 		"cargo test --workspace --features '{FEATURES}'",
@@ -87,7 +95,7 @@ miri = Task(
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"},
 )
 fix = rust_fmt | tasks_fix | nix_fmt | harness
-check = rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | tasks_check | harness
+check = rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | oneshot | tasks_check | harness
 f32 = Task(
 	"cargo test --release -p cbor-static --test floats -- --ignored",
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},

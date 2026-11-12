@@ -174,34 +174,18 @@ fn keys(
     later: *const u8,
     frames: &mut [MaybeUninit<Frame>],
 ) -> Result<(), ErrorKind> {
-    use super::encode::State;
+    use super::encode::{State, next_byte};
 
     let (for_earlier, for_later) = frames.split_at_mut(frames.len() / 2);
     let (mut earlier, mut later) = (State::new(kind, earlier), State::new(kind, later));
     loop {
         match (
-            byte(&mut earlier, for_earlier)?,
-            byte(&mut later, for_later)?,
+            next_byte(&mut earlier, for_earlier)?,
+            next_byte(&mut later, for_later)?,
         ) {
             (Some(a), Some(b)) if a == b => {}
             (a, b) => return deterministic(a < b),
         }
-    }
-}
-
-/// The next byte of an encoding, or `None` past its end.
-#[cfg(feature = "heapless")]
-fn byte(
-    encoding: &mut super::encode::State,
-    frames: &mut [MaybeUninit<Frame>],
-) -> Result<Option<u8>, ErrorKind> {
-    use super::Progress;
-    use super::encode::resume;
-
-    let mut one = [0];
-    match resume(encoding, frames, &mut one).map_err(|error| error.kind)? {
-        Progress::Done(0) => Ok(None),
-        Progress::Done(_) | Progress::NeedSpace(_) => Ok(one.first().copied()),
     }
 }
 

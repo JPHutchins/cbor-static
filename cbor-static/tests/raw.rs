@@ -154,6 +154,24 @@ fn a_map_ref_yields_every_entry_it_checked() {
     );
 }
 
+/// A view keeps the map as it arrived: a repeated key is the caller's to see, unless `Strict`, whose
+/// rising key order excludes it.
+#[test]
+fn a_map_ref_yields_a_repeated_key_as_it_arrived_unless_strict() {
+    let bytes = b"\xa2\x01\x02\x01\x03";
+    assert_eq!(
+        with::<MapRef<u8, u8>, _>(bytes, |map| map.iter().collect::<Vec<_>>()),
+        Ok(vec![(1, 2), (1, 3)])
+    );
+    let mut slot = MaybeUninit::<MapRef<u8, u8>>::uninit();
+    assert_eq!(
+        cbor_static::decode_strict_into(bytes, &mut slot)
+            .map(|_| ())
+            .map_err(|e| e.kind),
+        Err(ErrorKind::NotDeterministic)
+    );
+}
+
 #[test]
 fn views_nest_and_encode_as_they_arrived() {
     let input = b"\x82\x9f\x18\x01\xff\x81\x02";
