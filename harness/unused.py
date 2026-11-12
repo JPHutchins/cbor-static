@@ -3,6 +3,7 @@ code, and a control firmware that uses that code links them all.
 """
 
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from harness.backends.backend import ROOT, path_dependency
@@ -124,8 +125,16 @@ def gate(targets: tuple[str, ...] = (GATE_TARGET,)) -> tuple[Path, ...]:
 	)
 
 
-def control() -> Path:
-	return fixture(CONTROL, tuple(feature.template for feature in FEATURES), "positive", "release")
+def control(nightly: bool) -> Path:
+	"""One firmware of every feature that builds on the stable toolchain, or on nightly."""
+	features = tuple(feature for feature in FEATURES if feature.nightly == nightly)
+	return fixture(
+		f"{CONTROL}-nightly" if nightly else CONTROL,
+		tuple(feature.template for feature in features),
+		"positive-nightly" if nightly else "positive",
+		"release",
+		tuple(sorted({cargo for feature in features for cargo in feature.cargo_features})),
+	)
 
 
 def tokens() -> Path:
@@ -150,11 +159,16 @@ def tokens() -> Path:
 
 
 ANCHORED: Final = (
-	Anchored(
-		"feature ops statics",
-		frozenset(symbol for feature in FEATURES for symbol in feature.symbols),
-		"one positive-control ELF of every feature",
-		control,
+	*(
+		Anchored(
+			f"{'nightly ' if nightly else ''}feature ops statics and handlers",
+			frozenset(
+				symbol for feature in FEATURES if feature.nightly == nightly for symbol in feature.symbols
+			),
+			f"one positive-control ELF of every {'nightly' if nightly else 'stable'} feature",
+			partial(control, nightly=nightly),
+		)
+		for nightly in (False, True)
 	),
 	Anchored(
 		"token API functions",

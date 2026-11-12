@@ -2,7 +2,9 @@
 
 mod common;
 
-use cbor_static::ErrorKind;
+use core::fmt::Debug;
+
+use cbor_static::{Decode, Encode, ErrorKind};
 use common::{chunked_decode, decode, decode_strict, encode};
 
 #[test]
@@ -110,6 +112,47 @@ fn an_integer_narrows_only_when_in_range() {
     assert_eq!(
         decode::<u128>(b"\x3b\xff\xff\xff\xff\xff\xff\xff\xff"),
         Err(ErrorKind::OutOfRange)
+    );
+}
+
+/// Each width takes its own extremes, encoded as the same integer any wider width writes, and
+/// rejects the integers just past them that a plain head can carry.
+fn narrows_at<T>(min: i128, max: i128)
+where
+    T: for<'de> Decode<'de> + Encode + Copy + PartialEq + Debug + TryFrom<i128>,
+{
+    for edge in [min, max] {
+        let value = T::try_from(edge).ok();
+        assert!(value.is_some(), "{edge}");
+        assert_eq!(decode::<T>(&encode(&edge)).ok(), value, "{edge}");
+        assert_eq!(value.map(|v| encode(&v)), Some(encode(&edge)), "{edge}");
+    }
+    for past in [min - 1, max + 1]
+        .into_iter()
+        .filter(|past| (-(1i128 << 64)..(1i128 << 64)).contains(past))
+    {
+        assert_eq!(
+            decode::<T>(&encode(&past)),
+            Err(ErrorKind::OutOfRange),
+            "{past}"
+        );
+    }
+}
+
+#[test]
+fn every_integer_width_narrows_only_when_in_range() {
+    narrows_at::<u8>(0, u8::MAX.into());
+    narrows_at::<u16>(0, u16::MAX.into());
+    narrows_at::<u32>(0, u32::MAX.into());
+    narrows_at::<u64>(0, u64::MAX.into());
+    narrows_at::<usize>(0, usize::MAX.try_into().expect("usize fits i128"));
+    narrows_at::<i8>(i8::MIN.into(), i8::MAX.into());
+    narrows_at::<i16>(i16::MIN.into(), i16::MAX.into());
+    narrows_at::<i32>(i32::MIN.into(), i32::MAX.into());
+    narrows_at::<i64>(i64::MIN.into(), i64::MAX.into());
+    narrows_at::<isize>(
+        isize::MIN.try_into().expect("isize fits i128"),
+        isize::MAX.try_into().expect("isize fits i128"),
     );
 }
 

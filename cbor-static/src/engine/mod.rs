@@ -2,6 +2,8 @@
 //! The one module that dereferences descriptor offsets. Every other module denies `unsafe`, except
 //! to declare or implement the codec traits (D-24a).
 
+#[cfg(feature = "heapless")]
+mod capacity;
 mod chunks;
 mod decode;
 mod encode;
@@ -9,46 +11,59 @@ mod glue;
 mod input;
 mod leaf;
 mod pending;
+mod raw;
 mod skip;
 mod strict;
+mod strings;
 mod text;
 
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr;
 
+#[cfg(feature = "heapless")]
+pub(crate) use capacity::{assemble as assemble_map, at, entry, fresh, len_of, shadow_fits, view};
 pub use chunks::{Chunk, ChunkIter, Chunks};
 pub use decode::{
-    ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, CBOR_TAG as DECODE_CBOR_TAG, DecOps,
-    ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, INDEX as DECODE_INDEX,
-    INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY,
-    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
-    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION,
-    UNTAGGED as DECODE_UNTAGGED,
+    ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, AppendFn, BYTES_OWNED, BeginFn,
+    CBOR_TAG as DECODE_CBOR_TAG, DecOps, ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL,
+    FinishFn, INDEX as DECODE_INDEX, INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP,
+    MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY,
+    MAP_MIXED as DECODE_MAP_MIXED, MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
+    OPTION as DECODE_OPTION, RAW as DECODE_RAW, SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn,
+    TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
+#[cfg(feature = "heapless")]
+pub(crate) use decode::{LINEAR_MAP as DECODE_LINEAR_MAP, SEQ as DECODE_SEQ};
 pub use encode::{
     ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, CBOR_TAG as ENCODE_CBOR_TAG,
     ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps, INDEX as ENCODE_INDEX,
-    INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION,
+    INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
     UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
+#[cfg(feature = "heapless")]
+pub(crate) use encode::{LINEAR_MAP as ENCODE_LINEAR_MAP, SEQ as ENCODE_SEQ};
 pub use glue::{
-    FieldPtrFn, IndexFn, SomeFn, WriteFn, assemble, drop_fn, field_ptr_of, index_of, index_tag,
-    offset, some, some_ptr, write_tag,
+    AtFn, EntryFn, FieldPtrFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn, assemble, drop_fn,
+    field_ptr_of, index_of, index_tag, offset, some, some_ptr, wraps, write_tag,
 };
 pub(crate) use input::Input;
 pub(crate) use leaf::{
     AbsentFn, DEC_BYTES, DEC_STR, DecodeFn, ENC_BYTES, ENC_STR, EncodeFn, NULL_ITEM, absent_option,
     dec_i128, dec_option, dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar,
-    enc_tagged, enc_u128, none,
+    enc_u128, none,
 };
 pub use pending::Pending;
+pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor};
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;
 use strict::STRICT;
 pub(crate) use strict::StrictOps;
+pub(crate) use strings::{DEC_CHAR, ENC_CHAR, enc_view, exactly, nothing, within};
+#[cfg(feature = "heapless")]
+pub(crate) use strings::{any_length, append_string, append_vec, empty, enc_string};
 pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};
@@ -160,6 +175,16 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
     pub fn new_strict(slot: &'s mut MaybeUninit<T>) -> Self {
         Self {
             state: decode::State::strict(T::DECODE, slot.as_mut_ptr().cast()),
+            stack: MaybeUninit::uninit(),
+            slot: PhantomData,
+        }
+    }
+
+    /// A decoder under the profile `strict` names, which a raw view's own decoder passes on to the
+    /// decoders that check its elements, so firmware without `Strict` links none of it (D-22).
+    pub(crate) fn under(slot: &'s mut MaybeUninit<T>, strict: Option<&'static StrictOps>) -> Self {
+        Self {
+            state: decode::State::under(T::DECODE, slot.as_mut_ptr().cast(), strict),
             stack: MaybeUninit::uninit(),
             slot: PhantomData,
         }

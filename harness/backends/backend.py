@@ -72,12 +72,14 @@ def no_impls(_msg: Message) -> str:
 	return ""
 
 
-def path_dependency(name: str, path: Path) -> str:
+def path_dependency(name: str, path: Path, features: tuple[str, ...] = ()) -> str:
 	"""
 	>>> path_dependency("minicbor", Path("/x/minicbor"))
 	'minicbor = { path = "/x/minicbor", default-features = false }'
+	>>> print(path_dependency("cbor-static", Path("/x/cbor-static"), ("heapless", "nightly")))
+	cbor-static = { path = "/x/cbor-static", default-features = false, features = ['heapless', 'nightly'] }
 	"""
-	return f'{name} = {{ path = "{path}", default-features = false }}'
+	return f'{name} = {{ path = "{path}", default-features = false{f", features = {list(features)}" if features else ""} }}'
 
 
 def roundtrip_fn(decode: str, encode: str) -> Callable[[Message], str]:

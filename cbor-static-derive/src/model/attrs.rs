@@ -20,6 +20,7 @@ pub enum Attr {
     Index,
     CborTag(u64),
     DenyUnknownFields,
+    Bytes,
     Tag(String),
     Content(String),
     Untagged,
@@ -51,6 +52,7 @@ pub struct FieldAttrs {
     pub default: bool,
     pub skip_if_none: bool,
     pub key: Option<KeyLit>,
+    pub bytes: bool,
 }
 
 #[derive(Default)]
@@ -122,6 +124,10 @@ impl FieldAttrs {
                 key: Some(key),
                 ..self
             }),
+            Attr::Bytes => Ok(Self {
+                bytes: true,
+                ..self
+            }),
             _ => Err(misplaced(attr.span, "a field")),
         }
     }
@@ -177,6 +183,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("key", true) => Attr::Key(key(&meta.value()?.parse::<Expr>()?)?),
                     ("keys", true) => Attr::Keys(meta.value()?.parse::<Path>()?),
                     ("array", true) => Attr::Array,
+                    ("bytes", true) => Attr::Bytes,
                     ("index", true) => Attr::Index,
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)

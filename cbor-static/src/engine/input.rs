@@ -52,6 +52,11 @@ impl<'a> Input<'a> {
         self.take_exact(header_len(initial)?).map(parse).transpose()
     }
 
+    /// `len` bytes from `start`, which may lie before the cursor.
+    pub fn span(&self, start: usize, len: usize) -> Option<&'a [u8]> {
+        self.bytes.get(start..start.checked_add(len)?)
+    }
+
     pub fn take_rest(&mut self) -> &'a [u8] {
         let rest = self.rest();
         self.at += rest.len();
@@ -113,6 +118,12 @@ impl Carry {
             unsafe { self.bytes.get(..need).unwrap_or(&[]).assume_init_ref() },
             strict,
         )
+    }
+
+    /// Gives back the header just read, `len` bytes that a chunk boundary split, so the next read
+    /// returns it again.
+    pub fn restore(&mut self, len: usize) {
+        self.len = u8::try_from(len).unwrap_or(0);
     }
 
     fn stash(&mut self, bytes: &[u8]) {

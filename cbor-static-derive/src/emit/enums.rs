@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::Ident;
 
 use super::structs::decode_map_ops;
-use super::{Body, Trait, child, forms, impls, key, layout, level};
+use super::{Body, Trait, child, field_child, field_kind, forms, impls, key, layout, level};
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
 
@@ -233,13 +233,13 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
 		Payload::Newtype(ty) => quote!(Some(<#ty as #path>::ENCODE)),
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
-			let kinds = fields.iter().map(|Field { ty, .. }| quote!(<#ty as #path>::ENCODE));
+			let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
 			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
 		}
 	});
     let (stack, depth) = stack(variants, path, false);
     Body {
-        kind: quote!(__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
+        kind: quote!(&__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
         stack,
         depth,
         lead: TokenStream::new(),
@@ -266,7 +266,7 @@ fn decode_kind(
 			Payload::Newtype(ty) => quote!(Some(<#ty as #path>::DECODE)),
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
-				let kinds = fields.iter().map(|Field { ty, .. }| quote!(<#ty as #path>::DECODE));
+				let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
 				let ops = decode_map_ops(fields, Unknown::Skip);
 				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: &[#(#kinds),*], drop: None }))
 			}
@@ -291,7 +291,7 @@ fn decode_kind(
     let (stack, depth) = stack(variants, path, unit_payload_frames(form));
     let layout = forms::decode_layout(form, variants, path);
     Body {
-        kind: quote!({
+        kind: quote!(&{
             #(#fits)*
             __p::DecKind::Enum { ops: &#ops, layout: #layout, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
         }),
@@ -308,11 +308,17 @@ fn stack(
     path: &TokenStream,
     unit_frames: bool,
 ) -> (TokenStream, TokenStream) {
-    level(variants.iter().map(|variant| match &variant.payload {
-        Payload::Unit if unit_frames => level(core::iter::empty()),
-        Payload::Unit => (quote!(()), quote!(0)),
-        Payload::Newtype(ty) => child(ty, path),
-        Payload::Struct(fields) => level(fields.iter().map(|Field { ty, .. }| child(ty, path))),
+    level(variants.iter().map(|variant| {
+        match &variant.payload {
+            Payload::Unit if unit_frames => level(core::iter::empty()),
+            Payload::Unit => (quote!(()), quote!(0)),
+            Payload::Newtype(ty) => child(ty, path),
+            Payload::Struct(fields) => level(
+                fields
+                    .iter()
+                    .map(|field| field_child(&field.ty, field.bytes, path)),
+            ),
+        }
     }))
 }
 

@@ -8,7 +8,7 @@ use syn::{
 };
 
 use attrs::{EnumAttrs, StructAttrs};
-use fields::{check_name, fields_of, variant};
+use fields::{bare, check_name, fields_of, positional, variant};
 
 const MAX_FIELDS: usize = 64;
 
@@ -18,11 +18,15 @@ pub struct Item {
     pub shape: Shape,
 }
 
+/// The wire shape of a struct follows serde (D-08): a unit struct is `null`, a newtype struct its
+/// field, and a tuple struct an array.
 pub enum Shape {
     Struct {
         fields: Vec<Field>,
         form: StructForm,
     },
+    Unit,
+    Newtype(Box<Field>),
     Enum {
         variants: Vec<Variant>,
         repr: Repr,
@@ -70,6 +74,8 @@ pub enum Key {
         label: Path,
         variant: Ident,
     },
+    /// A tuple struct's field, identified by its position alone.
+    Position,
 }
 
 pub struct Field {
@@ -77,6 +83,8 @@ pub struct Field {
     pub ty: Type,
     pub key: Key,
     pub omit_if_absent: bool,
+    /// `#[cbor(bytes)]`: the type's byte-string encoding, not its own (#12 Q21).
+    pub bytes: bool,
 }
 
 pub struct Variant {
@@ -97,11 +105,19 @@ impl Item {
         let shape = match &ast.data {
             Data::Struct(data) => match &data.fields {
                 Fields::Named(named) => structure(&ast.attrs, named.named.iter())?,
-                other => {
-                    return Err(syn::Error::new(
-                        other.span(),
-                        "cbor-static: structs need named fields",
-                    ));
+                Fields::Unnamed(unnamed) => {
+                    bare(&ast.attrs, "a tuple struct")?;
+                    match <[Field; 1]>::try_from(positional(unnamed)?) {
+                        Ok([field]) => Shape::Newtype(Box::new(field)),
+                        Err(fields) => Shape::Struct {
+                            fields,
+                            form: StructForm::Array,
+                        },
+                    }
+                }
+                Fields::Unit => {
+                    bare(&ast.attrs, "a unit struct")?;
+                    Shape::Unit
                 }
             },
             Data::Enum(data) if data.variants.len() > MAX_FIELDS => {

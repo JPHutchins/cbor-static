@@ -39,10 +39,12 @@ impl Pending {
             .zip(src)
             .map(|(d, s)| d.write(*s))
             .count();
+        debug_assert_eq!(copied, src.len(), "an item overflows Pending");
         self.len = u8::try_from(start + copied).unwrap_or(u8::MAX);
     }
 
     pub(crate) fn tail(&mut self, src: &[u8]) {
+        debug_assert_eq!(self.tail_len, 0, "an item replaces a pending tail");
         self.tail = src.as_ptr();
         self.tail_len = src.len();
     }
@@ -61,6 +63,20 @@ impl Pending {
         if cfg!(cbor_static_oneshot) && out.len() < self.remaining() {
             return 0;
         }
+        self.take(out)
+    }
+
+    /// The next byte, in every build: a key comparison reads two encodings a byte at a time.
+    #[cfg(feature = "heapless")]
+    pub(crate) fn pop(&mut self) -> Option<u8> {
+        let mut one = [0];
+        (self.take(&mut one) == 1)
+            .then(|| one.first().copied())
+            .flatten()
+    }
+
+    /// Moves as much as fits into `out`.
+    fn take(&mut self, out: &mut [u8]) -> usize {
         let head = unsafe {
             self.buf
                 .get(usize::from(self.at)..usize::from(self.len))

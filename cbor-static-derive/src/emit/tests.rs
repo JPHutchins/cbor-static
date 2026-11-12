@@ -36,6 +36,15 @@ fn the_only_unsafe_in_derive_output_is_the_codec_trait_impls() {
             }
         ),
         parse_quote!(
+            struct Unit;
+        ),
+        parse_quote!(
+            struct Name<'a>(&'a str);
+        ),
+        parse_quote!(
+            struct Pair(u32, Option<u32>);
+        ),
+        parse_quote!(
             enum Glue {
                 A,
                 B(u32),

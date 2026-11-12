@@ -3,12 +3,19 @@
 
 mod array;
 mod cbor_tag;
+mod described;
 mod elements;
 mod entries;
 mod enums;
 mod index;
+#[cfg(feature = "heapless")]
+mod linear_map;
 mod map;
 mod option;
+mod owned;
+mod raw;
+#[cfg(feature = "heapless")]
+mod seq;
 mod steps;
 mod tagged;
 mod untagged;
@@ -18,11 +25,18 @@ use core::ptr;
 
 pub use array::ARRAY;
 pub use cbor_tag::CBOR_TAG;
+pub use described::SELF_DESCRIBED;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+#[cfg(feature = "heapless")]
+pub use linear_map::LINEAR_MAP;
 pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
 pub use option::OPTION;
+pub use owned::{AppendFn, BYTES as BYTES_OWNED, BeginFn, FinishFn, TEXT as TEXT_OWNED};
+pub use raw::{RAW, StoreFn};
+#[cfg(feature = "heapless")]
+pub use seq::SEQ;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
 
@@ -121,10 +135,11 @@ pub struct State {
     strict: Option<&'static StrictOps>,
 }
 
-/// The key matcher and the skip, which are never live at the same time.
+/// The key matcher, the skip and a string being copied, which are never live at the same time.
 union Scratch {
     key: KeyMatch,
     skip: Skip,
+    copy: owned::Copying,
 }
 
 impl State {
@@ -138,7 +153,7 @@ impl State {
         Self::under(kind, dst, Some(&STRICT))
     }
 
-    const fn under(
+    pub(crate) const fn under(
         kind: &'static DecKind,
         dst: *mut u8,
         strict: Option<&'static StrictOps>,
@@ -282,7 +297,12 @@ fn value(
         DecKind::Struct { ops, .. }
         | DecKind::Enum { ops, .. }
         | DecKind::Array { ops, .. }
-        | DecKind::Option { ops, .. } => match ops.value {
+        | DecKind::Option { ops, .. }
+        | DecKind::Owned { ops, .. }
+        | DecKind::Seq { ops, .. }
+        | DecKind::Raw { ops, .. }
+        | DecKind::Described { ops, .. }
+        | DecKind::Map { ops, .. } => match ops.value {
             Begin::Header(on_header) => on_header(state, frames, input, header),
             Begin::Peek(_) => Err(ErrorKind::Unsupported),
         },
@@ -376,7 +396,12 @@ fn ops(kind: &DecKind) -> Result<&'static DecOps, ErrorKind> {
         DecKind::Struct { ops, .. }
         | DecKind::Enum { ops, .. }
         | DecKind::Array { ops, .. }
-        | DecKind::Option { ops, .. } => Ok(ops),
+        | DecKind::Option { ops, .. }
+        | DecKind::Owned { ops, .. }
+        | DecKind::Seq { ops, .. }
+        | DecKind::Raw { ops, .. }
+        | DecKind::Described { ops, .. }
+        | DecKind::Map { ops, .. } => Ok(ops),
         DecKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

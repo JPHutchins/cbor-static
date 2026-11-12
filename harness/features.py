@@ -6,9 +6,11 @@ per-type flash is its fixture's delta against a reference fixture that lacks onl
 import argparse
 import csv
 import sys
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
+from harness.backends.backend import ROOT, path_dependency
 from harness.backends.cbor_static import CBOR_STATIC, ROUNDTRIP, roundtrip
 from harness.elf import sizes
 from harness.measure import CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_path, write_crate
@@ -21,13 +23,21 @@ if TYPE_CHECKING:
 DECODE: Final = "cbor_static::engine::decode"
 ENCODE: Final = "cbor_static::engine::encode"
 STRICT: Final = "cbor_static::engine::strict"
+LEAF: Final = "cbor_static::engine::leaf"
+STRINGS: Final = "cbor_static::engine::strings"
+NIGHTLY: Final = "nightly"
+HEAPLESS: Final = "heapless"
+DECODE_ONLY: Final = "decode_only"
+MANIFEST: Final = tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())
 FEATURES_DIR: Final = HARNESS / "features"
 COUNTS: Final = (1, 8)
 
 
 class Feature(NamedTuple):
 	"""A feature's fixture template, the reference template it differs from only by the feature,
-	the ops statics that implement it, and the prelude function its types round-trip through.
+	the ops statics and handlers that implement it, the prelude function its types round-trip
+	through, and the cargo features of cbor-static it needs. A cargo feature named after a toolchain
+	builds on that toolchain, the feature's reference included.
 	"""
 
 	name: str
@@ -35,6 +45,15 @@ class Feature(NamedTuple):
 	reference: str
 	symbols: tuple[str, ...]
 	decoding: str = ROUNDTRIP
+	cargo_features: tuple[str, ...] = ()
+
+	@property
+	def nightly(self) -> bool:
+		"""
+		>>> BY_TEMPLATE["f16"].nightly, BY_TEMPLATE["half"].nightly
+		(True, False)
+		"""
+		return NIGHTLY in self.cargo_features
 
 
 FEATURES: Final = (
@@ -49,6 +68,13 @@ FEATURES: Final = (
 		"`#[cbor(array)]`", "array_struct", "struct", (f"{DECODE}::array::ARRAY", f"{ENCODE}::array::ARRAY")
 	),
 	Feature("tuple", "tuple", "struct", (f"{DECODE}::array::ARRAY", f"{ENCODE}::array::ARRAY")),
+	Feature("tuple struct", "tuple_struct", "struct", (f"{DECODE}::array::ARRAY", f"{ENCODE}::array::ARRAY")),
+	Feature(
+		"unit and newtype structs",
+		"shapes",
+		"struct",
+		tuple(f"{LEAF}::{kind}_scalar::<()>" for kind in ("enc", "dec")),
+	),
 	Feature(
 		"`[T; N]`",
 		"fixed_array",
@@ -97,10 +123,108 @@ FEATURES: Final = (
 		"`Strict` profile",
 		"strict",
 		"struct",
-		tuple(f"{STRICT}::{name}" for name in ("STRICT", "head", "order", "bignum", "unknown", "sorted")),
+		tuple(
+			f"{STRICT}::{name}"
+			for name in ("STRICT", "head", "order", "bignum", "unknown", "sorted", "raw", "keys")
+		),
 		"roundtrip_strict",
 	),
+	Feature(
+		"8-, 16- and 64-bit integers, `usize`, `isize`",
+		"ints",
+		"struct",
+		tuple(f"{LEAF}::{kind}_scalar::<{ty}>" for kind in ("enc", "dec") for ty in ("u8", "i64")),
+	),
+	Feature(
+		"`F16`",
+		"half",
+		"struct",
+		tuple(f"{LEAF}::{kind}_scalar::<cbor_static::half::F16>" for kind in ("enc", "dec")),
+	),
+	Feature(
+		"`f16` (nightly)",
+		"f16",
+		"half",
+		tuple(f"{LEAF}::{kind}_scalar::<f16>" for kind in ("enc", "dec")),
+		cargo_features=(NIGHTLY,),
+	),
+	Feature(
+		"`char`",
+		"chars",
+		"struct",
+		(f"{DECODE}::owned::TEXT", f"{STRINGS}::ENC_CHAR", f"{STRINGS}::DEC_CHAR"),
+	),
+	Feature(
+		"`[u8; N]` under `#[cbor(bytes)]`",
+		"byte_array",
+		"struct",
+		(f"{DECODE}::owned::BYTES", f"{STRINGS}::within::<4>", f"{STRINGS}::exactly::<4>"),
+	),
+	Feature(
+		"heapless `String`",
+		"heapless_string",
+		"struct",
+		(f"{DECODE}::owned::TEXT", f"{STRINGS}::bounded::enc_string::<8, u8>"),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
+		"heapless `Vec<u8>` under `#[cbor(bytes)]`",
+		"heapless_bytes",
+		"struct",
+		(f"{DECODE}::owned::BYTES", f"{STRINGS}::bounded::append_vec::<8, u8>"),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
+		"`Tagged` over any value",
+		"tagged",
+		"struct",
+		(f"{ENCODE}::tag::TAG", f"{LEAF}::dec_tagged::<1, u32>"),
+	),
+	Feature(
+		"`SelfDescribed`",
+		"self_described",
+		"struct",
+		(f"{ENCODE}::tag::TAG", f"{DECODE}::described::SELF_DESCRIBED"),
+	),
+	Feature(
+		"`RawCbor`", "raw", "struct", (f"{DECODE}::raw::RAW", "cbor_static::engine::raw::codec::ENC_RAW")
+	),
+	Feature(
+		"`ArrayRef`",
+		"array_ref",
+		"struct",
+		(f"{DECODE}::raw::RAW", "cbor_static::engine::raw::codec::store_array::<u32>"),
+	),
+	Feature(
+		"`MapRef`",
+		"map_ref",
+		"struct",
+		(f"{DECODE}::raw::RAW", "cbor_static::engine::raw::codec::store_map::<u8, u32>"),
+	),
+	Feature(
+		"heapless `Vec`",
+		"heapless_vec",
+		"struct",
+		(f"{DECODE}::seq::SEQ", f"{ENCODE}::seq::SEQ"),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
+		"heapless `LinearMap`",
+		"heapless_map",
+		"struct",
+		(f"{DECODE}::linear_map::LINEAR_MAP", f"{ENCODE}::linear_map::LINEAR_MAP"),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
+		"heapless `LinearMap`, decode-only",
+		"heapless_map_decode",
+		"struct_decode",
+		(f"{DECODE}::linear_map::LINEAR_MAP",),
+		DECODE_ONLY,
+		(HEAPLESS,),
+	),
 )
+REFERENCE_DECODINGS: Final = {"struct_decode": DECODE_ONLY}
 BY_TEMPLATE: Final = {feature.template: feature for feature in FEATURES}
 
 
@@ -131,24 +255,35 @@ def cost(feature: Feature, profile: str) -> Cost:
 	against the reference.
 	"""
 	fixed, at_eight = (
-		flash(feature.template, count, feature.template, profile)
-		- flash(feature.reference, count, feature.template, profile)
+		flash(feature.template, count, feature, profile) - flash(feature.reference, count, feature, profile)
 		for count in COUNTS
 	)
 	return Cost(feature.name, profile, fixed, (at_eight - fixed) / (COUNTS[1] - COUNTS[0]))
 
 
-def flash(template: str, count: int, cell: str, profile: str) -> int:
-	"""Flash of a firmware round-tripping `count` types made from `template`."""
-	return sizes(fixture(fixture_name(template, count), (template,) * count, cell, profile)).flash
+def flash(template: str, count: int, feature: Feature, profile: str) -> int:
+	"""Flash of a firmware round-tripping `count` types made from `template`, built as `feature`'s."""
+	return sizes(
+		fixture(
+			fixture_name(template, count),
+			(template,) * count,
+			feature.template,
+			profile,
+			feature.cargo_features,
+		)
+	).flash
 
 
 def decoding(template: str) -> str:
 	"""
-	>>> decoding("strict"), decoding("struct")
-	('roundtrip_strict', 'roundtrip')
+	>>> decoding("strict"), decoding("struct"), decoding("struct_decode")
+	('roundtrip_strict', 'roundtrip', 'decode_only')
 	"""
-	return BY_TEMPLATE[template].decoding if template in BY_TEMPLATE else ROUNDTRIP
+	return (
+		BY_TEMPLATE[template].decoding
+		if template in BY_TEMPLATE
+		else REFERENCE_DECODINGS.get(template, ROUNDTRIP)
+	)
 
 
 def fixture_name(template: str, count: int) -> str:
@@ -171,16 +306,22 @@ def built() -> tuple[Path, ...]:
 	)
 
 
-def fixture(name: str, templates: Sequence[str], cell: str, profile: str) -> Path:
-	"""Builds a firmware whose type `T{i}` comes from `templates[i]`; returns its ELF."""
+def fixture(
+	name: str, templates: Sequence[str], cell: str, profile: str, cargo_features: tuple[str, ...] = ()
+) -> Path:
+	"""Builds a firmware whose type `T{i}` comes from `templates[i]`, with `cargo_features` of
+	cbor-static; returns its ELF.
+	"""
 	target_dir = FEATURES_DIR / cell
 	build(
 		write_crate(
-			CRATES / "features" / name,
+			CRATES / "features" / cell / name,
 			{
-				"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC.dependencies()),
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=dependencies(cargo_features)),
+				**pinned(cargo_features),
 				"src/main.rs": render(
 					"main.rs",
+					attributes="#![feature(f16)]" if NIGHTLY in cargo_features else "",
 					prelude=CBOR_STATIC.prelude,
 					items="\n".join(
 						render(f"features/{template}.rs", i=str(index))
@@ -200,6 +341,43 @@ def fixture(name: str, templates: Sequence[str], cell: str, profile: str) -> Pat
 		target_dir,
 	)
 	return elf_path(target_dir, GATE_TARGET, profile, name)
+
+
+def dependencies(cargo_features: tuple[str, ...]) -> str:
+	"""cbor-static with `cargo_features`, and each crate they enable at cbor-static's own version of
+	it, so the firmware can name its types.
+
+	>>> print(dependencies((HEAPLESS,)).splitlines()[1])
+	heapless = { version = "0.9.3", default-features = false }
+	"""
+	return "\n".join(
+		(
+			path_dependency("cbor-static", ROOT / "cbor-static", cargo_features),
+			*(
+				f'{crate} = {{ version = "{MANIFEST["dependencies"][crate]["version"]}", default-features = false }}'
+				for crate in (
+					enabled.removeprefix("dep:")
+					for feature in cargo_features
+					for enabled in MANIFEST["features"][feature]
+					if enabled.startswith("dep:")
+				)
+			),
+		)
+	)
+
+
+def pinned(cargo_features: tuple[str, ...]) -> dict[str, str]:
+	"""The `rust-toolchain.toml` that selects the nightly toolchain, for a crate that needs it: the
+	toolchain proxy takes the one nearest the crate.
+
+	>>> pinned(()), "channel" in pinned((NIGHTLY,))["rust-toolchain.toml"]
+	({}, True)
+	"""
+	return (
+		{"rust-toolchain.toml": (ROOT / NIGHTLY / "rust-toolchain.toml").read_text()}
+		if NIGHTLY in cargo_features
+		else {}
+	)
 
 
 def load() -> list[Cost]:

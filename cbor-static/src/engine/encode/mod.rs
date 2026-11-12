@@ -7,8 +7,13 @@ mod chunks;
 mod elements;
 mod enums;
 mod index;
+#[cfg(feature = "heapless")]
+mod linear_map;
 mod map;
 mod option;
+#[cfg(feature = "heapless")]
+mod seq;
+mod tag;
 mod tagged;
 mod untagged;
 
@@ -21,8 +26,13 @@ pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+#[cfg(feature = "heapless")]
+pub use linear_map::LINEAR_MAP;
 pub use map::MAP;
 pub use option::OPTION;
+#[cfg(feature = "heapless")]
+pub use seq::SEQ;
+pub use tag::TAG;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
 
@@ -111,6 +121,23 @@ pub fn resume(
     }
 }
 
+/// The encoding's next byte, or `None` past its end: no output buffer, so no build's drain can
+/// stall it.
+#[cfg(feature = "heapless")]
+pub(crate) fn next_byte(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+) -> Result<Option<u8>, ErrorKind> {
+    loop {
+        if let Some(byte) = state.pending.pop() {
+            return Ok(Some(byte));
+        }
+        if !advance(state, frames)? {
+            return Ok(None);
+        }
+    }
+}
+
 fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool, ErrorKind> {
     if !state.started {
         state.started = true;
@@ -144,7 +171,10 @@ fn emit(
             | EncKind::Enum { ops, .. }
             | EncKind::Array { ops, .. }
             | EncKind::Option { ops, .. }
-            | EncKind::Chunks { ops } => match (ops.open)(state, frames, next.kind, next.at)? {
+            | EncKind::Chunks { ops }
+            | EncKind::Seq { ops, .. }
+            | EncKind::Tagged { ops, .. }
+            | EncKind::Map { ops, .. } => match (ops.open)(state, frames, next.kind, next.at)? {
                 Some(child) => next = child,
                 None => return Ok(()),
             },
@@ -219,7 +249,10 @@ fn ops(kind: &EncKind) -> Result<&'static EncOps, ErrorKind> {
         | EncKind::Enum { ops, .. }
         | EncKind::Array { ops, .. }
         | EncKind::Option { ops, .. }
-        | EncKind::Chunks { ops } => Ok(ops),
+        | EncKind::Chunks { ops }
+        | EncKind::Seq { ops, .. }
+        | EncKind::Tagged { ops, .. }
+        | EncKind::Map { ops, .. } => Ok(ops),
         EncKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

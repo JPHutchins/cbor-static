@@ -2,7 +2,7 @@ use proc_macro2::Span;
 use quote::format_ident;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
-use syn::{Fields, Ident, Member, Path, Type};
+use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::{Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
@@ -23,16 +23,13 @@ pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
     check_name(&name, variant.span())?;
     let payload = match &variant.fields {
         Fields::Unit => Payload::Unit,
-        Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => Payload::Newtype(
-            unnamed
-                .unnamed
-                .iter()
-                .map(|f| f.ty.clone())
-                .next()
-                .ok_or_else(|| {
-                    syn::Error::new(unnamed.span(), "cbor-static: empty tuple variant")
-                })?,
-        ),
+        Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => {
+            let field = unnamed.unnamed.first().ok_or_else(|| {
+                syn::Error::new(unnamed.span(), "cbor-static: empty tuple variant")
+            })?;
+            bare(&field.attrs, "a newtype variant's field")?;
+            Payload::Newtype(field.ty.clone())
+        }
         Fields::Unnamed(unnamed) => {
             return Err(syn::Error::new(
                 unnamed.span(),
@@ -60,12 +57,7 @@ pub fn fields_of<'a>(
     form: StructForm,
     keys: Option<&Path>,
 ) -> syn::Result<Vec<Field>> {
-    if fields.len() > MAX_FIELDS {
-        return Err(syn::Error::new(
-            Span::call_site(),
-            "cbor-static: at most 64 fields per struct",
-        ));
-    }
+    within_limit(fields.len())?;
     fields
         .map(|field| {
             let attrs = attrs::parse(&field.attrs)?
@@ -122,9 +114,65 @@ pub fn fields_of<'a>(
                     StructForm::Map { .. } => attrs.skip_if_none,
                     StructForm::Array => is_option,
                 },
+                bytes: attrs.bytes,
             })
         })
         .collect()
+}
+
+/// A tuple or newtype struct's fields, in order: never omitted, so every one is written, as serde
+/// does. Being positional, they take `#[cbor(bytes)]` and nothing else.
+pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
+    within_limit(fields.unnamed.len())?;
+    fields
+        .unnamed
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            match attrs::parse(&field.attrs)?
+                .into_iter()
+                .try_fold(FieldAttrs::default(), FieldAttrs::with)?
+            {
+                FieldAttrs {
+                    rename: None,
+                    default: false,
+                    skip_if_none: false,
+                    key: None,
+                    bytes,
+                } => Ok(Field {
+                    member: Member::Unnamed(Index::from(index)),
+                    ty: field.ty.clone(),
+                    key: Key::Position,
+                    omit_if_absent: false,
+                    bytes,
+                }),
+                _ => Err(syn::Error::new(
+                    field.span(),
+                    "cbor-static: a positional field takes only `#[cbor(bytes)]`",
+                )),
+            }
+        })
+        .collect()
+}
+
+fn within_limit(fields: usize) -> syn::Result<()> {
+    if fields > MAX_FIELDS {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: at most 64 fields per struct",
+        ));
+    }
+    Ok(())
+}
+
+/// Rejects every `#[cbor]` and `#[serde]` attribute in `attrs`.
+pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
+    attrs::parse(attrs)?.first().map_or(Ok(()), |attr| {
+        Err(syn::Error::new(
+            attr.span,
+            format!("cbor-static: {position} takes no attributes"),
+        ))
+    })
 }
 
 /// The `keys = Label` variant a field maps to: its name in `UpperCamelCase`.

@@ -23,6 +23,8 @@ pub const FALSE: u8 = 20;
 pub const TRUE: u8 = 21;
 pub const NULL: u8 = 22;
 pub const UNDEFINED: u8 = 23;
+/// The self-describe tag (RFC 8949 §3.4.6): `d9 d9f7`.
+pub const SELF_DESCRIBE: u64 = 55_799;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Header {
@@ -60,6 +62,11 @@ impl Header {
 
     pub const fn is_break(self) -> bool {
         matches!(self.major, Major::Simple) && self.indefinite()
+    }
+
+    /// The length of the head it was read from, which its additional information fixes.
+    pub const fn head_len(self) -> Result<usize, ErrorKind> {
+        header_len((self.major as u8) << 5 | self.info)
     }
 }
 

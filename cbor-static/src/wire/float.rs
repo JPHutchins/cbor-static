@@ -78,6 +78,19 @@ pub fn to_single(bits: u64) -> Option<u32> {
         .and_then(|single| u32::try_from(single).ok())
 }
 
+/// The binary16 bits of the binary64 `bits`, when exact.
+pub fn to_half(bits: u64) -> Option<u16> {
+    BINARY16
+        .narrow(bits)
+        .and_then(|half| u16::try_from(half).ok())
+}
+
+/// The binary32 bits of the binary16 `bits`. Binary32 holds every binary16 value, so the fallback,
+/// a NaN, is never taken.
+pub fn half_to_single(bits: u16) -> u32 {
+    to_single(BINARY16.widen(bits.into())).unwrap_or(u32::MAX)
+}
+
 impl Format {
     const fn bias(self) -> u64 {
         (1 << (self.exponent - 1)) - 1
@@ -148,7 +161,7 @@ impl Format {
 mod tests {
     use super::{
         BINARY16, BINARY32, CANONICAL_NAN, DOUBLE, HALF, SINGLE, deterministic, from_single,
-        shortest, to_single, value,
+        half_to_single, shortest, to_half, to_single, value,
     };
 
     #[test]
@@ -207,6 +220,25 @@ mod tests {
             assert_eq!(BINARY16.narrow(widened), Some(half.into()), "{half:04x}");
             assert_eq!(shortest(widened), (HALF, half.into()), "{half:04x}");
         }
+    }
+
+    #[test]
+    fn every_binary16_is_exactly_a_binary32_and_narrows_back() {
+        for half in (0..=u16::MAX).step_by(if cfg!(miri) { 257 } else { 1 }) {
+            let widened = BINARY16.widen(half.into());
+            assert_eq!(
+                to_single(widened).map(from_single),
+                Some(widened),
+                "{half:04x}"
+            );
+            assert_eq!(
+                half_to_single(half),
+                to_single(widened).unwrap_or(0),
+                "{half:04x}"
+            );
+            assert_eq!(to_half(widened), Some(half), "{half:04x}");
+        }
+        assert_eq!(to_half(from_single(0x3dcc_cccd)), None);
     }
 
     #[test]

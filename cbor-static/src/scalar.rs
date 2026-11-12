@@ -2,14 +2,15 @@
 //! Leaf field types: each maps to engine handlers reached only through its own descriptor (D-22).
 
 use crate::engine::{
-    DEC_BYTES, DEC_STR, ENC_BYTES, ENC_STR, Item, Pending, absent_option, dec_i128, dec_option,
-    dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar, enc_tagged, enc_u128, none,
+    DEC_BYTES, DEC_CHAR, DEC_STR, ENC_BYTES, ENC_CHAR, ENC_STR, Item, Pending, absent_option,
+    dec_i128, dec_option, dec_scalar, dec_u128, enc_i128, enc_option, enc_scalar, enc_u128, none,
 };
 use crate::error::ErrorKind;
+use crate::half::F16;
 use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
 use crate::stack::{Level, depth_of};
-use crate::wire::{FALSE, Major, TRUE, float};
+use crate::wire::{FALSE, Major, NULL, TRUE, float};
 
 /// A single-item value with no nesting and no borrowed payload.
 pub trait Scalar: Copy + 'static {
@@ -32,59 +33,60 @@ pub trait Scalar: Copy + 'static {
     fn decode(item: &Item<'_>) -> Result<Self, ErrorKind>;
 }
 
-/// A value wrapped in CBOR tag `TAG`; any other tag is rejected on decode.
-///
-/// ```
-/// use cbor_static::Tagged;
-///
-/// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&Tagged::<1, u64>(1_363_896_240), &mut out)?;
-/// assert_eq!(&out[..len], b"\xc1\x1a\x51\x4b\x67\xb0");
-///
-/// let mut slot = core::mem::MaybeUninit::uninit();
-/// assert_eq!(cbor_static::decode_into::<Tagged<1, u64>>(&out[..len], &mut slot)?.0, 1_363_896_240);
-/// # Ok::<(), cbor_static::Error>(())
-/// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Tagged<const TAG: u64, T>(pub T);
+/// Unsigned integers, `usize` included: no target's `usize` is wider than the wire's `u64`, and
+/// decoding narrows with a check (D-12, D-25).
+macro_rules! unsigned {
+	($($ty:ty),+) => {$(
+		impl Scalar for $ty {
+			const LEAD: Lead = Lead::UINT;
 
-impl Scalar for u32 {
-    const LEAD: Lead = Lead::UINT;
+			fn encode(self, out: &mut Pending) {
+				out.head(Major::Uint, u64::try_from(self).unwrap_or(u64::MAX));
+			}
+
+			fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
+				Self::try_from(unsigned(item)?).map_err(|_| ErrorKind::OutOfRange)
+			}
+		}
+	)+};
+}
+
+/// Signed integers, `isize` included, as [`unsigned!`].
+macro_rules! signed {
+	($($ty:ty),+) => {$(
+		impl Scalar for $ty {
+			const LEAD: Lead = Lead::UINT.union(Lead::NINT);
+
+			fn encode(self, out: &mut Pending) {
+				match i64::try_from(self).unwrap_or(i64::MIN) {
+					value @ 0.. => out.head(Major::Uint, value.cast_unsigned()),
+					value => out.head(Major::Nint, (!value).cast_unsigned()),
+				}
+			}
+
+			fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
+				Self::try_from(signed(item)?).map_err(|_| ErrorKind::OutOfRange)
+			}
+		}
+	)+};
+}
+
+unsigned!(u8, u16, u32, u64, usize);
+signed!(i8, i16, i32, i64, isize);
+
+/// `()`, and through it every unit struct, is `null` (D-08).
+impl Scalar for () {
+    const LEAD: Lead = Lead::NULL;
 
     fn encode(self, out: &mut Pending) {
-        out.head(Major::Uint, self.into());
+        out.head(Major::Simple, NULL.into());
     }
 
     fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        Self::try_from(unsigned(item)?).map_err(|_| ErrorKind::OutOfRange)
-    }
-}
-
-impl Scalar for u64 {
-    const LEAD: Lead = Lead::UINT;
-
-    fn encode(self, out: &mut Pending) {
-        out.head(Major::Uint, self);
-    }
-
-    fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        unsigned(item)
-    }
-}
-
-impl Scalar for i32 {
-    const LEAD: Lead = Lead::UINT.union(Lead::NINT);
-
-    fn encode(self, out: &mut Pending) {
-        match i64::from(self) {
-            value @ 0.. => out.head(Major::Uint, value.cast_unsigned()),
-            value => out.head(Major::Nint, (!value).cast_unsigned()),
+        match (item.header.major, item.header.info) {
+            (Major::Simple, NULL) => Ok(()),
+            _ => Err(ErrorKind::TypeMismatch),
         }
-    }
-
-    fn decode(item: &Item<'_>) -> Result<Self, ErrorKind> {
-        Self::try_from(signed(item)?).map_err(|_| ErrorKind::OutOfRange)
     }
 }
 
@@ -147,7 +149,7 @@ fn signed(item: &Item<'_>) -> Result<i128, ErrorKind> {
 }
 
 /// The binary64 bits of a float item.
-fn floating(item: &Item<'_>) -> Result<u64, ErrorKind> {
+pub(crate) fn floating(item: &Item<'_>) -> Result<u64, ErrorKind> {
     match item.header.major {
         Major::Simple => {
             float::value(item.header.info, item.header.arg).ok_or(ErrorKind::TypeMismatch)
@@ -207,7 +209,10 @@ macro_rules! leaf {
     };
 }
 
-scalar!(u32, u64, i32, bool, f32, f64);
+scalar!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+scalar!((), bool, f32, f64, F16);
+#[cfg(feature = "nightly")]
+scalar!(f16);
 leaf!(
     u128,
     Lead::UINT.union(Lead::TAG),
@@ -251,6 +256,23 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const LEAD: Lead = Lead::TEXT;
 }
 
+/// A one-character text string, which may arrive in chunks.
+#[allow(unsafe_code)]
+unsafe impl Encode for char {
+    const ENCODE: &'static EncKind = &ENC_CHAR;
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+}
+
+#[allow(unsafe_code)]
+unsafe impl Decode<'_> for char {
+    const DECODE: &'static DecKind = &DEC_CHAR;
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+    type OptionStack = Level<()>;
+    const LEAD: Lead = Lead::TEXT;
+}
+
 #[allow(unsafe_code)]
 unsafe impl Encode for &[u8] {
     const ENCODE: &'static EncKind = &ENC_BYTES;
@@ -281,27 +303,4 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
     const MAX_DEPTH: usize = depth_of::<T::OptionStack>();
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::NULL.union(T::LEAD);
-}
-
-#[allow(unsafe_code)]
-unsafe impl<const TAG: u64, T: Scalar> Encode for Tagged<TAG, T> {
-    const ENCODE: &'static EncKind = &EncKind::Leaf {
-        encode: enc_tagged::<TAG, T>,
-        absent: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-}
-
-#[allow(unsafe_code)]
-unsafe impl<const TAG: u64, T: Scalar> Decode<'_> for Tagged<TAG, T> {
-    const DECODE: &'static DecKind = &DecKind::Leaf {
-        decode: dec_tagged::<TAG, T>,
-        default: None,
-        drop: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-    type OptionStack = Level<()>;
-    const LEAD: Lead = Lead::TAG;
 }

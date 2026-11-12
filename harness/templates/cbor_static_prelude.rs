@@ -28,3 +28,17 @@ where
         })
         .unwrap_or_else(|written| written)
 }
+
+fn decode_only<'a, T: cbor_static::Decode<'a>>(input: &'a [u8], _: &mut [u8]) -> usize {
+    let chunk = black_box(64usize).max(1);
+    let mut slot = core::mem::MaybeUninit::<T>::uninit();
+    let mut decoder = cbor_static::Decoder::new(&mut slot);
+    let _ = input.chunks(chunk).try_for_each(|piece| match decoder.feed(piece) {
+        Ok(cbor_static::Fed::NeedInput) => Ok(()),
+        _ => Err(()),
+    });
+    decoder.finish().map_or(0, |value| {
+        black_box(value);
+        1
+    })
+}

@@ -1,4 +1,5 @@
 #![no_std]
+#![cfg_attr(feature = "nightly", feature(f16))]
 //! RFC 8949 CBOR for `no_std`: derives emit constant descriptors, and one non-generic,
 //! iterative, resumable engine walks them.
 //!
@@ -63,6 +64,41 @@
 //! let len = cbor_static::encode_into(&Point { at: (1, -2), label: None }, &mut out)?;
 //! assert_eq!(&out[..len], b"\x81\x82\x01\x21");
 //! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! Unit, newtype and tuple structs take serde's shapes: null, the field, and an array of every
+//! field (D-08):
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Ping;
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Meters(u32);
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Span(u32, Option<u32>);
+//!
+//! let mut out = [0u8; 8];
+//! let len = cbor_static::encode_into(&(Ping, Meters(1000), Span(1, None)), &mut out)?;
+//! assert_eq!(&out[..len], b"\x83\xf6\x19\x03\xe8\x82\x01\xf6");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! Their fields are positional, so a key attribute does not compile:
+//!
+//! ```compile_fail
+//! #[derive(cbor_static::Cbor)]
+//! struct Meters(#[serde(rename = "m")] u32);
+//! ```
+//!
+//! Nor does any attribute on a newtype variant's field, which nothing would honour:
+//!
+//! ```compile_fail
+//! #[derive(cbor_static::Cbor)]
+//! enum Frame {
+//!     Raw(#[cbor(bytes)] [u8; 4]),
+//! }
 //! ```
 //!
 //! An `Option` of a nested type is null or the value (D-08, D-20):
@@ -164,14 +200,18 @@ extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(feature = "heapless")]
+mod bounded;
 mod containers;
 mod engine;
 mod error;
+mod half;
 mod keys;
 mod lead;
 mod scalar;
 mod schema;
 mod stack;
+mod tags;
 mod token;
 #[cfg(test)]
 mod well_formed;
@@ -180,10 +220,14 @@ mod wire;
 use core::mem::MaybeUninit;
 
 pub use cbor_static_derive::{Cbor, Decode, Encode};
-pub use engine::{Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, Progress};
+pub use engine::{
+    ArrayIter, ArrayRef, Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, MapIter, MapRef,
+    Progress, RawCbor,
+};
 pub use error::{Error, ErrorKind};
-pub use scalar::Tagged;
-pub use schema::{Decode, Encode};
+pub use half::F16;
+pub use schema::{ByteString, Decode, Encode};
+pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.
@@ -272,7 +316,7 @@ pub mod __private {
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
         ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
         ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
-        write_tag,
+        wraps, write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::lead::Lead;

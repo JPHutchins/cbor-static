@@ -3,8 +3,7 @@ mod forms;
 mod structs;
 
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
-use syn::Type;
+use quote::{ToTokens, format_ident, quote};
 
 use crate::Directions;
 use crate::model::{Item, Key, Shape};
@@ -18,6 +17,8 @@ enum Trait {
 pub fn item(item: &Item, directions: Directions) -> TokenStream {
     let body = match &item.shape {
         Shape::Struct { fields, form } => structs::structure(item, fields, *form, directions),
+        Shape::Unit => structs::transparent(item, None, directions),
+        Shape::Newtype(field) => structs::transparent(item, Some(field.as_ref()), directions),
         Shape::Enum {
             variants,
             repr,
@@ -33,7 +34,8 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
     }
 }
 
-/// A codec trait impl's items. `lead` is `Decode`'s alone.
+/// A codec trait impl's items: `kind` is the descriptor's `&'static` expression, and `lead` is
+/// `Decode`'s alone.
 struct Body {
     kind: TokenStream,
     stack: TokenStream,
@@ -63,7 +65,7 @@ fn impls(
             quote! {
                 #[automatically_derived]
                 unsafe impl #generics ::cbor_static::Encode for #ty {
-                    const ENCODE: &'static __p::EncKind = &#kind;
+                    const ENCODE: &'static __p::EncKind = #kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
                 }
@@ -83,7 +85,7 @@ fn impls(
             quote! {
                 #[automatically_derived]
                 unsafe impl #generics ::cbor_static::Decode<'de> for #ty {
-                    const DECODE: &'static __p::DecKind = &#kind;
+                    const DECODE: &'static __p::DecKind = #kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
                     type OptionStack = __p::Level<Self::Stack>;
@@ -125,6 +127,7 @@ fn key(key: &Key) -> TokenStream {
         Key::Text(text) => text_key(text),
         Key::Int(int) => quote!(__p::Key::Int(#int)),
         Key::Label { label, variant } => quote!(__p::Key::Int(#label::#variant as i64)),
+        Key::Position => quote!(__p::Key::None),
     }
 }
 
@@ -144,11 +147,31 @@ fn level(
     (quote!(__p::Level<#widest>), quote!(1 + #deepest))
 }
 
-fn child(ty: &Type, path: &TokenStream) -> (TokenStream, TokenStream) {
+fn child(ty: &impl ToTokens, path: &TokenStream) -> (TokenStream, TokenStream) {
     (
         quote!(<#ty as #path>::Stack),
         quote!(<#ty as #path>::MAX_DEPTH),
     )
+}
+
+/// A field's stack and depth: a `#[cbor(bytes)]` field's byte string opens no frame.
+fn field_child(ty: &impl ToTokens, bytes: bool, path: &TokenStream) -> (TokenStream, TokenStream) {
+    if bytes {
+        (quote!(()), quote!(0))
+    } else {
+        child(ty, path)
+    }
+}
+
+/// A field's descriptor under `which` trait at `path`: its type's own, or with `#[cbor(bytes)]`,
+/// its byte string's.
+fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream) -> TokenStream {
+    match (which, bytes) {
+        (Trait::Encode, false) => quote!(<#ty as #path>::ENCODE),
+        (Trait::Decode, false) => quote!(<#ty as #path>::DECODE),
+        (Trait::Encode, true) => quote!(<#ty as ::cbor_static::ByteString>::ENCODE_BYTES),
+        (Trait::Decode, true) => quote!(<#ty as ::cbor_static::ByteString>::DECODE_BYTES),
+    }
 }
 
 fn static_type(item: &Item) -> TokenStream {

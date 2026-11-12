@@ -137,6 +137,25 @@ proptest! {
     }
 
     #[test]
+    fn every_integer_width_round_trips_as_the_wide_encoding_of_its_value(
+        a in any::<u8>(),
+        b in any::<u16>(),
+        c in any::<usize>(),
+        d in any::<i8>(),
+        e in any::<i16>(),
+        f in any::<i64>(),
+        g in any::<isize>(),
+    ) {
+        prop_assert_eq!(round_trip(a), (round_trip(i128::from(a)).0, a));
+        prop_assert_eq!(round_trip(b), (round_trip(i128::from(b)).0, b));
+        prop_assert_eq!(round_trip(c), (round_trip(i128::try_from(c).expect("fits")).0, c));
+        prop_assert_eq!(round_trip(d), (round_trip(i128::from(d)).0, d));
+        prop_assert_eq!(round_trip(e), (round_trip(i128::from(e)).0, e));
+        prop_assert_eq!(round_trip(f), (round_trip(i128::from(f)).0, f));
+        prop_assert_eq!(round_trip(g), (round_trip(i128::try_from(g).expect("fits")).0, g));
+    }
+
+    #[test]
     fn typed_floats_round_trip_bitwise_at_their_narrowest_width(bits in float_bits_strategy(), single in any::<u32>()) {
         let (encoded, decoded) = round_trip(f64::from_bits(bits));
         prop_assert_eq!(decoded.to_bits(), bits);

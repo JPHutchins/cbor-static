@@ -1,10 +1,9 @@
 //! Structs as maps keyed by text, integer or `keys = Label` (D-09), or as positional arrays.
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::Type;
+use quote::{ToTokens, format_ident, quote};
 
-use super::{Body, Trait, child, impls, key, layout, level, static_type};
+use super::{Body, Trait, field_child, field_kind, impls, key, layout, level, static_type};
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
 
@@ -30,26 +29,37 @@ pub fn structure(
         StructForm::Map { unknown } => (quote!(__p::ENCODE_MAP), decode_map_ops(fields, unknown)),
         StructForm::Array => (quote!(__p::ENCODE_ARRAY), quote!(__p::DECODE_ARRAY)),
     };
-    let types: Vec<&Type> = fields.iter().map(|field| &field.ty).collect();
     let lead = match form {
         StructForm::Map { .. } => quote!(__p::Lead::MAP),
         StructForm::Array => quote!(__p::Lead::ARRAY),
     };
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
-        let kinds = types.iter().map(|ty| quote!(<#ty as #path>::ENCODE));
+        let (stack, depth) = level(
+            fields
+                .iter()
+                .map(|field| field_child(&field.ty, field.bytes, path)),
+        );
+        let kinds = fields
+            .iter()
+            .map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
         Body {
-            kind: quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
+            kind: quote!(&__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
             depth,
             lead: lead.clone(),
         }
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = level(types.iter().map(|ty| child(ty, path)));
-        let kinds = types.iter().map(|ty| quote!(<#ty as #path>::DECODE));
+        let (stack, depth) = level(
+            fields
+                .iter()
+                .map(|field| field_child(&field.ty, field.bytes, path)),
+        );
+        let kinds = fields
+            .iter()
+            .map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
         Body {
-            kind: quote!(__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
+            kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
             lead,
@@ -59,6 +69,61 @@ pub fn structure(
     quote! {
         #layout
         #labels
+        #encode
+        #decode
+    }
+}
+
+/// A unit struct, as `()`, or a newtype struct, as its `field` (D-08): the wrapped type's
+/// descriptor, behind a const assert that the struct is laid out as that type. A decoded value
+/// drops as the wrapper, which may have its own `Drop`.
+pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -> TokenStream {
+    let (ty, bytes, offset) = field.map_or_else(
+        || (quote!(()), false, quote!(0)),
+        |field| {
+            (
+                field.ty.to_token_stream(),
+                field.bytes,
+                quote!(::core::mem::offset_of!(Self, 0)),
+            )
+        },
+    );
+    let wraps = quote!(assert!(
+        __p::wraps::<Self, #ty>(#offset),
+        "cbor-static: a unit or newtype struct must be laid out as what it wraps"
+    ););
+    let encode = impls(item, directions, Trait::Encode, |path| {
+        let (stack, depth) = field_child(&ty, bytes, path);
+        let kind = field_kind(&ty, bytes, Trait::Encode, path);
+        Body {
+            kind: quote!({ #wraps #kind }),
+            stack,
+            depth,
+            lead: TokenStream::new(),
+        }
+    });
+    let decode = impls(item, directions, Trait::Decode, |path| {
+        let (stack, depth) = field_child(&ty, bytes, path);
+        let kind = field_kind(&ty, bytes, Trait::Decode, path);
+        Body {
+            kind: quote!({
+                #wraps
+                if ::core::mem::needs_drop::<Self>() {
+                    &#kind.dropped_by(__p::drop_fn::<Self>())
+                } else {
+                    #kind
+                }
+            }),
+            stack,
+            depth,
+            lead: if bytes {
+                quote!(__p::Lead::BYTES)
+            } else {
+                quote!(<#ty as #path>::LEAD)
+            },
+        }
+    });
+    quote! {
         #encode
         #decode
     }
@@ -88,7 +153,7 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| match &field.key {
             Key::Label { label, variant } => Some((label, variant)),
-            Key::Text(_) | Key::Int(_) => None,
+            Key::Text(_) | Key::Int(_) | Key::Position => None,
         })
         .unzip();
     labels.first().map(|label| {
