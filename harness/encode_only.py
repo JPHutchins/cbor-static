@@ -21,7 +21,7 @@ DECODER: Final = (
 	"cbor_static::engine::skip::",
 	"<cbor_static::engine::input::Carry>",
 	"cbor_static::engine::text::",
-	"cbor_static::engine::raw::store_",
+	"cbor_static::engine::raw::codec::store_",
 	"cbor_static::engine::capacity::at",
 	"cbor_static::engine::capacity::assemble",
 	"cbor_static::engine::strings::DEC_",

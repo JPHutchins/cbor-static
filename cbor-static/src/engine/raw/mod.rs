@@ -2,21 +2,15 @@
 //! [`RawCbor`], and arrays and maps as [`ArrayRef`] and [`MapRef`], whose every element was decoded
 //! as its type, so iterating them cannot fail. They need contiguous input, and encode as the bytes
 //! they hold, verbatim.
-#![expect(
-    clippy::cast_ptr_alignment,
-    reason = "every field pointer is a descriptor offset taken with offset_of!, so it is aligned"
-)]
+
+mod codec;
 
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 
 use super::input::Input;
-use super::{DECODE_RAW as RAW, Decoder, Fed, Item, Pending, StrictOps};
-use crate::error::ErrorKind;
-use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode};
-use crate::stack::Level;
-use crate::wire::{INDEFINITE, Major};
+use super::{Decoder, Fed};
+use crate::schema::Decode;
 
 /// One well-formed item, borrowed from the input.
 ///
@@ -44,6 +38,13 @@ pub struct RawCbor<'de> {
 
 impl<'de> RawCbor<'de> {
     /// The item's encoding, head included.
+    ///
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let raw: &mut cbor_static::RawCbor = cbor_static::decode_into(b"\x19\x00\x01", &mut slot)?;
+    /// assert_eq!(raw.as_bytes(), b"\x19\x00\x01");
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn as_bytes(&self) -> &'de [u8] {
         self.bytes
@@ -88,11 +89,23 @@ pub struct MapRef<'de, K, V> {
 }
 
 impl<T> ArrayRef<'_, T> {
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let values: &mut cbor_static::ArrayRef<u8> = cbor_static::decode_into(b"\x9f\x01\x02\xff", &mut slot)?;
+    /// assert_eq!(values.len(), 2);
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
 
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let values: &mut cbor_static::ArrayRef<u8> = cbor_static::decode_into(b"\x80", &mut slot)?;
+    /// assert!(values.is_empty());
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
@@ -101,6 +114,13 @@ impl<T> ArrayRef<'_, T> {
 
 impl<'de, T> ArrayRef<'de, T> {
     /// The array's encoding, head included.
+    ///
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let values: &mut cbor_static::ArrayRef<u8> = cbor_static::decode_into(b"\x81\x18\x01", &mut slot)?;
+    /// assert_eq!(values.as_bytes(), b"\x81\x18\x01");
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn as_bytes(&self) -> &'de [u8] {
         self.raw.bytes
@@ -108,6 +128,12 @@ impl<'de, T> ArrayRef<'de, T> {
 }
 
 impl<'de, T: Decode<'de>> ArrayRef<'de, T> {
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let names: &mut cbor_static::ArrayRef<&str> = cbor_static::decode_into(b"\x82\x61a\x61b", &mut slot)?;
+    /// assert!(names.iter().eq(["a", "b"]));
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub fn iter(&self) -> ArrayIter<'de, T> {
         ArrayIter {
@@ -128,11 +154,23 @@ impl<'de, T: Decode<'de>> IntoIterator for &ArrayRef<'de, T> {
 }
 
 impl<K, V> MapRef<'_, K, V> {
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let map: &mut cbor_static::MapRef<u8, u8> = cbor_static::decode_into(b"\xa1\x01\x02", &mut slot)?;
+    /// assert_eq!(map.len(), 1);
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
 
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let map: &mut cbor_static::MapRef<u8, u8> = cbor_static::decode_into(b"\xbf\xff", &mut slot)?;
+    /// assert!(map.is_empty());
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
@@ -141,6 +179,13 @@ impl<K, V> MapRef<'_, K, V> {
 
 impl<'de, K, V> MapRef<'de, K, V> {
     /// The map's encoding, head included.
+    ///
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let map: &mut cbor_static::MapRef<u8, u8> = cbor_static::decode_into(b"\xa1\x01\x02", &mut slot)?;
+    /// assert_eq!(map.as_bytes(), b"\xa1\x01\x02");
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub const fn as_bytes(&self) -> &'de [u8] {
         self.raw.bytes
@@ -148,6 +193,12 @@ impl<'de, K, V> MapRef<'de, K, V> {
 }
 
 impl<'de, K: Decode<'de>, V: Decode<'de>> MapRef<'de, K, V> {
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let map: &mut cbor_static::MapRef<u8, bool> = cbor_static::decode_into(b"\xa1\x01\xf5", &mut slot)?;
+    /// assert!(map.iter().eq([(1, true)]));
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     #[must_use]
     pub fn iter(&self) -> MapIter<'de, K, V> {
         MapIter {
@@ -168,6 +219,14 @@ impl<'de, K: Decode<'de>, V: Decode<'de>> IntoIterator for &MapRef<'de, K, V> {
 }
 
 /// The elements of an [`ArrayRef`], decoded one by one.
+///
+/// ```
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// let values: &mut cbor_static::ArrayRef<u8> = cbor_static::decode_into(b"\x82\x01\x02", &mut slot)?;
+/// let mut elements: cbor_static::ArrayIter<u8> = values.iter();
+/// assert_eq!([elements.next(), elements.next(), elements.next()], [Some(1), Some(2), None]);
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 pub struct ArrayIter<'de, T> {
     rest: &'de [u8],
     left: usize,
@@ -175,6 +234,14 @@ pub struct ArrayIter<'de, T> {
 }
 
 /// The entries of a [`MapRef`], decoded one by one.
+///
+/// ```
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// let map: &mut cbor_static::MapRef<u8, u8> = cbor_static::decode_into(b"\xa1\x01\x02", &mut slot)?;
+/// let mut entries: cbor_static::MapIter<u8, u8> = map.iter();
+/// assert_eq!([entries.next(), entries.next()], [Some((1, 2)), None]);
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 pub struct MapIter<'de, K, V> {
     rest: &'de [u8],
     left: usize,
@@ -226,164 +293,3 @@ fn after_head(bytes: &[u8]) -> &[u8] {
         _ => &[],
     }
 }
-
-#[expect(clippy::unnecessary_wraps, reason = "a StoreFn can fail")]
-unsafe fn store_raw(dst: *mut u8, item: &Item<'_>) -> Result<(), ErrorKind> {
-    unsafe {
-        dst.cast::<RawCbor>().write(RawCbor {
-            bytes: borrowed(item.payload),
-        });
-    }
-    Ok(())
-}
-
-unsafe fn store_array<'de, T: Decode<'de>>(dst: *mut u8, item: &Item<'_>) -> Result<(), ErrorKind> {
-    let bytes = unsafe { borrowed(item.payload) };
-    let len = entries(item, Major::Array, |rest| {
-        used::<T>(unsafe { borrowed(rest) }, item.strict)
-    })?;
-    unsafe {
-        dst.cast::<ArrayRef<'de, T>>().write(ArrayRef {
-            raw: RawCbor { bytes },
-            len,
-            elem: PhantomData,
-        });
-    }
-    Ok(())
-}
-
-unsafe fn store_map<'de, K: Decode<'de>, V: Decode<'de>>(
-    dst: *mut u8,
-    item: &Item<'_>,
-) -> Result<(), ErrorKind> {
-    let bytes = unsafe { borrowed(item.payload) };
-    let len = entries(item, Major::Map, |rest| {
-        let key = used::<K>(unsafe { borrowed(rest) }, item.strict)?;
-        Ok(key
-            + used::<V>(
-                unsafe { borrowed(rest.get(key..).unwrap_or(&[])) },
-                item.strict,
-            )?)
-    })?;
-    unsafe {
-        dst.cast::<MapRef<'de, K, V>>().write(MapRef {
-            raw: RawCbor { bytes },
-            len,
-            entry: PhantomData,
-        });
-    }
-    Ok(())
-}
-
-/// Counts the entries of the container `item` of `major`, each of which `entry` checks at the front
-/// of the bytes left, returning how many it took.
-fn entries(
-    item: &Item<'_>,
-    major: Major,
-    mut entry: impl FnMut(&[u8]) -> Result<usize, ErrorKind>,
-) -> Result<usize, ErrorKind> {
-    if item.header.major != major {
-        return Err(ErrorKind::TypeMismatch);
-    }
-    let mut rest = after_head(item.payload);
-    let mut count = 0;
-    while !ended(item, rest, count) {
-        rest = rest.get(entry(rest)?..).unwrap_or(&[]);
-        count += 1;
-    }
-    Ok(count)
-}
-
-/// Whether a container has no entries left: its break, or its count reached.
-fn ended(item: &Item<'_>, rest: &[u8], count: usize) -> bool {
-    if item.header.indefinite() {
-        rest.first() == Some(&BREAK)
-    } else {
-        u64::try_from(count) == Ok(item.header.arg)
-    }
-}
-
-/// How many bytes the `T` at the front of `bytes` takes, decoded under the profile `strict` and then
-/// dropped. A nested decoder lives on the machine stack for it, which the type bounds: how deeply
-/// raw views nest in `T` fixes how deeply this recurses (#12 Q4).
-fn used<'de, T: Decode<'de>>(
-    bytes: &'de [u8],
-    strict: Option<&'static StrictOps>,
-) -> Result<usize, ErrorKind> {
-    let mut slot = MaybeUninit::<T>::uninit();
-    let mut decoder = Decoder::under(&mut slot, strict);
-    match decoder.feed(bytes).map_err(|error| error.kind)? {
-        Fed::Done(used) => Ok(used),
-        Fed::NeedInput => Err(ErrorKind::UnexpectedEnd),
-    }
-}
-
-/// `bytes` for the input's lifetime, which the decoder's own `'de` guarantees.
-unsafe fn borrowed<'de>(bytes: &[u8]) -> &'de [u8] {
-    unsafe { core::slice::from_raw_parts(bytes.as_ptr(), bytes.len()) }
-}
-
-const BREAK: u8 = (Major::Simple as u8) << 5 | INDEFINITE;
-
-unsafe fn enc_raw(src: *const u8, out: &mut Pending) {
-    out.tail(unsafe { src.cast::<RawCbor>().read() }.bytes);
-}
-
-unsafe impl Encode for RawCbor<'_> {
-    const ENCODE: &'static EncKind = &ENC_RAW;
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-}
-
-unsafe impl<'de: 'a, 'a> Decode<'de> for RawCbor<'a> {
-    const DECODE: &'static DecKind = &DecKind::Raw {
-        ops: &RAW,
-        store: store_raw,
-        drop: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-    type OptionStack = Level<()>;
-    const LEAD: Lead = Lead::ANY;
-}
-
-unsafe impl<T> Encode for ArrayRef<'_, T> {
-    const ENCODE: &'static EncKind = &ENC_RAW;
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-}
-
-unsafe impl<'de: 'a, 'a, T: Decode<'a>> Decode<'de> for ArrayRef<'a, T> {
-    const DECODE: &'static DecKind = &DecKind::Raw {
-        ops: &RAW,
-        store: store_array::<T>,
-        drop: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-    type OptionStack = Level<()>;
-    const LEAD: Lead = Lead::ARRAY;
-}
-
-unsafe impl<K, V> Encode for MapRef<'_, K, V> {
-    const ENCODE: &'static EncKind = &ENC_RAW;
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-}
-
-unsafe impl<'de: 'a, 'a, K: Decode<'a>, V: Decode<'a>> Decode<'de> for MapRef<'a, K, V> {
-    const DECODE: &'static DecKind = &DecKind::Raw {
-        ops: &RAW,
-        store: store_map::<K, V>,
-        drop: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-    type OptionStack = Level<()>;
-    const LEAD: Lead = Lead::MAP;
-}
-
-static ENC_RAW: EncKind = EncKind::Leaf {
-    encode: enc_raw,
-    absent: None,
-};
