@@ -1,5 +1,6 @@
 """R-004: for every generated message (flat and rich, N = 32), cbor-static and minicbor-hand-textkeys
-produce byte-identical CBOR and each decodes the other's bytes.
+produce byte-identical CBOR and each decodes the other's bytes; and the field vocabulary's longest
+encodings, alone and under tags, are minicbor's.
 """
 
 import os
@@ -8,7 +9,8 @@ import sys
 from typing import Final
 
 from harness.backends.cbor_static import CBOR_STATIC
-from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS
+from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS, minicbor
+from harness.features import HEAPLESS, dependencies
 from harness.generate import messages, render_message
 from harness.measure import CRATES, HARNESS, write_crate
 from harness.model import SHAPES
@@ -25,10 +27,11 @@ def main() -> int:
 			"Cargo.toml": render(
 				"Cargo.toml",
 				name="crosscheck",
-				dependencies=f"{MINICBOR_HAND_TEXTKEYS.dependencies()}\n{CBOR_STATIC.dependencies()}",
+				dependencies=f"{minicbor(('half',))}\n{dependencies((HEAPLESS,))}",
 			),
 			"src/lib.rs": "#![allow(dead_code)]\n" + "".join(map(module, SHAPES)),
 			"tests/wire.rs": render("crosscheck_wire.rs", tests="\n".join(map(tests, SHAPES))),
+			"tests/vocabulary.rs": render("crosscheck_vocabulary.rs"),
 		},
 	)
 	return subprocess.run(

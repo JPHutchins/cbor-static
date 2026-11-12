@@ -90,9 +90,17 @@ def enum_def(enum: EnumDef) -> str:
 	return render("minicbor_hand_enum.rs", name=enum.name)
 
 
+def minicbor(features: tuple[str, ...] = ()) -> str:
+	"""
+	>>> minicbor(("half",)).endswith("default-features = false, features = ['half'] }")
+	True
+	"""
+	return path_dependency("minicbor", flake_input("MINICBOR") / "minicbor", features)
+
+
 MINICBOR_HAND_TEXTKEYS: Final = Backend(
 	name="minicbor-hand-textkeys",
-	dependencies=lambda: path_dependency("minicbor", flake_input("MINICBOR") / "minicbor"),
+	dependencies=minicbor,
 	prelude="",
 	struct_attrs="",
 	field_attrs=lambda _field, _position: "",
