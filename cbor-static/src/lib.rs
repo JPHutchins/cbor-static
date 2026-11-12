@@ -1,4 +1,5 @@
 #![no_std]
+#![cfg_attr(feature = "nightly", feature(f16))]
 //! RFC 8949 CBOR for `no_std`: derives emit constant descriptors, and one non-generic,
 //! iterative, resumable engine walks them.
 //!
@@ -167,6 +168,7 @@ extern crate std;
 mod containers;
 mod engine;
 mod error;
+mod half;
 mod keys;
 mod lead;
 mod scalar;
@@ -182,6 +184,7 @@ use core::mem::MaybeUninit;
 pub use cbor_static_derive::{Cbor, Decode, Encode};
 pub use engine::{Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, Progress};
 pub use error::{Error, ErrorKind};
+pub use half::F16;
 pub use scalar::Tagged;
 pub use schema::{Decode, Encode};
 pub use token::{Token, TokenWriter, Tokens};

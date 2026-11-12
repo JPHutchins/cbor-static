@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![allow(dead_code)]
-
+$attributes
 use core::hint::black_box;
 
 $prelude

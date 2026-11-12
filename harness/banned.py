@@ -65,7 +65,7 @@ def main(rule: Rule) -> int:
 	groups = {
 		"gate": gate(rule.targets),
 		"R-006 fixtures": tuple(fixture(name, target) for name in FIXTURES for target in rule.targets),
-		"R-009 positive control": (control(),),
+		"R-009 positive controls": (control(nightly=False), control(nightly=True)),
 		"token control": (tokens(),),
 		"R-009 feature cost fixtures (when built)": built(),
 	}

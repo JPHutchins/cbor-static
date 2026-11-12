@@ -53,6 +53,7 @@ def render_crate(backend: Backend, count: int, shape: str) -> dict[str, str]:
 		),
 		"src/main.rs": render(
 			"main.rs",
+			attributes="",
 			prelude=backend.prelude,
 			items="\n".join(
 				render_message(backend, m) + "\n" + backend.impls(m) + "\n" + backend.roundtrip(m)

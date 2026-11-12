@@ -6,6 +6,7 @@ use crate::engine::{
     dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar, enc_tagged, enc_u128, none,
 };
 use crate::error::ErrorKind;
+use crate::half::F16;
 use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode};
 use crate::stack::{Level, depth_of};
@@ -149,7 +150,7 @@ fn signed(item: &Item<'_>) -> Result<i128, ErrorKind> {
 }
 
 /// The binary64 bits of a float item.
-fn floating(item: &Item<'_>) -> Result<u64, ErrorKind> {
+pub(crate) fn floating(item: &Item<'_>) -> Result<u64, ErrorKind> {
     match item.header.major {
         Major::Simple => {
             float::value(item.header.info, item.header.arg).ok_or(ErrorKind::TypeMismatch)
@@ -210,8 +211,10 @@ macro_rules! leaf {
 }
 
 scalar!(
-    u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, bool, f32, f64
+    u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, bool, f32, f64, F16
 );
+#[cfg(feature = "nightly")]
+scalar!(f16);
 leaf!(
     u128,
     Lead::UINT.union(Lead::TAG),
