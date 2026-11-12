@@ -13,27 +13,6 @@ let
   toolchainFile = dir: root + "/${dir}/rust-toolchain.toml";
   toolchains = lib.genAttrs dirs (dir: rust-bin.fromRustupToolchainFile (toolchainFile dir));
 
-  dispatch = writeShellApplication {
-    name = "rust-toolchain-proxy";
-    text = ''
-      tool=''${0##*/}
-      [[ ''${1-} != +* ]] || { echo "$tool: $1: the toolchain comes from the nearest rust-toolchain.toml, e.g. run in nightly/" >&2; exit 1; }
-      dir=$PWD
-      until [[ -f $dir/rust-toolchain.toml || -z $dir ]]; do dir=''${dir%/*}; done
-      file=$dir/rust-toolchain.toml
-      [[ -f $file ]] || { echo "$tool: no rust-toolchain.toml in $PWD or above it" >&2; exit 1; }
-      read -r hash _ < <(${coreutils}/bin/sha256sum "$file")
-      case $hash in
-      ${lib.concatMapAttrsStringSep "\n" (
-        dir: toolchain: "${builtins.hashFile "sha256" (toolchainFile dir)}) toolchain=${toolchain} ;;"
-      ) toolchains}
-      *) echo "$tool: $file is not a toolchain this flake built; re-enter nix develop" >&2; exit 1 ;;
-      esac
-      [[ -x $toolchain/bin/$tool ]] || { echo "$tool: not in the toolchain $file selects" >&2; exit 1; }
-      PATH=$toolchain/bin:$PATH exec "$toolchain/bin/$tool" "$@"
-    '';
-  };
-
   proxies =
     runCommand "rust-toolchain-proxies"
       {
@@ -72,7 +51,28 @@ let
       ''
         mkdir -p $out/bin
         for tool in ${lib.concatMapAttrsStringSep " " (_: toolchain: "${toolchain}/bin/*") toolchains}; do
-          ln -sf ${lib.getExe dispatch} "$out/bin/''${tool##*/}"
+          ln -sf ${
+            lib.getExe (writeShellApplication {
+              name = "rust-toolchain-proxy";
+              text = ''
+                tool=''${0##*/}
+                [[ ''${1-} != +* ]] || { echo "$tool: $1: the toolchain comes from the nearest rust-toolchain.toml, e.g. run in nightly/" >&2; exit 1; }
+                dir=$PWD
+                until [[ -f $dir/rust-toolchain.toml || -z $dir ]]; do dir=''${dir%/*}; done
+                file=$dir/rust-toolchain.toml
+                [[ -f $file ]] || { echo "$tool: no rust-toolchain.toml in $PWD or above it" >&2; exit 1; }
+                read -r hash _ < <(${coreutils}/bin/sha256sum "$file")
+                case $hash in
+                ${lib.concatMapAttrsStringSep "\n" (
+                  dir: toolchain: "${builtins.hashFile "sha256" (toolchainFile dir)}) toolchain=${toolchain} ;;"
+                ) toolchains}
+                *) echo "$tool: $file is not a toolchain this flake built; re-enter nix develop" >&2; exit 1 ;;
+                esac
+                [[ -x $toolchain/bin/$tool ]] || { echo "$tool: not in the toolchain $file selects" >&2; exit 1; }
+                PATH=$toolchain/bin:$PATH exec "$toolchain/bin/$tool" "$@"
+              '';
+            })
+          } "$out/bin/''${tool##*/}"
         done
       '';
 in
