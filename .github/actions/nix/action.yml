@@ -1,0 +1,9 @@
+name: Nix
+description: Installs Nix for `nix develop -c camas <task>`.
+
+runs:
+  using: composite
+  steps:
+    - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      with:
+        install_url: https://releases.nixos.org/nix/nix-2.35.6/install
