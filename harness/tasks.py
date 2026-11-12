@@ -33,18 +33,27 @@ gate = Task("uv run python -m harness.gate")
 size_gate = sweep + machinery + gate
 pay_for_what_you_use = Task("uv run python -m harness.symbols fixtures")
 unused = Task("uv run python -m harness.unused")
+encode_only = Task(
+	"uv run python -m harness.encode_only", help="R-121: encode-only firmware links no decoder"
+)
 panics = Task("uv run python -m harness.banned panics", help="R-132: no core::panicking in a cbor-static ELF")
 soft_float = Task("uv run python -m harness.banned soft_float", help="R-135: no soft-float routine either")
 banned = panics + soft_float
 crosscheck = Task("uv run python -m harness.crosscheck")
 ram = Task("uv run python -m harness.ram")
-phase0 = (sweep | sweep_v6m | crosscheck | pay_for_what_you_use | ram) + machinery + gate + unused + banned
+phase0 = (
+	(sweep | sweep_v6m | crosscheck | pay_for_what_you_use | ram | encode_only)
+	+ machinery
+	+ gate
+	+ unused
+	+ banned
+)
 features = Parallel(
 	Task("uv run python -m harness.features --feature {FEATURE}"),
 	matrix={"FEATURE": tuple(BY_TEMPLATE)},
 	help="R-009: each feature's fixture against its reference, thumbv7m, N=1 and 8",
 )
 r009 = (sweep | features) + machinery + gate + Task("uv run python -m harness.r009") + banned
-ci = (check | crosscheck | pay_for_what_you_use | size_gate + unused) + banned
+ci = (check | crosscheck | pay_for_what_you_use | encode_only | size_gate + unused) + banned
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
