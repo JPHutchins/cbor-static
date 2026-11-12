@@ -29,7 +29,7 @@ pub use untagged::UNTAGGED;
 use super::input::{Carry, Input};
 use super::skip::Skip;
 use super::text::KeyMatch;
-use super::{Fed, StrictOps, frame_mut, push, top_field};
+use super::{Fed, STRICT, StrictOps, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
@@ -126,6 +126,20 @@ union Scratch {
 impl State {
     #[inline(never)]
     pub(crate) const fn new(kind: &'static DecKind, dst: *mut u8) -> Self {
+        Self::under(kind, dst, None)
+    }
+
+    /// A state under the `Strict` profile.
+    #[inline(never)]
+    pub(crate) const fn strict(kind: &'static DecKind, dst: *mut u8) -> Self {
+        Self::under(kind, dst, Some(&STRICT))
+    }
+
+    const fn under(
+        kind: &'static DecKind,
+        dst: *mut u8,
+        strict: Option<&'static StrictOps>,
+    ) -> Self {
         let root = Target { kind, dst };
         Self {
             root,
@@ -136,14 +150,7 @@ impl State {
             offset: 0,
             carry: Carry::new(),
             scratch: MaybeUninit::uninit(),
-            strict: None,
-        }
-    }
-
-    pub(crate) const fn enforcing(self, strict: &'static StrictOps) -> Self {
-        Self {
-            strict: Some(strict),
-            ..self
+            strict,
         }
     }
 }

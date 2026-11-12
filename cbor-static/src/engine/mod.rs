@@ -156,7 +156,7 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
     /// ```
     pub fn new_strict(slot: &'s mut MaybeUninit<T>) -> Self {
         Self {
-            state: decode::State::new(T::DECODE, slot.as_mut_ptr().cast()).enforcing(&STRICT),
+            state: decode::State::strict(T::DECODE, slot.as_mut_ptr().cast()),
             stack: MaybeUninit::uninit(),
             slot: PhantomData,
         }
