@@ -6,13 +6,13 @@ from harness.backends.backend import (
 	SERDE,
 	SERDE_BYTES,
 	Backend,
-	minicbor_source,
+	flake_input,
 	no_impls,
 	path_dependency,
-	postcard_source,
 	roundtrip_fn,
 	serde_map_field_attrs,
 )
+from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS
 from harness.model import EnumDef, Field, FieldKind
 
 DERIVE: Final = "#[derive(serde::Serialize, serde::Deserialize)]"
@@ -45,8 +45,8 @@ MINICBOR_SERDE: Final = Backend(
 	name="minicbor-serde",
 	dependencies=lambda: "\n".join(
 		(
-			path_dependency("minicbor", minicbor_source() / "minicbor"),
-			path_dependency("minicbor-serde", minicbor_source() / "minicbor-serde"),
+			MINICBOR_HAND_TEXTKEYS.dependencies(),
+			path_dependency("minicbor-serde", flake_input("MINICBOR") / "minicbor-serde"),
 			SERDE,
 			SERDE_BYTES,
 		)
@@ -64,7 +64,7 @@ MINICBOR_SERDE: Final = Backend(
 POSTCARD: Final = Backend(
 	name="postcard",
 	dependencies=lambda: "\n".join(
-		(path_dependency("postcard", postcard_source() / "source" / "postcard"), SERDE, SERDE_BYTES)
+		(path_dependency("postcard", flake_input("POSTCARD") / "source" / "postcard"), SERDE, SERDE_BYTES)
 	),
 	prelude="",
 	struct_attrs=DERIVE,

@@ -7,7 +7,6 @@ import subprocess
 import sys
 from typing import Final
 
-from harness.backends.backend import ROOT, minicbor_source, path_dependency
 from harness.backends.cbor_static import CBOR_STATIC
 from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS
 from harness.generate import messages, render_message
@@ -26,12 +25,7 @@ def main() -> int:
 			"Cargo.toml": render(
 				"Cargo.toml",
 				name="crosscheck",
-				dependencies="\n".join(
-					(
-						path_dependency("minicbor", minicbor_source() / "minicbor"),
-						path_dependency("cbor-static", ROOT / "cbor-static"),
-					)
-				),
+				dependencies=f"{MINICBOR_HAND_TEXTKEYS.dependencies()}\n{CBOR_STATIC.dependencies()}",
 			),
 			"src/lib.rs": "#![allow(dead_code)]\n" + "".join(map(module, SHAPES)),
 			"tests/wire.rs": render("crosscheck_wire.rs", tests="\n".join(map(tests, SHAPES))),

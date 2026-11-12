@@ -51,7 +51,7 @@ jobs:
 
   nix:
     needs: ci
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write

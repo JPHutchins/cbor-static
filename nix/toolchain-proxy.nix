@@ -17,6 +17,7 @@ let
     name = "rust-toolchain-proxy";
     text = ''
       tool=''${0##*/}
+      [[ ''${1-} != +* ]] || { echo "$tool: $1: the toolchain comes from the nearest rust-toolchain.toml, e.g. run in nightly/" >&2; exit 1; }
       dir=$PWD
       until [[ -f $dir/rust-toolchain.toml || -z $dir ]]; do dir=''${dir%/*}; done
       file=$dir/rust-toolchain.toml
@@ -56,6 +57,7 @@ let
               done
             '') toolchains}
             [[ -s absent ]]
+            [[ "$(cd repo && cargo +nightly -V 2>&1)" == "cargo: +nightly: the toolchain comes from the nearest rust-toolchain.toml"* ]]
             echo edited >> repo/rust-toolchain.toml
             [[ "$(cd repo && rustc -V 2>&1)" == *"is not a toolchain this flake built"* ]]
             [[ "$(cd / && rustc -V 2>&1)" == "rustc: no rust-toolchain.toml in / or above it" ]]

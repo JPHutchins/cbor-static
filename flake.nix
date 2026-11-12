@@ -61,6 +61,7 @@
           UV_PYTHON_DOWNLOADS = "never";
           shellHook = ''
             root=$(git rev-parse --show-toplevel)
+            [[ -f $root/nightly/rust-toolchain.toml ]] || { echo "cbor-static: enter nix develop from inside the cbor-static checkout" >&2; exit 1; }
             export CARGO_HOME=$root/target/cargo-home
             uv sync --locked --quiet
             export PATH=$root/.venv/bin:$PATH
