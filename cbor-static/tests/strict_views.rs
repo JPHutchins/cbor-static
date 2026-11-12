@@ -1,6 +1,6 @@
 //! `Strict` over raw items and fixed-capacity maps (#12 Q29): a raw item's every head is
-//! deterministic and its every map's keys rise bytewise, at most 8 containers deep, and a
-//! `LinearMap`'s decoded keys rise bytewise by their encodings, chunk by chunk.
+//! deterministic and its every map's keys rise bytewise, at any depth, and a `LinearMap`'s decoded
+//! keys rise bytewise by their encodings, chunk by chunk.
 
 mod common;
 
@@ -15,9 +15,9 @@ fn strict<'de, T: cbor_static::Decode<'de>>(bytes: &'de [u8]) -> Result<(), Erro
         .map_err(|e| e.kind)
 }
 
-/// `depth` arrays, each holding the next, around one integer.
-fn nested(depth: usize) -> Vec<u8> {
-    [vec![0x81; depth], vec![0x01]].concat()
+/// `depth` arrays, each holding the next, around `innermost`.
+fn nested(depth: usize, innermost: &[u8]) -> Vec<u8> {
+    [vec![0x81; depth].as_slice(), innermost].concat()
 }
 
 #[test]
@@ -59,10 +59,19 @@ fn a_raw_item_is_deterministic_throughout() {
 }
 
 #[test]
-fn a_raw_item_nests_at_most_8_containers_under_strict() {
-    assert_eq!(strict::<RawCbor>(&nested(8)), Ok(()));
-    assert_eq!(strict::<RawCbor>(&nested(9)), Err(ErrorKind::LimitExceeded));
-    assert_eq!(common::decode::<RawCbor>(&nested(9)).map(|_| ()), Ok(()));
+fn a_raw_item_nests_to_any_depth_under_strict_and_its_deepest_keys_still_rise() {
+    for depth in [9, 64] {
+        assert_eq!(
+            strict::<RawCbor>(&nested(depth, b"\xa2\x01\x00\x02\x00")),
+            Ok(()),
+            "{depth}"
+        );
+        assert_eq!(
+            strict::<RawCbor>(&nested(depth, b"\xa2\x02\x00\x01\x00")),
+            Err(ErrorKind::NotDeterministic),
+            "{depth}"
+        );
+    }
 }
 
 #[test]
