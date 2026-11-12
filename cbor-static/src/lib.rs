@@ -211,7 +211,10 @@ mod wire;
 use core::mem::MaybeUninit;
 
 pub use cbor_static_derive::{Cbor, Decode, Encode};
-pub use engine::{Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, Progress};
+pub use engine::{
+    ArrayIter, ArrayRef, Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, MapIter, MapRef,
+    Progress, RawCbor,
+};
 pub use error::{Error, ErrorKind};
 pub use half::F16;
 pub use schema::{ByteString, Decode, Encode};

@@ -52,6 +52,11 @@ impl<'a> Input<'a> {
         self.take_exact(header_len(initial)?).map(parse).transpose()
     }
 
+    /// `len` bytes from `start`, which may lie before the cursor.
+    pub fn span(&self, start: usize, len: usize) -> Option<&'a [u8]> {
+        self.bytes.get(start..start.checked_add(len)?)
+    }
+
     pub fn take_rest(&mut self) -> &'a [u8] {
         let rest = self.rest();
         self.at += rest.len();

@@ -3,8 +3,8 @@
 
 use crate::engine::{
     AbsentFn, AppendFn, AtFn, BeginFn, DECODE_OPTION, DecOps, DecodeFn, ENCODE_OPTION, EncOps,
-    EncodeFn, EntryFn, FieldPtrFn, FinishFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn,
-    absent_option, drop_fn, none, some, some_ptr,
+    EncodeFn, EntryFn, FieldPtrFn, FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn,
+    WriteFn, absent_option, drop_fn, none, some, some_ptr,
 };
 use crate::lead::Lead;
 
@@ -253,6 +253,12 @@ pub enum DecKind {
         elem: &'static DecKind,
         at: AtFn,
     },
+    /// An item taken whole from contiguous input, and checked and written by `store`.
+    Raw {
+        ops: &'static DecOps,
+        store: StoreFn,
+        drop: Option<WriteFn>,
+    },
     /// `inner`, which the self-describe tag may precede.
     Described {
         ops: &'static DecOps,
@@ -385,6 +391,7 @@ impl DecKind {
                 elem,
                 at,
             },
+            Self::Raw { ops, store, .. } => Self::Raw { ops, store, drop },
             Self::Described { ops, inner, .. } => Self::Described { ops, inner, drop },
             Self::Map {
                 ops,
@@ -409,6 +416,7 @@ impl DecKind {
             | Self::Option { .. }
             | Self::Owned { .. }
             | Self::Seq { .. }
+            | Self::Raw { .. }
             | Self::Described { .. }
             | Self::Map { .. } => None,
             Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
@@ -424,6 +432,7 @@ impl DecKind {
             | Self::Option { drop, .. }
             | Self::Owned { drop, .. }
             | Self::Seq { drop, .. }
+            | Self::Raw { drop, .. }
             | Self::Described { drop, .. }
             | Self::Map { drop, .. } => *drop,
         }
@@ -437,6 +446,7 @@ impl DecKind {
             | Self::Array { .. }
             | Self::Owned { .. }
             | Self::Seq { .. }
+            | Self::Raw { .. }
             | Self::Described { .. }
             | Self::Map { .. } => None,
         }

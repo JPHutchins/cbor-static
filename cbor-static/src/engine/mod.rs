@@ -11,6 +11,7 @@ mod glue;
 mod input;
 mod leaf;
 mod pending;
+mod raw;
 mod skip;
 mod strict;
 mod strings;
@@ -29,8 +30,8 @@ pub use decode::{
     FinishFn, INDEX as DECODE_INDEX, INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP,
     MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY,
     MAP_MIXED as DECODE_MAP_MIXED, MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
-    OPTION as DECODE_OPTION, SELF_DESCRIBED as DECODE_SELF_DESCRIBED, TEXT_OWNED,
-    UNTAGGED as DECODE_UNTAGGED,
+    OPTION as DECODE_OPTION, RAW as DECODE_RAW, SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn,
+    TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{LINEAR_MAP as DECODE_LINEAR_MAP, SEQ as DECODE_SEQ};
@@ -54,6 +55,7 @@ pub(crate) use leaf::{
     enc_u128, none,
 };
 pub use pending::Pending;
+pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor};
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;
@@ -173,6 +175,16 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
     pub fn new_strict(slot: &'s mut MaybeUninit<T>) -> Self {
         Self {
             state: decode::State::strict(T::DECODE, slot.as_mut_ptr().cast()),
+            stack: MaybeUninit::uninit(),
+            slot: PhantomData,
+        }
+    }
+
+    /// A decoder under the profile `strict` names, which a raw view's own decoder passes on to the
+    /// decoders that check its elements, so firmware without `Strict` links none of it (D-22).
+    pub(crate) fn under(slot: &'s mut MaybeUninit<T>, strict: Option<&'static StrictOps>) -> Self {
+        Self {
+            state: decode::State::under(T::DECODE, slot.as_mut_ptr().cast(), strict),
             stack: MaybeUninit::uninit(),
             slot: PhantomData,
         }

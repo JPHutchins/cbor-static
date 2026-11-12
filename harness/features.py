@@ -182,6 +182,19 @@ FEATURES: Final = (
 		"struct",
 		(f"{ENCODE}::tag::TAG", f"{DECODE}::described::SELF_DESCRIBED"),
 	),
+	Feature("`RawCbor`", "raw", "struct", (f"{DECODE}::raw::RAW", "cbor_static::engine::raw::ENC_RAW")),
+	Feature(
+		"`ArrayRef`",
+		"array_ref",
+		"struct",
+		(f"{DECODE}::raw::RAW", "cbor_static::engine::raw::store_array::<u32>"),
+	),
+	Feature(
+		"`MapRef`",
+		"map_ref",
+		"struct",
+		(f"{DECODE}::raw::RAW", "cbor_static::engine::raw::store_map::<u8, u32>"),
+	),
 	Feature(
 		"heapless `Vec`",
 		"heapless_vec",
