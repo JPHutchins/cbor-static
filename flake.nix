@@ -25,6 +25,7 @@
         ];
       };
       python = pkgs.python315;
+      kani = pkgs.callPackage ./nix/kani.nix { };
       devShell = pkgs.mkShell {
         packages = [
           rust
@@ -32,6 +33,7 @@
           pkgs.uv
           pkgs.git
           pkgs.nixfmt-tree
+          kani
           pkgs.cbmc
           pkgs.cargo-mutants
           pkgs.cargo-fuzz
@@ -46,7 +48,7 @@
           export PATH=$root/.venv/bin:$PATH
         '';
       };
-      checks = rust.passthru.tests;
+      checks = rust.passthru.tests // kani.passthru.tests;
     in
     {
       devShells.${system}.default = devShell;
