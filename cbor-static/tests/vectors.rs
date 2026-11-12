@@ -1,4 +1,4 @@
-//! R-133 (D-27, D-27a): cbor-wg/cbor-test-vectors, pinned as a submodule at 7e84843 and read from
+//! R-133 (D-27, D-27a): cbor-wg/cbor-test-vectors, pinned by flake.lock at 7e84843 and read from
 //! the `.cbor` twins of its EDN files. Floats compare bitwise, so NaN payloads count.
 
 use std::mem::MaybeUninit;
@@ -8,11 +8,7 @@ use cbor_static::{ErrorKind, Tagged, Token, TokenWriter, Tokens, decode_into};
 /// A file of the suite, by its path under the suite's `tests/` directory.
 macro_rules! vector_file {
     ($path:literal) => {
-        include_bytes!(concat!(
-            "../../tests/fixtures/cbor-test-vectors/tests/",
-            $path
-        ))
-        .as_slice()
+        include_bytes!(concat!(env!("CBOR_TEST_VECTORS"), "/tests/", $path)).as_slice()
     };
 }
 

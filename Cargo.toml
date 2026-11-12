@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["cbor-static", "cbor-static-derive"]
-exclude = ["tests/fixtures"]
 
 [workspace.package]
 version = "0.0.0"

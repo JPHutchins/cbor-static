@@ -15,7 +15,7 @@ DERIVE: Final = "#[derive(cbor_static::Cbor)]"
 def backend(name: str, repr_attr: str = "", rustflags: tuple[str, ...] = ()) -> Backend:
 	return Backend(
 		name=name,
-		dependencies=path_dependency("cbor-static", ROOT / "cbor-static"),
+		dependencies=lambda: path_dependency("cbor-static", ROOT / "cbor-static"),
 		prelude=render("cbor_static_prelude.rs"),
 		struct_attrs=DERIVE,
 		field_attrs=field_attrs,

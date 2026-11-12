@@ -7,7 +7,7 @@ import subprocess
 import sys
 from typing import Final
 
-from harness.backends.backend import FIXTURES, ROOT, path_dependency
+from harness.backends.backend import ROOT, minicbor_source, path_dependency
 from harness.backends.cbor_static import CBOR_STATIC
 from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS
 from harness.generate import messages, render_message
@@ -28,7 +28,7 @@ def main() -> int:
 				name="crosscheck",
 				dependencies="\n".join(
 					(
-						path_dependency("minicbor", FIXTURES / "minicbor" / "minicbor"),
+						path_dependency("minicbor", minicbor_source() / "minicbor"),
 						path_dependency("cbor-static", ROOT / "cbor-static"),
 					)
 				),

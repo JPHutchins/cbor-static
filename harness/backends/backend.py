@@ -1,5 +1,6 @@
 """The shape every backend fills in, and helpers shared by them."""
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -10,14 +11,13 @@ if TYPE_CHECKING:
 	from collections.abc import Callable
 
 ROOT: Final = Path(__file__).resolve().parents[2]
-FIXTURES: Final = ROOT / "tests" / "fixtures"
 SERDE: Final = 'serde = { version = "=1.0.229", default-features = false, features = ["derive"] }'
 SERDE_BYTES: Final = 'serde_bytes = { version = "=0.11.19", default-features = false }'
 
 
 class Backend(NamedTuple):
 	name: str
-	dependencies: str
+	dependencies: Callable[[], str]
 	prelude: str
 	struct_attrs: str
 	field_attrs: Callable[[Field, int], str]
@@ -56,6 +56,22 @@ def rust_type(field: Field) -> str:
 			return "&'a [u8]"
 		case (FieldKind.NESTED | FieldKind.ENUM, _):
 			raise ValueError(f"{field} lacks its target")
+
+
+def minicbor_source() -> Path:
+	"""
+	>>> minicbor_source().joinpath("minicbor", "Cargo.toml").is_file()
+	True
+	"""
+	return Path(os.environ["MINICBOR"])
+
+
+def postcard_source() -> Path:
+	"""
+	>>> postcard_source().joinpath("source", "postcard", "Cargo.toml").is_file()
+	True
+	"""
+	return Path(os.environ["POSTCARD"])
 
 
 def no_impls(_msg: Message) -> str:

@@ -1,9 +1,0 @@
-[submodule "tests/fixtures/minicbor"]
-	path = tests/fixtures/minicbor
-	url = https://github.com/twittner/minicbor.git
-[submodule "tests/fixtures/postcard"]
-	path = tests/fixtures/postcard
-	url = https://github.com/jamesmunns/postcard.git
-[submodule "tests/fixtures/cbor-test-vectors"]
-	path = tests/fixtures/cbor-test-vectors
-	url = https://github.com/cbor-wg/cbor-test-vectors.git

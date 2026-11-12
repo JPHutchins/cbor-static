@@ -3,12 +3,13 @@
 from typing import Final
 
 from harness.backends.backend import (
-	FIXTURES,
 	SERDE,
 	SERDE_BYTES,
 	Backend,
+	minicbor_source,
 	no_impls,
 	path_dependency,
+	postcard_source,
 	roundtrip_fn,
 	serde_map_field_attrs,
 )
@@ -42,10 +43,10 @@ def positional_field_attrs(field: Field, _position: int) -> str:
 
 MINICBOR_SERDE: Final = Backend(
 	name="minicbor-serde",
-	dependencies="\n".join(
+	dependencies=lambda: "\n".join(
 		(
-			path_dependency("minicbor", FIXTURES / "minicbor" / "minicbor"),
-			path_dependency("minicbor-serde", FIXTURES / "minicbor" / "minicbor-serde"),
+			path_dependency("minicbor", minicbor_source() / "minicbor"),
+			path_dependency("minicbor-serde", minicbor_source() / "minicbor-serde"),
 			SERDE,
 			SERDE_BYTES,
 		)
@@ -62,8 +63,8 @@ MINICBOR_SERDE: Final = Backend(
 
 POSTCARD: Final = Backend(
 	name="postcard",
-	dependencies="\n".join(
-		(path_dependency("postcard", FIXTURES / "postcard" / "source" / "postcard"), SERDE, SERDE_BYTES)
+	dependencies=lambda: "\n".join(
+		(path_dependency("postcard", postcard_source() / "source" / "postcard"), SERDE, SERDE_BYTES)
 	),
 	prelude="",
 	struct_attrs=DERIVE,
