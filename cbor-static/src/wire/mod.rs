@@ -23,6 +23,8 @@ pub const FALSE: u8 = 20;
 pub const TRUE: u8 = 21;
 pub const NULL: u8 = 22;
 pub const UNDEFINED: u8 = 23;
+/// The self-describe tag (RFC 8949 §3.4.6): `d9 d9f7`.
+pub const SELF_DESCRIBE: u64 = 55_799;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Header {

@@ -171,6 +171,18 @@ FEATURES: Final = (
 		cargo_features=(HEAPLESS,),
 	),
 	Feature(
+		"`Tagged` over any value",
+		"tagged",
+		"struct",
+		(f"{ENCODE}::tag::TAG", f"{LEAF}::dec_tagged::<1, u32>"),
+	),
+	Feature(
+		"`SelfDescribed`",
+		"self_described",
+		"struct",
+		(f"{ENCODE}::tag::TAG", f"{DECODE}::described::SELF_DESCRIBED"),
+	),
+	Feature(
 		"heapless `Vec`",
 		"heapless_vec",
 		"struct",

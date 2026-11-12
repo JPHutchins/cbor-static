@@ -3,6 +3,7 @@
 
 mod array;
 mod cbor_tag;
+mod described;
 mod elements;
 mod entries;
 mod enums;
@@ -21,6 +22,7 @@ use core::ptr;
 
 pub use array::ARRAY;
 pub use cbor_tag::CBOR_TAG;
+pub use described::SELF_DESCRIBED;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
@@ -292,6 +294,7 @@ fn value(
         | DecKind::Option { ops, .. }
         | DecKind::Owned { ops, .. }
         | DecKind::Seq { ops, .. }
+        | DecKind::Described { ops, .. }
         | DecKind::Map { ops, .. } => match ops.value {
             Begin::Header(on_header) => on_header(state, frames, input, header),
             Begin::Peek(_) => Err(ErrorKind::Unsupported),
@@ -389,6 +392,7 @@ fn ops(kind: &DecKind) -> Result<&'static DecOps, ErrorKind> {
         | DecKind::Option { ops, .. }
         | DecKind::Owned { ops, .. }
         | DecKind::Seq { ops, .. }
+        | DecKind::Described { ops, .. }
         | DecKind::Map { ops, .. } => Ok(ops),
         DecKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }

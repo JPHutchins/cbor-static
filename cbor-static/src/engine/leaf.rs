@@ -8,7 +8,7 @@ use super::text::utf8;
 use super::{Item, Next, Pending};
 use crate::error::ErrorKind;
 use crate::scalar::Scalar;
-use crate::schema::{DecKind, EncKind};
+use crate::schema::{DecKind, Decode, EncKind};
 use crate::wire::{Header, Major, NULL};
 
 pub type EncodeFn = unsafe fn(*const u8, &mut Pending);
@@ -90,12 +90,8 @@ pub unsafe fn none<T>(dst: *mut u8) {
     unsafe { dst.cast::<Option<T>>().write(None) };
 }
 
-pub unsafe fn enc_tagged<const TAG: u64, T: Scalar>(src: *const u8, out: &mut Pending) {
-    out.head(Major::Tag, TAG);
-    unsafe { enc_scalar::<T>(src, out) };
-}
-
-pub unsafe fn dec_tagged<const TAG: u64, T: Scalar>(
+/// Tag `TAG`, after which the same slot takes a `T`.
+pub unsafe fn dec_tagged<'de, const TAG: u64, T: Decode<'de>>(
     _: *mut u8,
     item: &Item<'_>,
 ) -> Result<Next, ErrorKind> {
@@ -104,7 +100,7 @@ pub unsafe fn dec_tagged<const TAG: u64, T: Scalar>(
             major: Major::Tag,
             arg,
             ..
-        } if arg == TAG => Ok(Next::Then(T::DECODE_KIND)),
+        } if arg == TAG => Ok(Next::Then(T::DECODE)),
         _ => Err(ErrorKind::UnexpectedTag),
     }
 }

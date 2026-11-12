@@ -3,8 +3,7 @@
 
 use crate::engine::{
     DEC_BYTES, DEC_CHAR, DEC_STR, ENC_BYTES, ENC_CHAR, ENC_STR, Item, Pending, absent_option,
-    dec_i128, dec_option, dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar,
-    enc_tagged, enc_u128, none,
+    dec_i128, dec_option, dec_scalar, dec_u128, enc_i128, enc_option, enc_scalar, enc_u128, none,
 };
 use crate::error::ErrorKind;
 use crate::half::F16;
@@ -33,23 +32,6 @@ pub trait Scalar: Copy + 'static {
     /// A type or range mismatch.
     fn decode(item: &Item<'_>) -> Result<Self, ErrorKind>;
 }
-
-/// A value wrapped in CBOR tag `TAG`; any other tag is rejected on decode.
-///
-/// ```
-/// use cbor_static::Tagged;
-///
-/// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&Tagged::<1, u64>(1_363_896_240), &mut out)?;
-/// assert_eq!(&out[..len], b"\xc1\x1a\x51\x4b\x67\xb0");
-///
-/// let mut slot = core::mem::MaybeUninit::uninit();
-/// assert_eq!(cbor_static::decode_into::<Tagged<1, u64>>(&out[..len], &mut slot)?.0, 1_363_896_240);
-/// # Ok::<(), cbor_static::Error>(())
-/// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Tagged<const TAG: u64, T>(pub T);
 
 /// Unsigned integers, `usize` included: no target's `usize` is wider than the wire's `u64`, and
 /// decoding narrows with a check (D-12, D-25).
@@ -321,27 +303,4 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
     const MAX_DEPTH: usize = depth_of::<T::OptionStack>();
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::NULL.union(T::LEAD);
-}
-
-#[allow(unsafe_code)]
-unsafe impl<const TAG: u64, T: Scalar> Encode for Tagged<TAG, T> {
-    const ENCODE: &'static EncKind = &EncKind::Leaf {
-        encode: enc_tagged::<TAG, T>,
-        absent: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-}
-
-#[allow(unsafe_code)]
-unsafe impl<const TAG: u64, T: Scalar> Decode<'_> for Tagged<TAG, T> {
-    const DECODE: &'static DecKind = &DecKind::Leaf {
-        decode: dec_tagged::<TAG, T>,
-        default: None,
-        drop: None,
-    };
-    type Stack = ();
-    const MAX_DEPTH: usize = 0;
-    type OptionStack = Level<()>;
-    const LEAD: Lead = Lead::TAG;
 }

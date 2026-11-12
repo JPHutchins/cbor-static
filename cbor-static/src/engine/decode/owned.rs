@@ -141,6 +141,6 @@ fn chunk(header: Header) -> Result<u64, ErrorKind> {
 }
 
 /// The form never holds a frame, so it is never the parent of a completed entry.
-fn never_a_parent(_: &mut Frame) -> Result<After, ErrorKind> {
+pub(super) fn never_a_parent(_: &mut Frame) -> Result<After, ErrorKind> {
     Err(ErrorKind::Unsupported)
 }

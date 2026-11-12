@@ -115,6 +115,12 @@ impl Carry {
         )
     }
 
+    /// Gives back the header just read, `len` bytes that a chunk boundary split, so the next read
+    /// returns it again.
+    pub fn restore(&mut self, len: usize) {
+        self.len = u8::try_from(len).unwrap_or(0);
+    }
+
     fn stash(&mut self, bytes: &[u8]) {
         let start = usize::from(self.len);
         let copied = self

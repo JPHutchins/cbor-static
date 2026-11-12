@@ -182,6 +182,12 @@ pub enum EncKind {
         stride: usize,
         view: ViewFn,
     },
+    /// `inner` wrapped in the CBOR tag `tag`.
+    Tagged {
+        ops: &'static EncOps,
+        inner: &'static EncKind,
+        tag: &'static u64,
+    },
     /// A map of `len` entries of `key` and `value`, each found by `entry`.
     Map {
         ops: &'static EncOps,
@@ -246,6 +252,12 @@ pub enum DecKind {
         drop: Option<WriteFn>,
         elem: &'static DecKind,
         at: AtFn,
+    },
+    /// `inner`, which the self-describe tag may precede.
+    Described {
+        ops: &'static DecOps,
+        inner: &'static DecKind,
+        drop: Option<WriteFn>,
     },
     /// A map of up to a capacity of entries of `key` and `value`, decoded through `glue`.
     Map {
@@ -373,6 +385,7 @@ impl DecKind {
                 elem,
                 at,
             },
+            Self::Described { ops, inner, .. } => Self::Described { ops, inner, drop },
             Self::Map {
                 ops,
                 key,
@@ -396,6 +409,7 @@ impl DecKind {
             | Self::Option { .. }
             | Self::Owned { .. }
             | Self::Seq { .. }
+            | Self::Described { .. }
             | Self::Map { .. } => None,
             Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
         }
@@ -410,6 +424,7 @@ impl DecKind {
             | Self::Option { drop, .. }
             | Self::Owned { drop, .. }
             | Self::Seq { drop, .. }
+            | Self::Described { drop, .. }
             | Self::Map { drop, .. } => *drop,
         }
     }
@@ -422,6 +437,7 @@ impl DecKind {
             | Self::Array { .. }
             | Self::Owned { .. }
             | Self::Seq { .. }
+            | Self::Described { .. }
             | Self::Map { .. } => None,
         }
     }

@@ -31,7 +31,7 @@ OPTIONAL_KINDS: Final = (
 	"dec_scalar::<f32>",
 	"enc_scalar::<f64>",
 	"dec_scalar::<f64>",
-	"enc_tagged",
+	"encode::tag::open",
 	"dec_tagged",
 	"enc_u128",
 	"dec_u128",

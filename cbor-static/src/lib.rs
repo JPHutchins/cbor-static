@@ -202,6 +202,7 @@ mod lead;
 mod scalar;
 mod schema;
 mod stack;
+mod tags;
 mod token;
 #[cfg(test)]
 mod well_formed;
@@ -213,8 +214,8 @@ pub use cbor_static_derive::{Cbor, Decode, Encode};
 pub use engine::{Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, Progress};
 pub use error::{Error, ErrorKind};
 pub use half::F16;
-pub use scalar::Tagged;
 pub use schema::{ByteString, Decode, Encode};
+pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.
