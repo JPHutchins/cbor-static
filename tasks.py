@@ -58,8 +58,11 @@ unit = Task(
 )
 usize16 = Task(
 	"cargo test -p cbor-static",
-	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/usize16-host", "RUSTFLAGS": "--cfg cbor_static_usize16"},
-	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target",
+	env={
+		"CARGO_TARGET_DIR": f"{TARGET_DIR}/usize16-host",
+		"RUSTFLAGS": "--cfg cbor_static_usize16 -D warnings",
+	},
+	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target; also the no-feature build, warnings denied",
 )
 test = Parallel(
 	Task(

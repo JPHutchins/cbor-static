@@ -7,9 +7,11 @@ mod chunks;
 mod elements;
 mod enums;
 mod index;
+#[cfg(feature = "heapless")]
 mod linear_map;
 mod map;
 mod option;
+#[cfg(feature = "heapless")]
 mod seq;
 mod tag;
 mod tagged;
@@ -24,9 +26,11 @@ pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+#[cfg(feature = "heapless")]
 pub use linear_map::LINEAR_MAP;
 pub use map::MAP;
 pub use option::OPTION;
+#[cfg(feature = "heapless")]
 pub use seq::SEQ;
 pub use tag::TAG;
 pub use tagged::{ADJACENT, INTERNAL};

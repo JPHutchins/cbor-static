@@ -8,10 +8,12 @@ mod elements;
 mod entries;
 mod enums;
 mod index;
+#[cfg(feature = "heapless")]
 mod linear_map;
 mod map;
 mod option;
 mod owned;
+#[cfg(feature = "heapless")]
 mod seq;
 mod steps;
 mod tagged;
@@ -26,10 +28,12 @@ pub use described::SELF_DESCRIBED;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+#[cfg(feature = "heapless")]
 pub use linear_map::LINEAR_MAP;
 pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
 pub use option::OPTION;
 pub use owned::{AppendFn, BYTES as BYTES_OWNED, BeginFn, FinishFn, TEXT as TEXT_OWNED};
+#[cfg(feature = "heapless")]
 pub use seq::SEQ;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
