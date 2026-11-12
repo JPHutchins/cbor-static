@@ -39,10 +39,12 @@ impl Pending {
             .zip(src)
             .map(|(d, s)| d.write(*s))
             .count();
+        debug_assert_eq!(copied, src.len(), "an item overflows Pending");
         self.len = u8::try_from(start + copied).unwrap_or(u8::MAX);
     }
 
     pub(crate) fn tail(&mut self, src: &[u8]) {
+        debug_assert_eq!(self.tail_len, 0, "an item replaces a pending tail");
         self.tail = src.as_ptr();
         self.tail_len = src.len();
     }
