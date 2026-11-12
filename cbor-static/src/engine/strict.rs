@@ -5,9 +5,15 @@
 use core::mem::MaybeUninit;
 
 use crate::error::ErrorKind;
+#[cfg(feature = "heapless")]
+use crate::schema::EncKind;
 use crate::schema::Layout;
 use crate::stack::Frame;
 use crate::wire::Header;
+
+/// The containers a raw item may nest, which `Strict`'s lack of indefinite lengths leaves the
+/// skip's saved counts free to track (D-14a).
+const MAX_OPEN: usize = 8;
 
 /// One check per place `Strict` looks. Each rejects with [`ErrorKind::NotDeterministic`], or, for
 /// an entry no field claims, [`ErrorKind::UnknownField`].
@@ -21,7 +27,17 @@ pub struct StrictOps {
     pub(super) unknown: fn(&mut [MaybeUninit<Frame>], u8) -> Result<(), ErrorKind>,
     /// A map held whole in this chunk, of a count of entries.
     pub(super) sorted: fn(&[u8], u64) -> Result<(), ErrorKind>,
+    /// A raw item, whole: its every head, and the key order of its every map (#12 Q29).
+    pub(super) raw: fn(&[u8]) -> Result<(), ErrorKind>,
+    /// Two keys a map decoded, of one kind, whose encodings must rise bytewise; with the frames
+    /// free above the map, which encoding them needs (#12 Q29).
+    #[cfg(feature = "heapless")]
+    pub(super) keys: Keys,
 }
+
+#[cfg(feature = "heapless")]
+type Keys =
+    fn(&'static EncKind, *const u8, *const u8, &mut [MaybeUninit<Frame>]) -> Result<(), ErrorKind>;
 
 pub static STRICT: StrictOps = StrictOps {
     head,
@@ -29,6 +45,9 @@ pub static STRICT: StrictOps = StrictOps {
     bignum,
     unknown,
     sorted,
+    raw,
+    #[cfg(feature = "heapless")]
+    keys,
 };
 
 fn head(bytes: &[u8]) -> Result<Header, ErrorKind> {
@@ -83,6 +102,107 @@ fn sorted(bytes: &[u8], count: u64) -> Result<(), ErrorKind> {
             ))
         })
         .map(|_| ())
+}
+
+/// A container the raw walk is inside: its items left, whether it is a map, and where its previous
+/// key began.
+#[derive(Clone, Copy)]
+struct Open {
+    left: u64,
+    map: bool,
+    key: Option<usize>,
+}
+
+fn raw(item: &[u8]) -> Result<(), ErrorKind> {
+    use super::skip::item_len;
+    use crate::wire::{Major, header_len};
+
+    let mut open = [Open {
+        left: 1,
+        map: false,
+        key: None,
+    }; MAX_OPEN + 1];
+    let mut depth = 0;
+    let mut at = 0;
+    let mut tagged = false;
+    while depth > 0 || open.first().is_some_and(|root| root.left > 0) {
+        let rest = item.get(at..).unwrap_or(&[]);
+        let len = header_len(*rest.first().ok_or(ErrorKind::NeedContiguous)?)?;
+        let header = head(rest.get(..len).ok_or(ErrorKind::NeedContiguous)?)?;
+        let level = open.get_mut(depth).ok_or(ErrorKind::Unsupported)?;
+        if level.map && level.left % 2 == 0 && !tagged {
+            let key = rest.get(..item_len(rest)?).unwrap_or(&[]);
+            if let Some(previous) = level.key {
+                let earlier = item.get(previous..).unwrap_or(&[]);
+                deterministic(earlier.get(..item_len(earlier)?).unwrap_or(&[]) < key)?;
+            }
+            level.key = Some(at);
+        }
+        at += len;
+        tagged = header.major == Major::Tag;
+        let items = match header.major {
+            Major::Tag => continue,
+            Major::Bytes | Major::Text => {
+                at += usize::try_from(header.arg).map_err(|_| ErrorKind::LimitExceeded)?;
+                0
+            }
+            Major::Array => header.arg,
+            Major::Map => header.arg.checked_mul(2).ok_or(ErrorKind::LimitExceeded)?,
+            Major::Uint | Major::Nint | Major::Simple => 0,
+        };
+        level.left -= 1;
+        if items > 0 {
+            depth += 1;
+            *open.get_mut(depth).ok_or(ErrorKind::LimitExceeded)? = Open {
+                left: items,
+                map: header.major == Major::Map,
+                key: None,
+            };
+        }
+        while depth > 0 && open.get(depth).is_some_and(|level| level.left == 0) {
+            depth -= 1;
+        }
+    }
+    Ok(())
+}
+
+/// Encodes both keys a byte at a time, each on half the free frames, and compares as they go.
+#[cfg(feature = "heapless")]
+fn keys(
+    kind: &'static EncKind,
+    earlier: *const u8,
+    later: *const u8,
+    frames: &mut [MaybeUninit<Frame>],
+) -> Result<(), ErrorKind> {
+    use super::encode::State;
+
+    let (for_earlier, for_later) = frames.split_at_mut(frames.len() / 2);
+    let (mut earlier, mut later) = (State::new(kind, earlier), State::new(kind, later));
+    loop {
+        match (
+            byte(&mut earlier, for_earlier)?,
+            byte(&mut later, for_later)?,
+        ) {
+            (Some(a), Some(b)) if a == b => {}
+            (a, b) => return deterministic(a < b),
+        }
+    }
+}
+
+/// The next byte of an encoding, or `None` past its end.
+#[cfg(feature = "heapless")]
+fn byte(
+    encoding: &mut super::encode::State,
+    frames: &mut [MaybeUninit<Frame>],
+) -> Result<Option<u8>, ErrorKind> {
+    use super::Progress;
+    use super::encode::resume;
+
+    let mut one = [0];
+    match resume(encoding, frames, &mut one).map_err(|error| error.kind)? {
+        Progress::Done(0) => Ok(None),
+        Progress::Done(_) | Progress::NeedSpace(_) => Ok(one.first().copied()),
+    }
 }
 
 fn deterministic(holds: bool) -> Result<(), ErrorKind> {

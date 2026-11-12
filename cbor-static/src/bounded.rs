@@ -12,7 +12,7 @@ use crate::engine::{
 };
 use crate::lead::Lead;
 use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue, sealed};
-use crate::stack::{Level, Widest, deeper};
+use crate::stack::{Level, Twice, Widest, deeper};
 
 #[allow(unsafe_code)]
 unsafe impl<T: Encode, const N: usize, L: LenType> Encode for Vec<T, N, L> {
@@ -73,7 +73,9 @@ unsafe impl<K: Encode + Eq, V: Encode, const N: usize> Encode for LinearMap<K, V
     const MAX_DEPTH: usize = 1 + deeper(K::MAX_DEPTH, V::MAX_DEPTH);
 }
 
-/// A map of up to `N` entries, in input order, whose keys differ (D-12).
+/// A map of up to `N` entries, in input order, whose keys differ (D-12). Under `Strict`, each key's
+/// encoding must sort after the one before it (Q29): comparing them encodes both keys, on room the
+/// map's own stack keeps for two of `K`'s encoders, which is none for a scalar or string key.
 ///
 /// ```
 /// use heapless::LinearMap;
@@ -90,7 +92,7 @@ unsafe impl<K: Encode + Eq, V: Encode, const N: usize> Encode for LinearMap<K, V
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
 #[allow(unsafe_code)]
-unsafe impl<'de, K: Decode<'de> + Eq, V: Decode<'de>, const N: usize> Decode<'de>
+unsafe impl<'de, K: Decode<'de> + Encode + Eq, V: Decode<'de>, const N: usize> Decode<'de>
     for LinearMap<K, V, N>
 {
     const DECODE: &'static DecKind = &{
@@ -100,7 +102,7 @@ unsafe impl<'de, K: Decode<'de> + Eq, V: Decode<'de>, const N: usize> Decode<'de
         );
         DecKind::Map {
             ops: &DECODE_LINEAR_MAP,
-            key: K::DECODE,
+            key: <K as Decode<'de>>::DECODE,
             drop: drop_fn::<Self>(),
             value: V::DECODE,
             glue: &MapGlue {
@@ -108,15 +110,21 @@ unsafe impl<'de, K: Decode<'de> + Eq, V: Decode<'de>, const N: usize> Decode<'de
                 at: at::<(K, V), N, usize>,
                 key_at: offset_of!((K, V), 0),
                 value_at: offset_of!((K, V), 1),
+                stride: size_of::<(K, V)>(),
                 fresh: fresh::<K, V, N>,
                 drop_key: drop_fn::<K>(),
                 drop_shadow: drop_fn::<Vec<(K, V), N>>(),
                 assemble: assemble_map::<K, V, N>,
+                key_encode: <K as Encode>::ENCODE,
             },
         }
     };
-    type Stack = Level<Widest<K::Stack, V::Stack>>;
-    const MAX_DEPTH: usize = 1 + deeper(K::MAX_DEPTH, V::MAX_DEPTH);
+    type Stack =
+        Level<Widest<Widest<<K as Decode<'de>>::Stack, V::Stack>, Twice<<K as Encode>::Stack>>>;
+    const MAX_DEPTH: usize = 1 + deeper(
+        deeper(<K as Decode<'de>>::MAX_DEPTH, V::MAX_DEPTH),
+        2 * <K as Encode>::MAX_DEPTH,
+    );
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::MAP;
 }

@@ -282,13 +282,16 @@ pub struct MapGlue {
     pub begin: BeginFn,
     /// The shadow's [`AtFn`].
     pub at: AtFn,
-    /// The offsets of the key and the value in an entry.
+    /// The offsets of the key and the value in an entry, and of each entry from the one before.
     pub key_at: usize,
     pub value_at: usize,
+    pub stride: usize,
     pub fresh: FreshFn,
     pub drop_key: Option<WriteFn>,
     pub drop_shadow: Option<WriteFn>,
     pub assemble: WriteFn,
+    /// The key's encoding, which `Strict` compares bytewise (#12 Q29).
+    pub key_encode: &'static EncKind,
 }
 
 pub struct DecVariant {

@@ -10,7 +10,7 @@ use super::seq::{index, slot};
 use super::{After, Begin, DecOps, Flow, State, desc, end, entries, expect, open, top, unnamed};
 use crate::engine::input::Input;
 use crate::error::ErrorKind;
-use crate::schema::DecKind;
+use crate::schema::{DecKind, MapGlue};
 use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major};
 
@@ -50,17 +50,13 @@ fn entry(
 ) -> Result<Flow, ErrorKind> {
     if top(state.depth, frames)?.phase == Phase::Value {
         let frame = top(state.depth, frames)?;
+        let (base, seen) = (frame.base, frame.seen);
         let DecKind::Map { value, glue, .. } = desc(frame) else {
             return Err(ErrorKind::Unsupported);
         };
-        if !unsafe { (glue.fresh)(frame.base, index(frame.seen)) } {
-            return Err(ErrorKind::DuplicateKey);
-        }
-        return Ok(expect(
-            state,
-            value,
-            slot(glue.at, frame.base, frame.seen)?.wrapping_add(glue.value_at),
-        ));
+        let entry = slot(glue.at, base, seen)?;
+        distinct(state, frames, glue, base, entry, seen)?;
+        return Ok(expect(state, value, entry.wrapping_add(glue.value_at)));
     }
     match element(state, frames, input)? {
         Element::Wait => return Ok(Flow::NeedInput),
@@ -76,6 +72,32 @@ fn entry(
         key,
         slot(glue.at, frame.base, frame.seen)?.wrapping_add(glue.key_at),
     ))
+}
+
+/// Whether the key of entry `seen`, at `entry`, may join the map: under `Strict`, when its encoding
+/// sorts after the previous key's (Q29), which makes it unique too; otherwise, when it equals no
+/// earlier key (Q2).
+fn distinct(
+    state: &State,
+    frames: &mut [MaybeUninit<Frame>],
+    glue: &MapGlue,
+    base: *mut u8,
+    entry: *mut u8,
+    seen: u64,
+) -> Result<(), ErrorKind> {
+    match state.strict {
+        Some(strict) if seen > 0 => (strict.keys)(
+            glue.key_encode,
+            entry.wrapping_sub(glue.stride).wrapping_add(glue.key_at),
+            entry.wrapping_add(glue.key_at),
+            frames
+                .get_mut(usize::from(state.depth)..)
+                .unwrap_or(&mut []),
+        ),
+        Some(_) => Ok(()),
+        None if unsafe { (glue.fresh)(base, index(seen)) } => Ok(()),
+        None => Err(ErrorKind::DuplicateKey),
+    }
 }
 
 fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {

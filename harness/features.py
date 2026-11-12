@@ -27,6 +27,7 @@ LEAF: Final = "cbor_static::engine::leaf"
 STRINGS: Final = "cbor_static::engine::strings"
 NIGHTLY: Final = "nightly"
 HEAPLESS: Final = "heapless"
+DECODE_ONLY: Final = "decode_only"
 MANIFEST: Final = tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())
 FEATURES_DIR: Final = HARNESS / "features"
 COUNTS: Final = (1, 8)
@@ -122,7 +123,10 @@ FEATURES: Final = (
 		"`Strict` profile",
 		"strict",
 		"struct",
-		tuple(f"{STRICT}::{name}" for name in ("STRICT", "head", "order", "bignum", "unknown", "sorted")),
+		tuple(
+			f"{STRICT}::{name}"
+			for name in ("STRICT", "head", "order", "bignum", "unknown", "sorted", "raw", "keys")
+		),
 		"roundtrip_strict",
 	),
 	Feature(
@@ -209,7 +213,16 @@ FEATURES: Final = (
 		(f"{DECODE}::linear_map::LINEAR_MAP", f"{ENCODE}::linear_map::LINEAR_MAP"),
 		cargo_features=(HEAPLESS,),
 	),
+	Feature(
+		"heapless `LinearMap`, decode-only",
+		"heapless_map_decode",
+		"struct_decode",
+		(f"{DECODE}::linear_map::LINEAR_MAP",),
+		DECODE_ONLY,
+		(HEAPLESS,),
+	),
 )
+REFERENCE_DECODINGS: Final = {"struct_decode": DECODE_ONLY}
 BY_TEMPLATE: Final = {feature.template: feature for feature in FEATURES}
 
 
@@ -261,10 +274,14 @@ def flash(template: str, count: int, feature: Feature, profile: str) -> int:
 
 def decoding(template: str) -> str:
 	"""
-	>>> decoding("strict"), decoding("struct")
-	('roundtrip_strict', 'roundtrip')
+	>>> decoding("strict"), decoding("struct"), decoding("struct_decode")
+	('roundtrip_strict', 'roundtrip', 'decode_only')
 	"""
-	return BY_TEMPLATE[template].decoding if template in BY_TEMPLATE else ROUNDTRIP
+	return (
+		BY_TEMPLATE[template].decoding
+		if template in BY_TEMPLATE
+		else REFERENCE_DECODINGS.get(template, ROUNDTRIP)
+	)
 
 
 def fixture_name(template: str, count: int) -> str:

@@ -41,6 +41,14 @@ pub union Widest<A, B> {
     _b: ManuallyDrop<B>,
 }
 
+/// Two stacks side by side: room to encode two values at once.
+#[cfg(feature = "heapless")]
+#[repr(C)]
+pub struct Twice<S> {
+    _first: MaybeUninit<S>,
+    _second: MaybeUninit<S>,
+}
+
 #[must_use]
 pub const fn deeper(a: usize, b: usize) -> usize {
     if a > b { a } else { b }

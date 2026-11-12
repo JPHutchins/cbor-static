@@ -41,14 +41,18 @@ fn value(
         .checked_sub(head)
         .ok_or(ErrorKind::NeedContiguous)?;
     let rest = rest_len(header, input.rest())?;
+    let payload = input
+        .span(start, head + rest)
+        .ok_or(ErrorKind::Unsupported)?;
+    if let Some(strict) = state.strict {
+        (strict.raw)(payload)?;
+    }
     unsafe {
         store(
             state.target.dst,
             &Item {
                 header,
-                payload: input
-                    .span(start, head + rest)
-                    .ok_or(ErrorKind::Unsupported)?,
+                payload,
                 strict: state.strict,
             },
         )
