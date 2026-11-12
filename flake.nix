@@ -54,5 +54,12 @@
       devShells.${system}.default = devShell;
 
       checks.${system} = checks;
+
+      packages.${system} = {
+        nixcache-prepare = pkgs.callPackage ./nix/nixcache.nix { };
+        nixcache-roots = pkgs.linkFarm "nixcache-roots" (
+          { dev-shell = devShell.inputDerivation; } // checks
+        );
+      };
     };
 }
