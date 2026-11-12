@@ -38,12 +38,11 @@
       };
       python = pkgs.python315;
       kani = pkgs.callPackage ./nix/kani.nix { };
-      fixtures = pkgs.lib.mapAttrs' (
-        name: input:
-        pkgs.lib.nameValuePair (pkgs.lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] name)) "${input}"
-      ) (pkgs.lib.filterAttrs (_: input: (input._type or null) != "flake") inputs);
       devShell = pkgs.mkShell (
-        fixtures
+        pkgs.lib.mapAttrs' (
+          name: input:
+          pkgs.lib.nameValuePair (pkgs.lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] name)) "${input}"
+        ) (pkgs.lib.filterAttrs (_: input: (input._type or null) != "flake") inputs)
         // {
           packages = [
             rust
