@@ -58,20 +58,14 @@ def rust_type(field: Field) -> str:
 			raise ValueError(f"{field} lacks its target")
 
 
-def minicbor_source() -> Path:
+def flake_input(variable: str) -> Path:
 	"""
-	>>> minicbor_source().joinpath("minicbor", "Cargo.toml").is_file()
+	>>> flake_input("MINICBOR").joinpath("minicbor", "Cargo.toml").is_file()
+	True
+	>>> flake_input("POSTCARD").joinpath("source", "postcard", "Cargo.toml").is_file()
 	True
 	"""
-	return Path(os.environ["MINICBOR"])
-
-
-def postcard_source() -> Path:
-	"""
-	>>> postcard_source().joinpath("source", "postcard", "Cargo.toml").is_file()
-	True
-	"""
-	return Path(os.environ["POSTCARD"])
+	return Path(os.environ[variable])
 
 
 def no_impls(_msg: Message) -> str:

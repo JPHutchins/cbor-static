@@ -2,7 +2,7 @@
 
 from typing import Final
 
-from harness.backends.backend import Backend, minicbor_source, path_dependency, roundtrip_fn
+from harness.backends.backend import Backend, flake_input, path_dependency, roundtrip_fn
 from harness.model import EnumDef, Field, FieldKind, Message
 from harness.templates import render
 
@@ -92,7 +92,7 @@ def enum_def(enum: EnumDef) -> str:
 
 MINICBOR_HAND_TEXTKEYS: Final = Backend(
 	name="minicbor-hand-textkeys",
-	dependencies=lambda: path_dependency("minicbor", minicbor_source() / "minicbor"),
+	dependencies=lambda: path_dependency("minicbor", flake_input("MINICBOR") / "minicbor"),
 	prelude="",
 	struct_attrs="",
 	field_attrs=lambda _field, _position: "",

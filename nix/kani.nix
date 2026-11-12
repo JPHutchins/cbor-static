@@ -13,6 +13,8 @@
   rust-bin,
 }:
 
+assert cbmc.version == "6.11.0";
+
 let
   version = "0.68.0";
   toolchainDate = "2026-08-21";
