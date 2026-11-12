@@ -12,7 +12,7 @@ const MAX_SAVED: usize = 8;
 /// Iterative skip (D-14a, D-14b): one merged count for definite nesting, a bitset over open
 /// indefinite levels marking which saved an outer count, a LIFO of those counts, and a stack of
 /// flags marking which open levels are maps, whose keys each owe a value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Skip {
     walk: Walk,
     indefinite: u64,
@@ -23,7 +23,7 @@ pub struct Skip {
 
 /// The state a new skip resets. The open-level bitset and the saved counts are written before
 /// they are read.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct Walk {
     pending: u64,
     levels: u8,

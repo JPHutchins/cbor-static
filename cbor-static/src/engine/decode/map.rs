@@ -6,8 +6,8 @@
 use core::mem::MaybeUninit;
 
 use super::{
-    After, Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, name, next_entry,
-    open, start_name, start_skip, top,
+    After, Begin, DecOps, Entry, Flow, Scratch, State, at, desc, end, entries, expect, name,
+    next_entry, open, start_name, start_skip, top,
 };
 use crate::engine::bit;
 use crate::engine::input::Input;
@@ -128,9 +128,9 @@ fn unknown<const DENY: bool>(
 /// Matches a text key; in a mixed map, only against the text-keyed entries.
 fn start_text_key<const INT: bool>(state: &mut State, layout: &'static Layout, len: u64) -> Flow {
     if INT {
-        state
-            .key
-            .write(KeyMatch::start(layout, len).excluding(heads(layout)));
+        state.scratch.write(Scratch {
+            key: KeyMatch::start(layout, len).excluding(heads(layout)),
+        });
         state.step = name;
         Flow::Continue
     } else {

@@ -112,8 +112,13 @@ pub struct State {
     depth: u8,
     offset: usize,
     carry: Carry,
-    key: MaybeUninit<KeyMatch>,
-    skip: MaybeUninit<Skip>,
+    scratch: MaybeUninit<Scratch>,
+}
+
+/// The key matcher and the skip, which are never live at the same time.
+union Scratch {
+    key: KeyMatch,
+    skip: Skip,
 }
 
 impl State {
@@ -128,8 +133,7 @@ impl State {
             depth: 0,
             offset: 0,
             carry: Carry::new(),
-            key: MaybeUninit::uninit(),
-            skip: MaybeUninit::uninit(),
+            scratch: MaybeUninit::uninit(),
         }
     }
 }

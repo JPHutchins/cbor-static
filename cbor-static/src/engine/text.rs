@@ -15,6 +15,7 @@ pub struct Utf8 {
 }
 
 /// Matches a text key, chunk by chunk, against a layout's names of the same length.
+#[derive(Clone, Copy)]
 pub struct KeyMatch {
     left: u64,
     at: usize,
