@@ -24,11 +24,31 @@ enum Id {
     Index(u32),
 }
 
+#[derive(Cbor, Clone, Copy, Debug, PartialEq)]
+struct Record(u8, #[cbor(bytes)] [u8; 2]);
+
+#[derive(Cbor, Clone, Copy, Debug, PartialEq)]
+enum Packet {
+    Signed {
+        #[cbor(bytes)]
+        mac: [u8; 2],
+    },
+}
+
 #[test]
 fn a_newtype_of_bytes_is_a_byte_string_an_untagged_enum_tells_apart() {
     golden(&Digest([0xab, 0xcd]), b"\x42\xab\xcd");
     golden(&Id::Digest(Digest([1, 2])), b"\x42\x01\x02");
     golden(&Id::Index(7), b"\x07");
+}
+
+#[test]
+fn bytes_mark_a_tuple_struct_field_and_a_struct_variant_field() {
+    golden(&Record(7, [1, 2]), b"\x82\x07\x42\x01\x02");
+    golden(
+        &Packet::Signed { mac: [1, 2] },
+        b"\xa1\x66Signed\xa1\x63mac\x42\x01\x02",
+    );
 }
 
 #[test]
