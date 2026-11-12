@@ -26,7 +26,6 @@ files = ["harness", "tasks.py"]
 
 [tool.ruff]
 line-length = 110
-exclude = ["tests/fixtures/"]
 
 [tool.ruff.lint]
 preview = true

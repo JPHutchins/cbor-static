@@ -151,7 +151,7 @@ def fixture(name: str, templates: Sequence[str], cell: str, profile: str) -> Pat
 		write_crate(
 			CRATES / "features" / name,
 			{
-				"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC.dependencies),
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC.dependencies()),
 				"src/main.rs": render(
 					"main.rs",
 					prelude=CBOR_STATIC.prelude,

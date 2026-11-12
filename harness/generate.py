@@ -49,7 +49,7 @@ def render_crate(backend: Backend, count: int, shape: str) -> dict[str, str]:
 	generated = messages(count, shape)
 	return {
 		"Cargo.toml": render(
-			"Cargo.toml", name=crate_name(shape, backend, count), dependencies=backend.dependencies
+			"Cargo.toml", name=crate_name(shape, backend, count), dependencies=backend.dependencies()
 		),
 		"src/main.rs": render(
 			"main.rs",

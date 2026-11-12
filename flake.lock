@@ -1,5 +1,39 @@
 {
   "nodes": {
+    "cbor-test-vectors": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769385858,
+        "narHash": "sha256-76lTD8PltlReqSP7cPX8SATI2xezIFu186zdnrZUfrg=",
+        "owner": "cbor-wg",
+        "repo": "cbor-test-vectors",
+        "rev": "7e84843b646676a715d4da21c719f263e4c43440",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cbor-wg",
+        "repo": "cbor-test-vectors",
+        "rev": "7e84843b646676a715d4da21c719f263e4c43440",
+        "type": "github"
+      }
+    },
+    "minicbor": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792329342,
+        "narHash": "sha256-Y9FCxOgpY2/GsLNu+B1GE2ZaMFG5WZQ/v54jWKEG0Lo=",
+        "owner": "twittner",
+        "repo": "minicbor",
+        "rev": "0432e74b1c85edf45db3c64da9f8b0d0897cdfda",
+        "type": "github"
+      },
+      "original": {
+        "owner": "twittner",
+        "repo": "minicbor",
+        "rev": "0432e74b1c85edf45db3c64da9f8b0d0897cdfda",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1794042290,
@@ -16,9 +50,29 @@
         "type": "github"
       }
     },
+    "postcard": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1753372466,
+        "narHash": "sha256-8BGD2g2DxkbcD3KjDYdNqxqWCBw9RisuBjdlqM2wqVc=",
+        "owner": "jamesmunns",
+        "repo": "postcard",
+        "rev": "718aa6a6850456017c19eeff67303c633f875736",
+        "type": "github"
+      },
+      "original": {
+        "owner": "jamesmunns",
+        "repo": "postcard",
+        "rev": "718aa6a6850456017c19eeff67303c633f875736",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "cbor-test-vectors": "cbor-test-vectors",
+        "minicbor": "minicbor",
         "nixpkgs": "nixpkgs",
+        "postcard": "postcard",
         "rust-overlay": "rust-overlay"
       }
     },
