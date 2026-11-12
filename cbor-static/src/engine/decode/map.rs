@@ -6,8 +6,8 @@
 use core::mem::MaybeUninit;
 
 use super::{
-    After, Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, name, next_entry,
-    open, start_name, start_skip, top,
+    After, Begin, DecOps, Entry, Flow, Scratch, State, at, desc, end, entries, expect, name,
+    next_entry, open, skip_unknown, start_name, top,
 };
 use crate::engine::bit;
 use crate::engine::input::Input;
@@ -71,9 +71,9 @@ fn entry<const TEXT: bool, const INT: bool, const DENY: bool>(
                 header,
             ) {
                 Some(field) => select(state, frames, field),
-                None => unknown::<DENY>(state, 1, None),
+                None => unknown::<DENY>(state, frames, 1, None),
             },
-            _ => unknown::<DENY>(state, 2, Some(header)),
+            _ => unknown::<DENY>(state, frames, 2, Some(header)),
         },
     }
 }
@@ -84,7 +84,7 @@ fn named<const DENY: bool>(
     matched: Option<u8>,
 ) -> Result<Flow, ErrorKind> {
     match matched {
-        None => unknown::<DENY>(state, 1, None),
+        None => unknown::<DENY>(state, frames, 1, None),
         Some(field) => select(state, frames, field),
     }
 }
@@ -102,6 +102,9 @@ fn select(
     if frame.seen & bit(field) != 0 {
         return Err(ErrorKind::DuplicateKey);
     }
+    if let Some(strict) = state.strict {
+        (strict.order)(layout, frame, field)?;
+    }
     frame.field = field;
     Ok(expect(
         state,
@@ -115,22 +118,23 @@ fn select(
 /// Skips the rest of an entry no field claims, `items` items of which remain, or rejects it.
 fn unknown<const DENY: bool>(
     state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
     items: u64,
     header: Option<Header>,
 ) -> Result<Flow, ErrorKind> {
     if DENY {
         Err(ErrorKind::UnknownField)
     } else {
-        start_skip(state, items, header)
+        skip_unknown(state, frames, items, header)
     }
 }
 
 /// Matches a text key; in a mixed map, only against the text-keyed entries.
 fn start_text_key<const INT: bool>(state: &mut State, layout: &'static Layout, len: u64) -> Flow {
     if INT {
-        state
-            .key
-            .write(KeyMatch::start(layout, len).excluding(heads(layout)));
+        state.scratch.write(Scratch {
+            key: KeyMatch::start(layout, len).excluding(heads(layout)),
+        });
         state.step = name;
         Flow::Continue
     } else {

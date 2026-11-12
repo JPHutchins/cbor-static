@@ -117,6 +117,8 @@ pub enum EncKind {
         some: &'static EncKind,
         some_ptr: SomeFn,
     },
+    /// [`crate::Chunks`]: a string its ops write chunk by chunk.
+    Chunks { ops: &'static EncOps },
 }
 
 /// `repr(C, u8)` keeps `ops` (or a leaf's `decode`) and `drop` each at one offset in every variant,

@@ -1,5 +1,6 @@
 use core::mem::MaybeUninit;
 
+use super::StrictOps;
 use crate::error::ErrorKind;
 use crate::wire::{Header, header_len, parse};
 
@@ -58,6 +59,13 @@ impl<'a> Input<'a> {
     }
 }
 
+/// The header `bytes` hold, unless `Strict` rejects it.
+fn admitted(bytes: &[u8], strict: Option<&'static StrictOps>) -> Result<Option<Header>, ErrorKind> {
+    strict
+        .map_or_else(|| parse(bytes), |strict| (strict.head)(bytes))
+        .map(Some)
+}
+
 impl Carry {
     pub const fn new() -> Self {
         Self {
@@ -74,15 +82,20 @@ impl Carry {
         }
     }
 
-    /// The next header, or `None` until the chunks supplied so far complete one.
+    /// The next header, or `None` until the chunks supplied so far complete one; under `Strict`,
+    /// only one its head check admits.
     #[inline(never)]
-    pub fn header(&mut self, input: &mut Input) -> Result<Option<Header>, ErrorKind> {
+    pub fn header(
+        &mut self,
+        input: &mut Input,
+        strict: Option<&'static StrictOps>,
+    ) -> Result<Option<Header>, ErrorKind> {
         if cfg!(cbor_static_oneshot) || self.len == 0 {
             let Some(&initial) = input.rest().first() else {
                 return Ok(None);
             };
             return match input.take_exact(header_len(initial)?) {
-                Some(bytes) => parse(bytes).map(Some),
+                Some(bytes) => admitted(bytes, strict),
                 None if cfg!(cbor_static_oneshot) => Err(ErrorKind::UnexpectedEnd),
                 None => {
                     self.stash(input.take_rest());
@@ -96,7 +109,10 @@ impl Carry {
             return Ok(None);
         }
         self.len = 0;
-        parse(unsafe { self.bytes.get(..need).unwrap_or(&[]).assume_init_ref() }).map(Some)
+        admitted(
+            unsafe { self.bytes.get(..need).unwrap_or(&[]).assume_init_ref() },
+            strict,
+        )
     }
 
     fn stash(&mut self, bytes: &[u8]) {

@@ -21,6 +21,19 @@ pub enum ErrorKind {
     BufferTooSmall,
     TrailingInput,
     UnknownField,
+    /// A head, float, length, bignum or key order that RFC 8949 §4.2.1's deterministic encoding
+    /// would not write, which the `Strict` profile rejects (D-12).
+    ///
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::<u32>::uninit();
+    /// assert_eq!(
+    ///     cbor_static::decode_strict_into(b"\x18\x01", &mut slot).map_err(|e| e.kind),
+    ///     Err(cbor_static::ErrorKind::NotDeterministic)
+    /// );
+    /// assert_eq!(*cbor_static::decode_into(b"\x18\x01", &mut slot)?, 1);
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    NotDeterministic,
 }
 
 /// An [`ErrorKind`], the index of the field being processed, and the byte offset reached.

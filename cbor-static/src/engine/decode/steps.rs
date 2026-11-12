@@ -3,7 +3,7 @@
 
 use core::mem::MaybeUninit;
 
-use super::{Flow, State, desc, ops, top};
+use super::{Flow, Scratch, State, desc, ops, top};
 use crate::engine::input::Input;
 use crate::engine::skip::Skip;
 use crate::engine::text::KeyMatch;
@@ -20,7 +20,7 @@ pub(super) fn name(
 ) -> Result<Flow, ErrorKind> {
     let kind = desc(top(state.depth, frames)?);
     let layout = kind.layout().ok_or(ErrorKind::Unsupported)?;
-    let key = unsafe { state.key.assume_init_mut() };
+    let key = unsafe { &mut state.scratch.assume_init_mut().key };
     let wanted = key.left();
     let segment = input.take(wanted);
     if cfg!(cbor_static_oneshot) && u64::try_from(segment.len()).unwrap_or(u64::MAX) < wanted {
@@ -40,7 +40,7 @@ fn skip(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
-    let skipping = unsafe { state.skip.assume_init_mut() };
+    let skipping = unsafe { &mut state.scratch.assume_init_mut().skip };
     loop {
         let wanted = skipping.payload_left();
         let segment = input.take(wanted);
@@ -55,7 +55,7 @@ fn skip(
             state.step = ops(desc(top(state.depth, frames)?))?.entry;
             return Ok(Flow::Continue);
         }
-        let Some(header) = state.carry.header(input)? else {
+        let Some(header) = state.carry.header(input, state.strict)? else {
             return Ok(Flow::NeedInput);
         };
         skipping.on_header(header)?;
@@ -64,9 +64,25 @@ fn skip(
 
 /// Matches a text item of `len` bytes against `layout`'s names, chunk by chunk.
 pub(super) fn start_name(state: &mut State, layout: &Layout, len: u64) -> Flow {
-    state.key.write(KeyMatch::start(layout, len));
+    state.scratch.write(Scratch {
+        key: KeyMatch::start(layout, len),
+    });
     state.step = name;
     Flow::Continue
+}
+
+/// Skips the rest of an entry no field claims, which `Strict` admits only as an internally tagged
+/// map's tag.
+pub(super) fn skip_unknown(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    items: u64,
+    header: Option<Header>,
+) -> Result<Flow, ErrorKind> {
+    if let Some(strict) = state.strict {
+        (strict.unknown)(frames, state.depth)?;
+    }
+    start_skip(state, items, header)
 }
 
 /// Skips `items` whole items, the first of which may already have begun with `header`.
@@ -75,7 +91,14 @@ pub(super) fn start_skip(
     items: u64,
     header: Option<Header>,
 ) -> Result<Flow, ErrorKind> {
-    let skipping = state.skip.write(Skip::started(items));
+    let skipping = unsafe {
+        &mut state
+            .scratch
+            .write(Scratch {
+                skip: Skip::started(items),
+            })
+            .skip
+    };
     if let Some(header) = header {
         skipping.on_header(header)?;
     }

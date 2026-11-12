@@ -29,24 +29,29 @@ pub use untagged::UNTAGGED;
 use super::input::{Carry, Input};
 use super::skip::Skip;
 use super::text::KeyMatch;
-use super::{Fed, frame_mut, push, top_field};
+use super::{Fed, STRICT, StrictOps, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major, length};
 use entries::{Entry, entries, next_entry, unnamed};
-use steps::{name, start_name, start_skip};
+use steps::{name, skip_unknown, start_name, start_skip};
 
-/// A header plus, for definite strings, its payload.
+/// A header plus its payload, and the profile decoding it. A definite string's payload is its own;
+/// an indefinite string's is the rest of the chunk, from which a leaf that accepts chunks takes
+/// them.
 pub struct Item<'a> {
     pub header: Header,
     pub payload: &'a [u8],
+    pub strict: Option<&'static StrictOps>,
 }
 
-/// What a leaf decoder needs next: nothing, or the following item decoded as another kind.
+/// What a leaf decoder needs next: nothing; the following item decoded as another kind; or, having
+/// taken an indefinite string's chunks and break from its payload, that many bytes consumed.
 pub enum Next {
     Done,
     Then(&'static DecKind),
+    Took(usize),
 }
 
 /// The core's continuation: what the next bytes of input mean.
@@ -112,13 +117,32 @@ pub struct State {
     depth: u8,
     offset: usize,
     carry: Carry,
-    key: MaybeUninit<KeyMatch>,
-    skip: MaybeUninit<Skip>,
+    scratch: MaybeUninit<Scratch>,
+    strict: Option<&'static StrictOps>,
+}
+
+/// The key matcher and the skip, which are never live at the same time.
+union Scratch {
+    key: KeyMatch,
+    skip: Skip,
 }
 
 impl State {
     #[inline(never)]
     pub(crate) const fn new(kind: &'static DecKind, dst: *mut u8) -> Self {
+        Self::under(kind, dst, None)
+    }
+
+    #[inline(never)]
+    pub(crate) const fn strict(kind: &'static DecKind, dst: *mut u8) -> Self {
+        Self::under(kind, dst, Some(&STRICT))
+    }
+
+    const fn under(
+        kind: &'static DecKind,
+        dst: *mut u8,
+        strict: Option<&'static StrictOps>,
+    ) -> Self {
         let root = Target { kind, dst };
         Self {
             root,
@@ -128,8 +152,8 @@ impl State {
             depth: 0,
             offset: 0,
             carry: Carry::new(),
-            key: MaybeUninit::uninit(),
-            skip: MaybeUninit::uninit(),
+            scratch: MaybeUninit::uninit(),
+            strict,
         }
     }
 }
@@ -213,7 +237,7 @@ fn value(
             None => Ok(Flow::NeedInput),
         };
     }
-    let Some(header) = state.carry.header(input)? else {
+    let Some(header) = state.carry.header(input, state.strict)? else {
         return Ok(Flow::NeedInput);
     };
     if header.is_break() {
@@ -222,15 +246,34 @@ fn value(
     match state.target.kind {
         DecKind::Leaf { decode, .. } => {
             let payload = match (header.major, header.indefinite()) {
-                (Major::Bytes | Major::Text, true) => return Err(ErrorKind::IndefiniteString),
+                (Major::Bytes | Major::Text, true) => input.rest(),
                 (Major::Bytes | Major::Text, false) => input
                     .take_exact(length(header.arg)?)
                     .ok_or(ErrorKind::NeedContiguous)?,
                 _ => &[],
             };
-            match unsafe { decode(state.target.dst, &Item { header, payload }) }? {
-                Next::Done => complete(state, frames).map(|()| Flow::Continue),
-                Next::Then(next) => {
+            match (
+                unsafe {
+                    decode(
+                        state.target.dst,
+                        &Item {
+                            header,
+                            payload,
+                            strict: state.strict,
+                        },
+                    )
+                }?,
+                header.indefinite(),
+            ) {
+                (Next::Done | Next::Then(_), true) => Err(ErrorKind::IndefiniteString),
+                (Next::Took(_), false) => Err(ErrorKind::Unsupported),
+                (Next::Done, false) => complete(state, frames).map(|()| Flow::Continue),
+                (Next::Took(taken), true) => input
+                    .take_exact(taken)
+                    .ok_or(ErrorKind::Unsupported)
+                    .and_then(|_| complete(state, frames))
+                    .map(|()| Flow::Continue),
+                (Next::Then(next), false) => {
                     state.target.kind = next;
                     Ok(Flow::Continue)
                 }

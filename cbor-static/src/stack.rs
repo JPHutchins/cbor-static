@@ -7,6 +7,8 @@ use core::mem::{ManuallyDrop, MaybeUninit, align_of, size_of};
 #[repr(u8)]
 pub enum Phase {
     Key,
+    /// A map's key, while its internally tagged enum's tag entry is still ahead.
+    TagAhead,
     Value,
     EnumUnit,
     EnumName,

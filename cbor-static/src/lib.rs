@@ -180,7 +180,7 @@ mod wire;
 use core::mem::MaybeUninit;
 
 pub use cbor_static_derive::{Cbor, Decode, Encode};
-pub use engine::{Decoder, Encoder, Fed, Progress};
+pub use engine::{Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, Progress};
 pub use error::{Error, ErrorKind};
 pub use scalar::Tagged;
 pub use schema::{Decode, Encode};
@@ -206,7 +206,52 @@ pub fn decode_into<'de, 's, T: Decode<'de>>(
     input: &'de [u8],
     slot: &'s mut MaybeUninit<T>,
 ) -> Result<&'s mut T, Error> {
-    let mut decoder = Decoder::new(slot);
+    whole(&mut Decoder::new(slot), input)
+}
+
+/// [`decode_into`] under the `Strict` profile ([`Decoder::new_strict`]).
+///
+/// ```
+/// #[derive(cbor_static::Decode, Debug, PartialEq)]
+/// struct Reading {
+///     id: u32,
+///     ok: bool,
+/// }
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// assert_eq!(
+///     *cbor_static::decode_strict_into::<Reading>(b"\xa2\x62id\x07\x62ok\xf5", &mut slot)?,
+///     Reading { id: 7, ok: true }
+/// );
+/// assert_eq!(
+///     cbor_static::decode_strict_into::<Reading>(b"\xa2\x62ok\xf5\x62id\x07", &mut slot)
+///         .map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::NotDeterministic)
+/// );
+/// assert_eq!(
+///     cbor_static::decode_strict_into::<Reading>(b"\xa3\x61z\x00\x62id\x07\x62ok\xf5", &mut slot)
+///         .map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::UnknownField)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
+/// # Errors
+/// As [`decode_into`], plus [`ErrorKind::NotDeterministic`] for anything RFC 8949 §4.2.1's
+/// deterministic encoding would not write, and [`ErrorKind::UnknownField`] for an entry no field
+/// claims.
+pub fn decode_strict_into<'de, 's, T: Decode<'de>>(
+    input: &'de [u8],
+    slot: &'s mut MaybeUninit<T>,
+) -> Result<&'s mut T, Error> {
+    whole(&mut Decoder::new_strict(slot), input)
+}
+
+/// Feeds `input` to `decoder` as one chunk that must hold exactly one item.
+fn whole<'de, 's, T: Decode<'de>>(
+    decoder: &mut Decoder<'de, 's, T>,
+    input: &'de [u8],
+) -> Result<&'s mut T, Error> {
     match decoder.feed(input) {
         Ok(Fed::Done(consumed)) if consumed == input.len() => decoder.finish(),
         Ok(Fed::Done(consumed)) => Err(Error::new(ErrorKind::TrailingInput, 0, consumed)),

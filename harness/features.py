@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
-from harness.backends.cbor_static import CBOR_STATIC
+from harness.backends.cbor_static import CBOR_STATIC, ROUNDTRIP, roundtrip
 from harness.elf import sizes
 from harness.measure import CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_path, write_crate
 from harness.model import Message
@@ -20,19 +20,21 @@ if TYPE_CHECKING:
 
 DECODE: Final = "cbor_static::engine::decode"
 ENCODE: Final = "cbor_static::engine::encode"
+STRICT: Final = "cbor_static::engine::strict"
 FEATURES_DIR: Final = HARNESS / "features"
 COUNTS: Final = (1, 8)
 
 
 class Feature(NamedTuple):
 	"""A feature's fixture template, the reference template it differs from only by the feature,
-	and the ops statics that implement it.
+	the ops statics that implement it, and the prelude function its types round-trip through.
 	"""
 
 	name: str
 	template: str
 	reference: str
 	symbols: tuple[str, ...]
+	decoding: str = ROUNDTRIP
 
 
 FEATURES: Final = (
@@ -81,6 +83,23 @@ FEATURES: Final = (
 	Feature(
 		"untagged", "untagged", "enum", (f"{DECODE}::untagged::UNTAGGED", f"{ENCODE}::untagged::UNTAGGED")
 	),
+	Feature(
+		"`Chunks`",
+		"chunks",
+		"strings",
+		(
+			"cbor_static::engine::skip::rest_len",
+			f"{ENCODE}::chunks::TEXT",
+			f"{ENCODE}::chunks::BYTES",
+		),
+	),
+	Feature(
+		"`Strict` profile",
+		"strict",
+		"struct",
+		tuple(f"{STRICT}::{name}" for name in ("STRICT", "head", "order", "bignum", "unknown", "sorted")),
+		"roundtrip_strict",
+	),
 )
 BY_TEMPLATE: Final = {feature.template: feature for feature in FEATURES}
 
@@ -124,6 +143,14 @@ def flash(template: str, count: int, cell: str, profile: str) -> int:
 	return sizes(fixture(fixture_name(template, count), (template,) * count, cell, profile)).flash
 
 
+def decoding(template: str) -> str:
+	"""
+	>>> decoding("strict"), decoding("struct")
+	('roundtrip_strict', 'roundtrip')
+	"""
+	return BY_TEMPLATE[template].decoding if template in BY_TEMPLATE else ROUNDTRIP
+
+
 def fixture_name(template: str, count: int) -> str:
 	return f"r009-{template}-n{count}"
 
@@ -158,7 +185,7 @@ def fixture(name: str, templates: Sequence[str], cell: str, profile: str) -> Pat
 					items="\n".join(
 						render(f"features/{template}.rs", i=str(index))
 						+ "\n"
-						+ CBOR_STATIC.roundtrip(Message(f"T{index}", ()))
+						+ roundtrip(Message(f"T{index}", ()), decoding(template))
 						for index, template in enumerate(templates)
 					),
 					calls="\n".join(

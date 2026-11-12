@@ -79,7 +79,10 @@ pub(super) fn element(
     match (frame.remaining, state.carry.initial(input)) {
         (0, _) => Ok(Element::End),
         (INDEFINITE, None) => Ok(Element::Wait),
-        (INDEFINITE, Some(BREAK)) => state.carry.header(input).map(|_| Element::End),
+        (INDEFINITE, Some(BREAK)) => state
+            .carry
+            .header(input, state.strict)
+            .map(|_| Element::End),
         (INDEFINITE, Some(_)) => Ok(Element::Next),
         (_, _) => {
             frame.remaining -= 1;

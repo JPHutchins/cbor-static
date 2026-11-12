@@ -8,6 +8,8 @@ use crate::error::{Error, ErrorKind};
 use crate::scalar::Scalar;
 use crate::schema::{DecKind, Decode, EncKind, Encode, Layout};
 
+mod drops;
+
 std::thread_local! {
     static DROPS: Cell<usize> = const { Cell::new(0) };
 }
@@ -35,6 +37,67 @@ unsafe impl Decode<'_> for Tracked {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+}
+
+/// A text leaf that knows nothing of indefinite strings: it takes any text payload whole.
+struct Naive;
+
+unsafe fn decode_naive(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+    match item.header.major {
+        crate::wire::Major::Text => Ok(unsafe { store::<Naive>(dst) }(Naive)),
+        _ => Err(ErrorKind::TypeMismatch),
+    }
+}
+
+/// A leaf that claims to have taken chunks whatever it is given.
+struct Greedy;
+
+#[expect(clippy::unnecessary_wraps, reason = "a DecodeFn")]
+unsafe fn decode_greedy(dst: *mut u8, _: &Item<'_>) -> Result<Next, ErrorKind> {
+    unsafe { dst.cast::<Greedy>().write(Greedy) };
+    Ok(Next::Took(0))
+}
+
+unsafe impl Decode<'_> for Naive {
+    const DECODE: &'static DecKind = &DecKind::Leaf {
+        decode: decode_naive,
+        default: None,
+        drop: None,
+    };
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+    type OptionStack = crate::stack::Level<()>;
+}
+
+unsafe impl Decode<'_> for Greedy {
+    const DECODE: &'static DecKind = &DecKind::Leaf {
+        decode: decode_greedy,
+        default: None,
+        drop: None,
+    };
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+    type OptionStack = crate::stack::Level<()>;
+}
+
+fn kind_of<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<ErrorKind> {
+    crate::decode_into(bytes, &mut MaybeUninit::<T>::uninit())
+        .err()
+        .map(|e| e.kind)
+}
+
+#[test]
+fn only_a_leaf_that_took_its_chunks_finishes_an_indefinite_string() {
+    assert_eq!(kind_of::<Naive>(b"\x61a"), None);
+    assert_eq!(
+        kind_of::<Naive>(b"\x7f\x61a\xff"),
+        Some(ErrorKind::IndefiniteString)
+    );
+    assert_eq!(kind_of::<Greedy>(b"\x61a"), Some(ErrorKind::Unsupported));
+    assert_eq!(
+        kind_of::<Greedy>(b"\x7f\xff"),
+        Some(ErrorKind::TrailingInput)
+    );
 }
 
 #[derive(crate::Decode)]

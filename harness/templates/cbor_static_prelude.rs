@@ -1,7 +1,19 @@
 fn roundtrip<'a, T: cbor_static::Decode<'a> + cbor_static::Encode>(input: &'a [u8], out: &mut [u8]) -> usize {
+    exchange::<T, _>(input, out, |slot| cbor_static::Decoder::new(slot))
+}
+
+fn roundtrip_strict<'a, T: cbor_static::Decode<'a> + cbor_static::Encode>(input: &'a [u8], out: &mut [u8]) -> usize {
+    exchange::<T, _>(input, out, |slot| cbor_static::Decoder::new_strict(slot))
+}
+
+fn exchange<'a, T, F>(input: &'a [u8], out: &mut [u8], decoder: F) -> usize
+where
+    T: cbor_static::Decode<'a> + cbor_static::Encode,
+    F: for<'s> FnOnce(&'s mut core::mem::MaybeUninit<T>) -> cbor_static::Decoder<'a, 's, T>,
+{
     let chunk = black_box(64usize).max(1);
     let mut slot = core::mem::MaybeUninit::<T>::uninit();
-    let mut decoder = cbor_static::Decoder::new(&mut slot);
+    let mut decoder = decoder(&mut slot);
     let _ = input.chunks(chunk).try_for_each(|piece| match decoder.feed(piece) {
         Ok(cbor_static::Fed::NeedInput) => Ok(()),
         _ => Err(()),

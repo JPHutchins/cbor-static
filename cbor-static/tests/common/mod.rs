@@ -4,7 +4,8 @@ use core::fmt::Debug;
 use core::mem::MaybeUninit;
 
 use cbor_static::{
-    Decode, Decoder, Encode, Encoder, ErrorKind, Fed, Progress, decode_into, encode_into,
+    Decode, Decoder, Encode, Encoder, ErrorKind, Fed, Progress, decode_into, decode_strict_into,
+    encode_into,
 };
 
 /// R-009's correctness criterion for an owned type: `value` encodes to exactly `bytes`, whole and
@@ -69,6 +70,13 @@ pub fn decode<'de, T: Decode<'de> + Copy>(bytes: &'de [u8]) -> Result<T, ErrorKi
         .map_err(|e| e.kind)
 }
 
+pub fn decode_strict<'de, T: Decode<'de> + Copy>(bytes: &'de [u8]) -> Result<T, ErrorKind> {
+    let mut slot = MaybeUninit::uninit();
+    decode_strict_into(bytes, &mut slot)
+        .map(|value| *value)
+        .map_err(|e| e.kind)
+}
+
 pub fn chunked_encode<T: Encode>(value: &T, chunk: usize) -> Vec<u8> {
     let mut encoder = Encoder::new(value);
     let mut buffer = vec![0u8; chunk];
@@ -86,7 +94,22 @@ pub fn chunked_decode<'de, T: Decode<'de> + Copy>(
     chunk: usize,
 ) -> Result<T, ErrorKind> {
     let mut slot = MaybeUninit::uninit();
-    let mut decoder = Decoder::new(&mut slot);
+    fed(&mut Decoder::new(&mut slot), bytes, chunk)
+}
+
+pub fn chunked_decode_strict<'de, T: Decode<'de> + Copy>(
+    bytes: &'de [u8],
+    chunk: usize,
+) -> Result<T, ErrorKind> {
+    let mut slot = MaybeUninit::uninit();
+    fed(&mut Decoder::new_strict(&mut slot), bytes, chunk)
+}
+
+fn fed<'de, T: Decode<'de> + Copy>(
+    decoder: &mut Decoder<'de, '_, T>,
+    bytes: &'de [u8],
+    chunk: usize,
+) -> Result<T, ErrorKind> {
     for piece in bytes.chunks(chunk) {
         if let Fed::Done(_) = decoder.feed(piece).map_err(|e| e.kind)? {
             break;

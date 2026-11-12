@@ -2,6 +2,7 @@
 //! The one module that dereferences descriptor offsets. Every other module denies `unsafe`, except
 //! to declare or implement the codec traits (D-24a).
 
+mod chunks;
 mod decode;
 mod encode;
 mod glue;
@@ -9,12 +10,14 @@ mod input;
 mod leaf;
 mod pending;
 mod skip;
+mod strict;
 mod text;
 
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr;
 
+pub use chunks::{Chunk, ChunkIter, Chunks};
 pub use decode::{
     ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, CBOR_TAG as DECODE_CBOR_TAG, DecOps,
     ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, INDEX as DECODE_INDEX,
@@ -29,6 +32,7 @@ pub use encode::{
     INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION,
     UNTAGGED as ENCODE_UNTAGGED,
 };
+use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 pub use glue::{
     FieldPtrFn, IndexFn, SomeFn, WriteFn, assemble, drop_fn, field_ptr_of, index_of, index_tag,
     offset, some, some_ptr, write_tag,
@@ -43,6 +47,8 @@ pub use pending::Pending;
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;
+use strict::STRICT;
+pub(crate) use strict::StrictOps;
 pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};
@@ -120,6 +126,40 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
     pub fn new(slot: &'s mut MaybeUninit<T>) -> Self {
         Self {
             state: decode::State::new(T::DECODE, slot.as_mut_ptr().cast()),
+            stack: MaybeUninit::uninit(),
+            slot: PhantomData,
+        }
+    }
+
+    /// A decoder under the `Strict` profile (D-12): it accepts only what RFC 8949 §4.2.1's
+    /// deterministic encoding writes, and rejects entries no field claims. Key order is checked
+    /// against the type's own keys, so input may still arrive in chunks.
+    ///
+    /// ```
+    /// #[derive(cbor_static::Decode, Debug, PartialEq)]
+    /// struct Point {
+    ///     x: u32,
+    ///     y: u32,
+    /// }
+    ///
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let mut decoder = cbor_static::Decoder::<Point>::new_strict(&mut slot);
+    /// assert_eq!(decoder.feed(b"\xa2\x61x")?, cbor_static::Fed::NeedInput);
+    /// assert_eq!(decoder.feed(b"\x01\x61y\x02")?, cbor_static::Fed::Done(4));
+    /// assert_eq!(*decoder.finish()?, Point { x: 1, y: 2 });
+    ///
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let mut decoder = cbor_static::Decoder::<Point>::new_strict(&mut slot);
+    /// assert_eq!(decoder.feed(b"\xa2\x61y\x02").map(|_| ()), Ok(()));
+    /// assert_eq!(
+    ///     decoder.feed(b"\x61x\x01").map_err(|e| e.kind),
+    ///     Err(cbor_static::ErrorKind::NotDeterministic)
+    /// );
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    pub fn new_strict(slot: &'s mut MaybeUninit<T>) -> Self {
+        Self {
+            state: decode::State::strict(T::DECODE, slot.as_mut_ptr().cast()),
             stack: MaybeUninit::uninit(),
             slot: PhantomData,
         }
