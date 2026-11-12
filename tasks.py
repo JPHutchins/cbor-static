@@ -63,11 +63,7 @@ f32 = Task(
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},
 	help="R-101, R-135: all 2^32 binary32 patterns",
 )
-kani = (
-	Task("cargo install --locked kani-verifier@0.68.0")
-	+ Task("cargo kani setup")
-	+ Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
-)
+kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
 ci = (check - unit) | test | build | miri | f32 | kani | flake
 all = fix + check
 
