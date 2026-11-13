@@ -4,6 +4,7 @@ mod enums;
 mod fields;
 
 use proc_macro2::Span;
+use quote::ToTokens as _;
 use syn::spanned::Spanned as _;
 use syn::{
     Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
@@ -11,7 +12,7 @@ use syn::{
 
 use attrs::StructAttrs;
 use enums::enumeration;
-use fields::{bare, fields_of, lone, positional};
+use fields::{bare, fields_of, lone, names_itself, positional};
 
 const MAX_FIELDS: usize = 64;
 
@@ -159,12 +160,41 @@ impl Item {
                 ));
             }
         };
+        holds_not_itself(&ast.ident, &shape)?;
         Ok(Self {
             ident: ast.ident.clone(),
             lifetime: lifetime(ast)?,
             shape,
         })
     }
+}
+
+/// D-14: a type that holds itself has no bounded depth, and recursive types are unsupported. The
+/// derive names the field, where rustc would report E0072 or E0275, or, through a raw view such as
+/// `ArrayRef`, compile a decoder whose nested decoders recurse as deep as the input.
+fn holds_not_itself(ident: &Ident, shape: &Shape) -> syn::Result<()> {
+    let fields: Vec<&Field> = match shape {
+        Shape::Struct { fields, .. } => fields.iter().collect(),
+        Shape::Unit => Vec::new(),
+        Shape::Newtype(field) => vec![field.as_ref()],
+        Shape::Enum { variants, .. } => variants
+            .iter()
+            .flat_map(|variant| match &variant.payload {
+                Payload::Unit => Vec::new(),
+                Payload::Newtype(field) => vec![field.as_ref()],
+                Payload::Struct(fields) => fields.iter().collect(),
+            })
+            .collect(),
+    };
+    fields
+        .into_iter()
+        .find(|field| names_itself(field.ty.to_token_stream(), ident))
+        .map_or(Ok(()), |field| {
+            Err(syn::Error::new(
+                field.ty.span(),
+                format!("cbor-static: `{ident}` holds itself; recursive types are unsupported"),
+            ))
+        })
 }
 
 fn structure<'a>(

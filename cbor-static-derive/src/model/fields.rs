@@ -236,6 +236,23 @@ fn borrowed(field: &syn::Field, borrow: Option<&[String]>) -> syn::Result<()> {
     }
 }
 
+/// Whether `tokens` name the type `ident`, or `Self`, other than through a module path
+/// (`module::Node` is another type for all the derive knows).
+pub fn names_itself(tokens: TokenStream, ident: &Ident) -> bool {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees.iter().enumerate().any(|(at, tree)| match tree {
+        TokenTree::Group(group) => names_itself(group.stream(), ident),
+        TokenTree::Ident(name) => (name == ident || name == "Self")
+            && !at
+                .checked_sub(1)
+                .and_then(|before| trees.get(before))
+                .is_some_and(
+                    |before| matches!(before, TokenTree::Punct(colon) if colon.as_char() == ':'),
+                ),
+        TokenTree::Punct(_) | TokenTree::Literal(_) => false,
+    })
+}
+
 /// The lifetimes in `tokens` other than `'static`, as written: `'a`.
 fn lifetimes(tokens: TokenStream) -> Vec<String> {
     let trees: Vec<TokenTree> = tokens.into_iter().collect();

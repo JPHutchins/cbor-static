@@ -19,6 +19,21 @@ pub use kinds::{DecKind, DecVariant, EncKind};
 /// and every handler reads only a valid `Self` or field of it. `Stack` must hold `MAX_DEPTH`
 /// frames, and `MAX_DEPTH` must be the deepest nesting `ENCODE` reaches.
 /// `OPTION_ENCODE` must describe `Option<Self>` within `Stack`.
+///
+/// A `Stack` that does not hold `MAX_DEPTH` frames does not compile where the type is encoded
+/// (D-14, R-111):
+///
+/// ```compile_fail,E0080
+/// struct Liar(u32);
+///
+/// unsafe impl cbor_static::Encode for Liar {
+///     const ENCODE: &'static cbor_static::__private::EncKind = <u32 as cbor_static::Encode>::ENCODE;
+///     type Stack = ();
+///     const MAX_DEPTH: usize = 1;
+/// }
+///
+/// let _ = cbor_static::encode_into(&Liar(1), &mut [0u8; 8]);
+/// ```
 #[allow(unsafe_code)]
 pub unsafe trait Encode: Sized {
     #[doc(hidden)]
@@ -48,6 +63,25 @@ pub unsafe trait Encode: Sized {
 /// outlives. `Stack` must hold `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting
 /// `DECODE` reaches. `OPTION_DECODE` must describe `Option<Self>`, and `OptionStack` must hold the
 /// frames it reaches.
+///
+/// A `Stack` that does not hold `MAX_DEPTH` frames does not compile where the type is decoded
+/// (D-14, R-111):
+///
+/// ```compile_fail,E0080
+/// #[derive(Debug)]
+/// struct Liar(u32);
+///
+/// unsafe impl<'de> cbor_static::Decode<'de> for Liar {
+///     const DECODE: &'static cbor_static::__private::DecKind =
+///         <u32 as cbor_static::Decode<'de>>::DECODE;
+///     type Stack = ();
+///     const MAX_DEPTH: usize = 2;
+///     type OptionStack = ();
+/// }
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// let _ = cbor_static::decode_into::<Liar>(b"\x01", &mut slot);
+/// ```
 #[allow(unsafe_code)]
 pub unsafe trait Decode<'de>: Sized {
     #[doc(hidden)]
