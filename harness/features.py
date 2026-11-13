@@ -324,7 +324,7 @@ def fixture(
 					attributes="#![feature(f16)]" if NIGHTLY in cargo_features else "",
 					prelude=CBOR_STATIC.prelude,
 					items="\n".join(
-						render(f"features/{template}.rs", i=str(index))
+						render(f"features/{template}.rs", i=str(index), **positional_fields(index))
 						+ "\n"
 						+ roundtrip(Message(f"T{index}", ()), decoding(template))
 						for index, template in enumerate(templates)
@@ -341,6 +341,21 @@ def fixture(
 		target_dir,
 	)
 	return elf_path(target_dir, GATE_TARGET, profile, name)
+
+
+def positional_fields(index: int) -> dict[str, str]:
+	"""Field types ``f0``, ``f1`` and ``f2`` for template type ``index``, one bit of it each, with type 0
+	shaped as the ``struct`` reference's fields. Positional types carry no names, so this is what
+	keeps their descriptors from merging across a fixture's types.
+
+	>>> positional_fields(0)
+	{'f0': 'u32', 'f1': 'u32', 'f2': 'Option<u32>'}
+	>>> positional_fields(5)
+	{'f0': 'Option<u32>', 'f1': 'u32', 'f2': 'u32'}
+	>>> len({tuple(positional_fields(index).values()) for index in range(COUNTS[-1])}) == COUNTS[-1]
+	True
+	"""
+	return {f"f{bit}": "Option<u32>" if (index >> bit & 1) != (bit == 2) else "u32" for bit in range(3)}
 
 
 def dependencies(cargo_features: tuple[str, ...]) -> str:
