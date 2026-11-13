@@ -6,7 +6,10 @@
 //! item spans `name_at - h .. name_at + name_len`, where `h` is 1, or 2 once `name_len` reaches
 //! 24. A text item's payload is exactly `name_at .. name_at + name_len`.
 
-use crate::engine::offset;
+use crate::engine::{
+    DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_MIXED,
+    DECODE_MAP_MIXED_DENY, DecOps, offset,
+};
 use crate::lead::Lead;
 use crate::schema::{FieldLayout, Layout, head_before};
 use crate::wire::{Head, Major};
@@ -141,6 +144,37 @@ const fn bytewise_less(a: &[u8], b: &[u8]) -> bool {
     }
 }
 
+/// The decode ops for a map of `layout`'s entries: matching only the key kinds they name, an integer
+/// or a text, where a `skip`ped field's name counts as neither; and skipping or, with `deny`,
+/// rejecting unknown entries (D-05a).
+#[must_use]
+pub const fn map_ops(layout: &Layout, deny: bool) -> &'static DecOps {
+    let (mut int, mut text, mut at) = (false, false, 0);
+    while at < layout.fields.len() {
+        let name = identifier(layout.names, layout.fields[at]);
+        match Major::of(name[0]) {
+            Major::Uint | Major::Nint => int = true,
+            Major::Text => text |= !skipped(name),
+            Major::Bytes | Major::Array | Major::Map | Major::Tag | Major::Simple => {}
+        }
+        at += 1;
+    }
+    match (int, text, deny) {
+        (false, _, false) => &DECODE_MAP,
+        (false, _, true) => &DECODE_MAP_DENY,
+        (true, false, false) => &DECODE_MAP_INT,
+        (true, false, true) => &DECODE_MAP_INT_DENY,
+        (true, true, false) => &DECODE_MAP_MIXED,
+        (true, true, true) => &DECODE_MAP_MIXED_DENY,
+    }
+}
+
+/// Whether `name` is a `skip`ped field's, which no key can match.
+const fn skipped(name: &[u8]) -> bool {
+    const SKIPPED: [u8; names_len(&[Key::Skipped])] = names(&[Key::Skipped]);
+    name.len() == SKIPPED.len() && holds(name, 0, &SKIPPED)
+}
+
 /// Whether an entry of `layout` is named by the text `name`. An internally tagged enum's tag shares
 /// its payload's map, so no payload field may be keyed like it (D-10).
 #[must_use]
@@ -253,7 +287,11 @@ const fn copied<const N: usize>(blob: [u8; N], at: usize, bytes: &[u8]) -> [u8; 
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, field, names, names_len, permuted, sorted};
+    use super::{Key, field, map_ops, names, names_len, permuted, sorted};
+    use crate::engine::{
+        DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_MIXED,
+        DECODE_MAP_MIXED_DENY, DecOps,
+    };
     use crate::lead::Lead;
     use crate::schema::Layout;
 
@@ -357,5 +395,50 @@ mod tests {
     #[test]
     fn items_take_the_order_given() {
         assert_eq!(permuted(['a', 'b', 'c'], &[2, 0, 1]), ['c', 'a', 'b']);
+    }
+
+    /// A layout of `keys`, at no offsets.
+    macro_rules! layout_of {
+        ($($key:expr),*) => {{
+            const KEYS: &[Key] = &[$($key),*];
+            const NAMES: [u8; names_len(KEYS)] = names(KEYS);
+            const FIELDS: &[crate::schema::FieldLayout] = &{
+                let mut fields = [field(KEYS, 0, 0, false); KEYS.len()];
+                let mut at = 0;
+                while at < KEYS.len() {
+                    fields[at] = field(KEYS, at, 0, false);
+                    at += 1;
+                }
+                fields
+            };
+            Layout { names: &NAMES, fields: FIELDS }
+        }};
+    }
+
+    #[test]
+    fn a_map_links_only_the_key_matching_its_names_need() {
+        let cases: [(Layout, [&DecOps; 2]); 5] = [
+            (
+                layout_of!(Key::Text("a"), Key::Skipped),
+                [&DECODE_MAP, &DECODE_MAP_DENY],
+            ),
+            (layout_of!(Key::Skipped), [&DECODE_MAP, &DECODE_MAP_DENY]),
+            (
+                layout_of!(Key::Int(-1), Key::Int(1000)),
+                [&DECODE_MAP_INT, &DECODE_MAP_INT_DENY],
+            ),
+            (
+                layout_of!(Key::Int(1), Key::Skipped),
+                [&DECODE_MAP_INT, &DECODE_MAP_INT_DENY],
+            ),
+            (
+                layout_of!(Key::Int(1), Key::Text("a")),
+                [&DECODE_MAP_MIXED, &DECODE_MAP_MIXED_DENY],
+            ),
+        ];
+        for (layout, [skip, deny]) in cases {
+            assert!(core::ptr::eq(map_ops(&layout, false), skip));
+            assert!(core::ptr::eq(map_ops(&layout, true), deny));
+        }
     }
 }

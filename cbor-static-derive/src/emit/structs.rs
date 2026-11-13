@@ -35,14 +35,11 @@ pub fn structure(
         }),
         sort,
     );
-    let (encode_ops, decode_ops) = match form {
-        StructForm::Map { unknown } => (quote!(__p::ENCODE_MAP), decode_map_ops(fields, unknown)),
-        StructForm::Array => (quote!(__p::ENCODE_ARRAY), quote!(__p::DECODE_ARRAY)),
-    };
-    let lead = match form {
-        StructForm::Map { .. } => quote!(__p::Lead::MAP),
-        StructForm::Array => quote!(__p::Lead::ARRAY),
-    };
+    let Forms {
+        encode: encode_ops,
+        decode: decode_ops,
+        lead,
+    } = forms(form);
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
         let kinds = arranged(
@@ -81,7 +78,7 @@ pub fn structure(
             }),
         );
         Body {
-            kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: #kinds, drop: __p::drop_fn::<Self>() }),
+            kind: quote!(&__p::DecKind::Struct { ops: #decode_ops, layout: LAYOUT, kinds: #kinds, drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
             lead,
@@ -190,20 +187,29 @@ pub fn transparent(
     }
 }
 
-/// The decode ops for a map of `fields`: matching only the key kinds they use, and skipping or
-/// rejecting unknown entries.
-pub fn decode_map_ops(fields: &[Field], unknown: Unknown) -> TokenStream {
-    let int = fields
-        .iter()
-        .any(|field| matches!(field.key, Key::Int(_) | Key::Label { .. }));
-    let text = fields.iter().any(|field| matches!(field.key, Key::Text(_)));
-    match (int, text, unknown) {
-        (false, _, Unknown::Skip) => quote!(__p::DECODE_MAP),
-        (false, _, Unknown::Deny) => quote!(__p::DECODE_MAP_DENY),
-        (true, false, Unknown::Skip) => quote!(__p::DECODE_MAP_INT),
-        (true, false, Unknown::Deny) => quote!(__p::DECODE_MAP_INT_DENY),
-        (true, true, Unknown::Skip) => quote!(__p::DECODE_MAP_MIXED),
-        (true, true, Unknown::Deny) => quote!(__p::DECODE_MAP_MIXED_DENY),
+/// What a struct's form chooses: its encode ops, its decode ops (for a map, those its `LAYOUT`'s
+/// keys need), and the class of its first byte.
+struct Forms {
+    encode: TokenStream,
+    decode: TokenStream,
+    lead: TokenStream,
+}
+
+fn forms(form: StructForm) -> Forms {
+    match form {
+        StructForm::Map { unknown } => {
+            let deny = unknown == Unknown::Deny;
+            Forms {
+                encode: quote!(__p::ENCODE_MAP),
+                decode: quote!(__p::map_ops(LAYOUT, #deny)),
+                lead: quote!(__p::Lead::MAP),
+            }
+        }
+        StructForm::Array => Forms {
+            encode: quote!(__p::ENCODE_ARRAY),
+            decode: quote!(&__p::DECODE_ARRAY),
+            lead: quote!(__p::Lead::ARRAY),
+        },
     }
 }
 

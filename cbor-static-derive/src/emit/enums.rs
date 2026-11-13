@@ -3,13 +3,12 @@ use quote::{ToTokens, format_ident, quote};
 use syn::Ident;
 
 use super::shadows::{Placement, Shadow, mirror, owner, shadow};
-use super::structs::decode_map_ops;
 use super::{
     Body, Order, Trait, admitted, arranged, derives, field_child, field_decode, field_encode,
     field_kind, field_stack, forms, impls, joined, key, layout, level, ordered, part_order, sorted,
 };
 use crate::Directions;
-use crate::model::{EnumForm, Field, Item, Mode, Offsets, Payload, Repr, Unknown, Variant};
+use crate::model::{EnumForm, Field, Item, Mode, Offsets, Payload, Repr, Variant};
 
 pub fn enumeration(
     item: &Item,
@@ -290,8 +289,7 @@ fn decode_kind(
 				let name = layout_ident(&variant.ident);
 				let owner = owner(ident, variant);
 				let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, generics, path)));
-				let ops = decode_map_ops(fields, Unknown::Skip);
-				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: #kinds, drop: None }))
+				quote!(Some(&__p::DecKind::Struct { ops: __p::map_ops(#name, false), layout: #name, kinds: #kinds, drop: None }))
 			}
 		};
 		quote!(__p::DecVariant { payload: #payload, assemble: #assemble })

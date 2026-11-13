@@ -383,7 +383,7 @@ pub mod __private {
         assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, wraps, write_default,
         write_made, write_tag,
     };
-    pub use crate::keys::{Key, field, names, names_len, names_text, permuted, sorted};
+    pub use crate::keys::{Key, field, map_ops, names, names_len, names_text, permuted, sorted};
     pub use crate::lead::Lead;
     pub use crate::schema::{
         Assemble, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout, Layout,
