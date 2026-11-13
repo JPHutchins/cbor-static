@@ -67,6 +67,22 @@ pub enum EncKind {
     },
 }
 
+impl EncKind {
+    #[must_use]
+    pub const fn layout(&self) -> Option<&'static Layout> {
+        match self {
+            Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
+            Self::Leaf { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Chunks { .. }
+            | Self::Seq { .. }
+            | Self::Tagged { .. }
+            | Self::Map { .. } => None,
+        }
+    }
+}
+
 /// `repr(C, u8)` keeps `ops` (or a leaf's `decode`) and `drop` each at one offset in every variant,
 /// and `default` at another, so the engine reads them without matching.
 #[repr(C, u8)]
@@ -269,7 +285,36 @@ impl DecKind {
         }
     }
 
-    pub(crate) const fn layout(&self) -> Option<&'static Layout> {
+    /// `inner`, which also writes `default` where its container lacks it: an `Option` kind whose
+    /// ops decode every item as `inner`.
+    #[must_use]
+    pub const fn defaulted(inner: &'static Self, default: WriteFn) -> Self {
+        use crate::engine::{DECODE_DEFAULTED, nothing};
+
+        Self::Option {
+            ops: &DECODE_DEFAULTED,
+            default: Some(default),
+            drop: inner.drop_fn(),
+            some: inner,
+            assemble: nothing,
+        }
+    }
+
+    /// A `skip`ped field's kind: it decodes no item, and its container writes `default` in its
+    /// place.
+    #[must_use]
+    pub const fn skipped(default: WriteFn, drop: Option<WriteFn>) -> Self {
+        use crate::engine::dec_skipped;
+
+        Self::Leaf {
+            decode: dec_skipped,
+            default: Some(default),
+            drop,
+        }
+    }
+
+    #[must_use]
+    pub const fn layout(&self) -> Option<&'static Layout> {
         match self {
             Self::Leaf { .. }
             | Self::Array { .. }

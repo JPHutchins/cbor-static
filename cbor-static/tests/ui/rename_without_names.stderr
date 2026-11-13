@@ -1,0 +1,27 @@
+error: cbor-static: an `index`, `cbor_tag` or untagged enum writes no variant names, so it takes neither `rename_all` nor `rename`
+ --> tests/ui/rename_without_names.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: an `index`, `cbor_tag` or untagged enum writes no variant names, so it takes neither `rename_all` nor `rename`
+ --> tests/ui/rename_without_names.rs:8:10
+  |
+8 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: an `index`, `cbor_tag` or untagged enum writes no variant names, so it takes neither `rename_all` nor `rename`
+  --> tests/ui/rename_without_names.rs:20:5
+   |
+20 |     Set(u32),
+   |     ^^^
+
+error: cbor-static: an `index`, `cbor_tag` or untagged enum writes no variant names, so it takes neither `rename_all` nor `rename`
+  --> tests/ui/rename_without_names.rs:27:5
+   |
+27 |     SignOne(u32),
+   |     ^^^^^^^

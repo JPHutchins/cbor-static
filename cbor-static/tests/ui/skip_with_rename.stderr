@@ -1,0 +1,5 @@
+error: cbor-static: a skipped field takes only `default`
+ --> tests/ui/skip_with_rename.rs:4:5
+  |
+4 |     #[serde(skip, rename = "c")]
+  |     ^

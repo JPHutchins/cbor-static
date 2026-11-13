@@ -2,8 +2,8 @@
 
 mod common;
 
-use cbor_static::{Cbor, ErrorKind};
-use common::{decode, golden, golden_contiguous};
+use cbor_static::{Cbor, Epoch, ErrorKind, Tagged};
+use common::{decode, decode_strict, golden, golden_contiguous};
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 struct Coord {
@@ -38,6 +38,18 @@ enum Small {
     Flag(bool),
 }
 
+/// Variants that start with a tag, told apart by its number, long heads included.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(untagged)]
+enum Stamp {
+    Clock(Tagged<0, u32>),
+    Epoch(Epoch<u64>),
+    Mac(Tagged<97, u32>),
+    Sign(Tagged<98, u32>),
+    Wide(Tagged<{ u64::MAX }, u32>),
+    Bare(u64),
+}
+
 #[test]
 fn untagged_variants_are_told_apart_by_their_initial_byte() {
     golden(&Value::Missing, b"\xf6");
@@ -54,6 +66,34 @@ fn untagged_variants_are_told_apart_by_their_initial_byte() {
     golden(&Small::Nothing, b"\xf6");
     golden(&Small::Num(24), b"\x18\x18");
     golden(&Small::Flag(false), b"\xf4");
+}
+
+#[test]
+fn untagged_variants_starting_with_tags_are_told_apart_by_tag_number() {
+    golden(&Stamp::Clock(Tagged(5)), b"\xc0\x05");
+    golden(&Stamp::Epoch(Tagged(7)), b"\xc1\x07");
+    golden(&Stamp::Mac(Tagged(1)), b"\xd8\x61\x01");
+    golden(&Stamp::Sign(Tagged(2)), b"\xd8\x62\x02");
+    golden(
+        &Stamp::Wide(Tagged(3)),
+        b"\xdb\xff\xff\xff\xff\xff\xff\xff\xff\x03",
+    );
+    golden(&Stamp::Bare(9), b"\x09");
+    assert_eq!(
+        decode::<Stamp>(b"\xd8\x01\x07"),
+        Ok(Stamp::Epoch(Tagged(7)))
+    );
+    assert_eq!(
+        decode_strict::<Stamp>(b"\xd8\x01\x07"),
+        Err(ErrorKind::NotDeterministic)
+    );
+    for unclaimed in [b"\xc2\x41\x01".as_slice(), b"\xd8\x63\x01", b"\x61a"] {
+        assert_eq!(
+            decode::<Stamp>(unclaimed),
+            Err(ErrorKind::TypeMismatch),
+            "{unclaimed:x?}"
+        );
+    }
 }
 
 #[test]
@@ -79,6 +119,29 @@ enum Op {
     Load(u64),
 }
 
+/// Gaps, a negative discriminant, and implicit discriminants after explicit ones.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(index)]
+enum Access {
+    Read = 0,
+    Write = 2,
+    Erase,
+    Reset = -3,
+    Halt,
+}
+
+/// Explicit discriminants on variants with payloads, which Rust allows only under a primitive
+/// `repr`.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+#[cbor(index)]
+enum Frame {
+    Ping = 1,
+    Data(u32) = 5,
+    Ack,
+    Close { code: u16 } = 200,
+}
+
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 #[cbor(array)]
 struct Sign1 {
@@ -97,19 +160,27 @@ enum Cose {
 }
 
 #[test]
-fn indexed_variants_are_their_index_then_their_payload() {
-    golden(&Command::Ping, b"\x81\x00");
+fn indexed_variants_are_their_discriminant_then_their_payload() {
+    golden(&Command::Ping, b"\x00");
     golden(&Command::Set(5), b"\x82\x01\x05");
     golden(
         &Command::Move { x: 1, y: -1 },
         b"\x82\x02\xa2\x61x\x01\x61y\x20",
     );
-    golden(&Op::Nop, b"\x81\x00");
+    golden(&Op::Nop, b"\x00");
     golden(&Op::Load(7), b"\x82\x01\x07");
     assert_eq!(decode::<Command>(b"\x9f\x01\x05\xff"), Ok(Command::Set(5)));
-    let errors: [(&[u8], ErrorKind); 6] = [
-        (b"\x81\x03", ErrorKind::UnknownVariant),
+    assert_eq!(decode::<Command>(b"\x18\x00"), Ok(Command::Ping));
+    assert_eq!(
+        decode_strict::<Command>(b"\x18\x00"),
+        Err(ErrorKind::NotDeterministic)
+    );
+    let errors: [(&[u8], ErrorKind); 9] = [
+        (b"\x03", ErrorKind::UnknownVariant),
+        (b"\x20", ErrorKind::UnknownVariant),
         (b"\x82\x19\x01\x00\x00", ErrorKind::UnknownVariant),
+        (b"\x81\x00", ErrorKind::TypeMismatch),
+        (b"\x01", ErrorKind::TypeMismatch),
         (b"\x81\x01", ErrorKind::TypeMismatch),
         (b"\x82\x00\x05", ErrorKind::TypeMismatch),
         (b"\x83\x01\x05\x06", ErrorKind::TypeMismatch),
@@ -118,6 +189,29 @@ fn indexed_variants_are_their_index_then_their_payload() {
     for (bytes, error) in errors {
         assert_eq!(decode::<Command>(bytes), Err(error), "{bytes:x?}");
     }
+}
+
+#[test]
+fn indexed_variants_carry_their_rust_discriminants() {
+    for (access, bytes) in [
+        (Access::Read, b"\x00"),
+        (Access::Write, b"\x02"),
+        (Access::Erase, b"\x03"),
+        (Access::Reset, b"\x22"),
+        (Access::Halt, b"\x21"),
+    ] {
+        golden(&access, bytes);
+    }
+    assert_eq!(decode::<Access>(b"\x38\x02"), Ok(Access::Reset));
+    assert_eq!(decode::<Access>(b"\x01"), Err(ErrorKind::UnknownVariant));
+    golden(&Frame::Ping, b"\x01");
+    golden(&Frame::Data(7), b"\x82\x05\x07");
+    golden(&Frame::Ack, b"\x06");
+    golden(&Frame::Close { code: 1 }, b"\x82\x18\xc8\xa1\x64code\x01");
+    assert_eq!(
+        decode::<Frame>(b"\x82\x01\x07"),
+        Err(ErrorKind::TypeMismatch)
+    );
 }
 
 #[test]
@@ -174,6 +268,155 @@ enum Kind {
     B,
 }
 
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Bounds {
+    w: u32,
+    h: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Keyed {
+    #[cbor(key = 1)]
+    alg: i32,
+    #[cbor(key = 4)]
+    kid: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Labeled {
+    #[cbor(key = 1)]
+    alg: i32,
+    name: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "type")]
+enum Shaped {
+    Box(Bounds),
+    Dot,
+    Key(Keyed),
+    Label(Labeled),
+}
+
+#[test]
+fn an_internally_tagged_payload_that_denies_unknown_fields_claims_the_tag() {
+    golden_contiguous(
+        &Shaped::Box(Bounds { w: 1, h: 2 }),
+        b"\xa3\x64type\x63Box\x61w\x01\x61h\x02",
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x61w\x01\x61h\x02\x64type\x63Box"),
+        Ok(Shaped::Box(Bounds { w: 1, h: 2 }))
+    );
+    assert_eq!(
+        decode_strict::<Shaped>(b"\xa3\x61h\x02\x61w\x01\x64type\x63Box"),
+        Ok(Shaped::Box(Bounds { w: 1, h: 2 }))
+    );
+    golden_contiguous(
+        &Shaped::Key(Keyed { alg: -7, kid: 2 }),
+        b"\xa3\x64type\x63Key\x01\x26\x04\x02",
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x01\x26\x64type\x63Key\x04\x02"),
+        Ok(Shaped::Key(Keyed { alg: -7, kid: 2 }))
+    );
+    golden_contiguous(
+        &Shaped::Label(Labeled { alg: -7, name: 3 }),
+        b"\xa3\x64type\x65Label\x01\x26\x64name\x03",
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x01\x26\x64name\x03\x64type\x65Label"),
+        Ok(Shaped::Label(Labeled { alg: -7, name: 3 }))
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x64type\x63Key\x01\x26\x05\x02"),
+        Err(ErrorKind::UnknownField)
+    );
+    let mut slot = core::mem::MaybeUninit::uninit();
+    let after_key = |bytes: &[u8], key: &[u8]| {
+        bytes
+            .windows(key.len())
+            .position(|window| window == key)
+            .and_then(|at| u32::try_from(at + key.len()).ok())
+    };
+    let stray_first: &[u8] = b"\xa4\x61z\x61q\x64type\x63Box\x61w\x01\x61h\x02";
+    let error = cbor_static::decode_into::<Shaped>(stray_first, &mut slot).unwrap_err();
+    assert_eq!(
+        (error.kind, Some(error.offset)),
+        (ErrorKind::UnknownField, after_key(stray_first, b"\x64type")),
+        "a stray text entry is claimed as the tag, so the tag itself is the unknown entry"
+    );
+    let stray_number: &[u8] = b"\xa4\x61z\x00\x64type\x63Box\x61w\x01\x61h\x02";
+    let error = cbor_static::decode_into::<Shaped>(stray_number, &mut slot).unwrap_err();
+    assert_eq!(
+        (error.kind, Some(error.offset)),
+        (
+            ErrorKind::UnknownField,
+            after_key(stray_number, b"\x61z\x00")
+        ),
+        "a tag's value is text, so a stray entry with a number is unknown at its value"
+    );
+    let stray_last: &[u8] = b"\xa4\x64type\x63Box\x61w\x01\x61h\x02\x61z\x00";
+    let error = cbor_static::decode_into::<Shaped>(stray_last, &mut slot).unwrap_err();
+    assert_eq!(
+        (error.kind, Some(error.offset)),
+        (ErrorKind::UnknownField, after_key(stray_last, b"\x61z"))
+    );
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Unsorted {
+    z: u32,
+    a: u32,
+    c: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "t")]
+enum Wrapped {
+    V(Unsorted),
+}
+
+#[test]
+fn a_claimed_tag_leaves_strict_key_order_to_the_fields_around_it() {
+    assert_eq!(
+        decode_strict::<Wrapped>(b"\xa4\x61a\x01\x61c\x02\x61t\x61V\x61z\x03"),
+        Ok(Wrapped::V(Unsorted { z: 3, a: 1, c: 2 }))
+    );
+    assert_eq!(
+        decode_strict::<Wrapped>(b"\xa4\x61a\x01\x61t\x61V\x61z\x03\x61c\x02"),
+        Err(ErrorKind::NotDeterministic)
+    );
+}
+
+#[test]
+fn a_second_tag_key_is_a_duplicate() {
+    let events: [&[u8]; 3] = [
+        b"\xa4\x64type\x64Move\x61x\x01\x61y\x02\x64type\x64Move",
+        b"\xa4\x64type\x64Move\x64type\x65Start\x61x\x01\x61y\x02",
+        b"\xbf\x64type\x65Start\x64type\x65Start\xff",
+    ];
+    for bytes in events {
+        assert_eq!(
+            decode::<Event>(bytes),
+            Err(ErrorKind::DuplicateKey),
+            "{bytes:x?}"
+        );
+    }
+    assert_eq!(
+        decode::<Shaped>(b"\xa4\x64type\x63Box\x61w\x01\x61h\x02\x64type\x63Dot"),
+        Err(ErrorKind::DuplicateKey)
+    );
+    assert_eq!(
+        decode::<Message>(b"\xa3\x61t\x64Data\x61c\x07\x61t\x64Data"),
+        Err(ErrorKind::DuplicateKey)
+    );
+}
+
 #[test]
 fn internally_tagged_variants_merge_the_tag_into_their_map() {
     golden_contiguous(&Event::Start, b"\xa1\x64type\x65Start");
@@ -223,4 +466,31 @@ fn adjacently_tagged_variants_put_their_payload_under_the_content_key() {
     for (bytes, error) in errors {
         assert_eq!(decode::<Message>(bytes), Err(error), "{bytes:x?}");
     }
+}
+
+/// Encode and Decode derived apart, each expanding alone: every helper impl comes once.
+#[derive(cbor_static::Encode, cbor_static::Decode, Debug, PartialEq, Clone, Copy)]
+struct Apart {
+    w: u32,
+}
+
+#[derive(cbor_static::Encode, cbor_static::Decode, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "kind")]
+enum ApartEvent {
+    Sized(Apart),
+    Moved { x: i32 },
+    Idle,
+}
+
+#[test]
+fn encode_and_decode_derived_apart_round_trip() {
+    golden_contiguous(
+        &ApartEvent::Sized(Apart { w: 3 }),
+        b"\xa2\x64kind\x65Sized\x61w\x03",
+    );
+    golden_contiguous(
+        &ApartEvent::Moved { x: -1 },
+        b"\xa2\x64kind\x65Moved\x61x\x20",
+    );
+    golden_contiguous(&ApartEvent::Idle, b"\xa1\x64kind\x64Idle");
 }

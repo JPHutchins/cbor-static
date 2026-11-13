@@ -1,0 +1,7 @@
+error: cbor-static: `tag` and `content` must differ
+ --> tests/ui/adjacent_same_keys.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

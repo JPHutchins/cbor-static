@@ -1,5 +1,5 @@
 #[derive(cbor_static::Cbor)]
-pub struct P${i}(pub u32, pub u32);
+pub struct P${i}(pub ${f0}, pub ${f1}, pub ${f2});
 
 #[derive(cbor_static::Cbor)]
 pub struct T${i} {

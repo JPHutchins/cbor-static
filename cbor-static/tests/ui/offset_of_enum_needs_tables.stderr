@@ -1,0 +1,15 @@
+error: cbor-static: `offset_of_enum` needs repr(u8) or repr(C, u8) and implicit discriminants
+ --> tests/ui/offset_of_enum_needs_tables.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: `offset_of_enum` needs repr(u8) or repr(C, u8) and implicit discriminants
+ --> tests/ui/offset_of_enum_needs_tables.rs:7:10
+  |
+7 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

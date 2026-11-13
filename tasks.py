@@ -101,8 +101,13 @@ f32 = Task(
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},
 	help="R-101, R-135: all 2^32 binary32 patterns",
 )
+diagnostics = Task(
+	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test diagnostics -- --ignored",
+	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
+)
 kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
-ci = (check - unit) | test | build | miri | f32 | kani | flake
+ci = (check - unit) | test | build | miri | f32 | diagnostics | kani | flake
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))

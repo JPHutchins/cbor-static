@@ -2,21 +2,19 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::Ident;
 
+use super::shadows::{Placement, Shadow, mirror, owner, shadow};
 use super::structs::decode_map_ops;
-use super::{Body, Trait, child, field_child, field_kind, forms, impls, key, layout, level};
+use super::{
+    Body, Trait, derives, field_child, field_decode, field_encode, field_kind, field_stack, forms,
+    impls, key, layout, level,
+};
 use crate::Directions;
-use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
-
-/// Per variant: the shadow (or mirror) type the payload is decoded through, if any.
-struct Shadow {
-    ident: Ident,
-    definition: TokenStream,
-}
+use crate::model::{EnumForm, Field, Item, Offsets, Payload, Repr, Unknown, Variant};
 
 pub fn enumeration(
     item: &Item,
     variants: &[Variant],
-    repr: Repr,
+    (repr, offsets): (Repr, Offsets),
     form: &EnumForm,
     directions: Directions,
 ) -> TokenStream {
@@ -32,39 +30,31 @@ pub fn enumeration(
         .iter()
         .map(|variant| shadow(ident, variant, repr, generics.as_ref(), marker.as_ref()))
         .collect();
-    let mirror = format_ident!("__{}Mirror", ident);
-    let payload_union = format_ident!("__{}Payload", ident);
-    let mirror_definition = (repr == Repr::CU8).then(|| {
-		let arms = shadows.iter().flatten().map(|s| {
-			let shadow = &s.ident;
-			let field = format_ident!("{}", shadow.to_string().to_lowercase());
-			quote!(pub #field: ::core::mem::ManuallyDrop<#shadow #generics>,)
-		});
-		quote! {
-			#[repr(C)] pub union #payload_union #generics { #(#arms)* pub __unit: () }
-			#[repr(C)] pub struct #mirror #generics { pub tag: u8, pub payload: #payload_union #generics }
-			const _: () = assert!(::core::mem::size_of::<#mirror #statics>() == ::core::mem::size_of::<#ident #statics>());
-		}
-	});
-    let offset_in = |shadow: &Ident, member: &TokenStream| match repr {
-        Repr::CU8 => quote! {
-            ::core::mem::offset_of!(#mirror #statics, payload) + ::core::mem::offset_of!(#shadow #statics, #member)
-        },
-        Repr::Rust | Repr::U8 => quote!(::core::mem::offset_of!(#shadow #statics, #member)),
+    let mirror_definition =
+        (repr == Repr::CU8).then(|| mirror(ident, &shadows, generics.as_ref(), statics.as_ref()));
+    let placement = Placement {
+        ident,
+        statics: statics.as_ref(),
+        repr,
+        offsets,
     };
     let variant_layout = layout(
         &format_ident!("LAYOUT"),
         variants
             .iter()
             .zip(&shadows)
-            .map(|(variant, shadow)| {
+            .zip(forms::variant_keys(form, variants))
+            .map(|((variant, shadow), key)| {
                 let offset = shadow
                     .as_ref()
                     .filter(|_| {
                         matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust
                     })
-                    .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
-                (forms::variant_key(form, variant), offset, false)
+                    .map_or_else(
+                        || quote!(0),
+                        |s| placement.offset(&variant.ident, &s.ident, None),
+                    );
+                (key, offset, false)
             })
             .chain(
                 forms::extras(form)
@@ -79,10 +69,9 @@ pub fn enumeration(
             (Payload::Struct(fields), Some(s)) => Some(layout(
                 &layout_ident(&variant.ident),
                 fields.iter().map(|field| {
-                    let member = &field.member;
                     (
                         key(&field.key),
-                        offset_in(&s.ident, &quote!(#member)),
+                        placement.offset(&variant.ident, &s.ident, Some(&field.member)),
                         field.omit_if_absent,
                     )
                 }),
@@ -90,18 +79,18 @@ pub fn enumeration(
             _ => None,
         });
     let definitions = shadows.iter().flatten().map(|s| &s.definition);
-    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows));
+    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, directions));
     let encode = impls(item, directions, Trait::Encode, |path| {
-        encode_kind(variants, repr, &ops.encode, path)
+        encode_kind(variants, repr, form, &ops.encode, path)
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         decode_kind(
+            ident,
             variants,
             &shadows,
             repr,
             generics.as_ref(),
             form,
-            &ops.decode,
             path,
         )
     });
@@ -116,45 +105,14 @@ pub fn enumeration(
     }
 }
 
-fn shadow(
-    ident: &Ident,
-    variant: &Variant,
-    repr: Repr,
-    generics: Option<&TokenStream>,
-    marker: Option<&TokenStream>,
-) -> Option<Shadow> {
-    let name = format_ident!("__{}{}", ident, variant.ident);
-    let (attrs, tag) = match repr {
-        Repr::Rust => (quote!(), quote!()),
-        Repr::U8 => (quote!(#[repr(C)]), quote!(pub tag: u8,)),
-        Repr::CU8 => (quote!(#[repr(C)]), quote!()),
-    };
-    let definition = match &variant.payload {
-        Payload::Unit => return None,
-        Payload::Newtype(ty) if repr == Repr::Rust => {
-            let definition = quote!(pub type #name #generics = #ty;);
-            return Some(Shadow {
-                ident: name,
-                definition,
-            });
-        }
-        Payload::Newtype(ty) => {
-            quote!(#attrs pub struct #name #generics { #tag pub f0: #ty, #marker })
-        }
-        Payload::Struct(fields) => {
-            let fields = fields
-                .iter()
-                .map(|Field { member, ty, .. }| quote!(pub #member: #ty,));
-            quote!(#attrs pub struct #name #generics { #tag #(#fields)* #marker })
-        }
-    };
-    Some(Shadow {
-        ident: name,
-        definition,
-    })
-}
-
-fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenStream {
+/// The glue a Rust-repr enum's encoding (`EnumGlue`) and decoding (`Assemble`) go through, each with
+/// the direction that uses it.
+fn glue(
+    item: &Item,
+    variants: &[Variant],
+    shadows: &[Option<Shadow>],
+    directions: Directions,
+) -> TokenStream {
     let ident = &item.ident;
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let indices = variants.iter().enumerate().map(|(index, variant)| {
@@ -210,19 +168,34 @@ fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenS
                 }
             }
         });
-    quote! {
-        #[automatically_derived]
-        impl #generics __p::EnumGlue for #ident #generics {
-            fn variant_index(&self) -> u8 { match self { #(#indices),* } }
-            fn field_ptr(&self, field: u8) -> *const u8 {
-                match (self, field) { #(#pointers,)* _ => ::core::ptr::null() }
+    let enum_glue = derives(directions, Trait::Encode).then(|| {
+        quote! {
+            #[automatically_derived]
+            impl #generics __p::EnumGlue for #ident #generics {
+                fn variant_index(&self) -> u8 { match self { #(#indices),* } }
+                fn field_ptr(&self, field: u8) -> *const u8 {
+                    match (self, field) { #(#pointers,)* _ => ::core::ptr::null() }
+                }
             }
         }
+    });
+    let assembles = derives(directions, Trait::Decode)
+        .then_some(assembles)
+        .into_iter()
+        .flatten();
+    quote! {
+        #enum_glue
         #(#assembles)*
     }
 }
 
-fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &TokenStream) -> Body {
+fn encode_kind(
+    variants: &[Variant],
+    repr: Repr,
+    form: &EnumForm,
+    ops: &TokenStream,
+    path: &TokenStream,
+) -> Body {
     let glue = (repr == Repr::Rust).then(|| quote!(Some(__p::field_ptr_of::<Self>)));
     let field_ptr = glue.clone().unwrap_or_else(|| quote!(None));
     let index = glue
@@ -230,10 +203,14 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
         .map_or_else(|| quote!(__p::index_tag), |_| quote!(__p::index_of::<Self>));
     let payloads = variants.iter().map(|variant| match &variant.payload {
 		Payload::Unit => quote!(None),
-		Payload::Newtype(ty) => quote!(Some(<#ty as #path>::ENCODE)),
+		Payload::Newtype(field) => {
+			let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
+			let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
+			quote!(Some({ #check #kind }))
+		}
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
-			let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
+			let kinds = fields.iter().map(|field| field_encode(field, path));
 			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
 		}
 	});
@@ -247,14 +224,15 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
 }
 
 fn decode_kind(
+    ident: &Ident,
     variants: &[Variant],
     shadows: &[Option<Shadow>],
     repr: Repr,
     generics: Option<&TokenStream>,
     form: &EnumForm,
-    ops: &TokenStream,
     path: &TokenStream,
 ) -> Body {
+    let ops = forms::ops(form).decode;
     let entries = variants.iter().enumerate().map(|(index, variant)| {
 		let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
 		let assemble = match repr {
@@ -263,10 +241,15 @@ fn decode_kind(
 		};
 		let payload = match &variant.payload {
 			Payload::Unit => quote!(None),
-			Payload::Newtype(ty) => quote!(Some(<#ty as #path>::DECODE)),
+			Payload::Newtype(field) => {
+				let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
+				let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
+				quote!(Some({ #check #kind }))
+			}
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
-				let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
+				let owner = owner(ident, variant);
+				let kinds = fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, generics, path));
 				let ops = decode_map_ops(fields, Unknown::Skip);
 				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: &[#(#kinds),*], drop: None }))
 			}
@@ -308,17 +291,11 @@ fn stack(
     path: &TokenStream,
     unit_frames: bool,
 ) -> (TokenStream, TokenStream) {
-    level(variants.iter().map(|variant| {
-        match &variant.payload {
-            Payload::Unit if unit_frames => level(core::iter::empty()),
-            Payload::Unit => (quote!(()), quote!(0)),
-            Payload::Newtype(ty) => child(ty, path),
-            Payload::Struct(fields) => level(
-                fields
-                    .iter()
-                    .map(|field| field_child(&field.ty, field.bytes, path)),
-            ),
-        }
+    level(variants.iter().map(|variant| match &variant.payload {
+        Payload::Unit if unit_frames => level(core::iter::empty()),
+        Payload::Unit => (quote!(()), quote!(0)),
+        Payload::Newtype(field) => field_child(&field.ty, field.bytes, path),
+        Payload::Struct(fields) => level(fields.iter().map(|field| field_stack(field, path))),
     }))
 }
 

@@ -26,12 +26,12 @@ pub(crate) use capacity::{assemble as assemble_map, at, entry, fresh, len_of, sh
 pub use chunks::{Chunk, ChunkIter, Chunks};
 pub use decode::{
     ADJACENT as DECODE_ADJACENT, ARRAY as DECODE_ARRAY, AppendFn, BYTES_OWNED, BeginFn,
-    CBOR_TAG as DECODE_CBOR_TAG, DecOps, ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL,
-    FinishFn, INDEX as DECODE_INDEX, INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP,
-    MAP_DENY as DECODE_MAP_DENY, MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY,
-    MAP_MIXED as DECODE_MAP_MIXED, MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next,
-    OPTION as DECODE_OPTION, RAW as DECODE_RAW, SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn,
-    TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
+    CBOR_TAG as DECODE_CBOR_TAG, DEFAULTED as DECODE_DEFAULTED, DecOps,
+    ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, FinishFn, INDEX as DECODE_INDEX,
+    INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY,
+    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
+    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION, RAW as DECODE_RAW,
+    SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{LINEAR_MAP as DECODE_LINEAR_MAP, SEQ as DECODE_SEQ};
@@ -46,13 +46,15 @@ use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 pub(crate) use encode::{LINEAR_MAP as ENCODE_LINEAR_MAP, SEQ as ENCODE_SEQ};
 pub use glue::{
     AtFn, EntryFn, FieldPtrFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn, assemble, drop_fn,
-    field_ptr_of, index_of, index_tag, offset, some, some_ptr, wraps, write_tag,
+    field_ptr_of, index_of, index_tag, offset, some, some_ptr, wraps, write_default, write_made,
+    write_tag,
 };
 pub(crate) use input::Input;
+pub use leaf::ENC_SKIPPED as ENCODE_SKIPPED;
 pub(crate) use leaf::{
     AbsentFn, DEC_BYTES, DEC_STR, DecodeFn, ENC_BYTES, ENC_STR, EncodeFn, NULL_ITEM, absent_option,
-    dec_i128, dec_option, dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar,
-    enc_u128, none,
+    dec_i128, dec_option, dec_scalar, dec_skipped, dec_tagged, dec_u128, enc_i128, enc_option,
+    enc_scalar, enc_u128, none,
 };
 pub use pending::Pending;
 pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor};

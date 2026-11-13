@@ -8,7 +8,7 @@
 
 use crate::engine::offset;
 use crate::lead::Lead;
-use crate::schema::FieldLayout;
+use crate::schema::{FieldLayout, Layout};
 use crate::wire::{Head, Major};
 
 /// An entry's identifier on the wire.
@@ -16,10 +16,12 @@ pub enum Key {
     Text(&'static str),
     Int(i64),
     Tag(u64),
-    /// The first-item classes an untagged variant accepts, two bytes little-endian; never written.
+    /// The first-item classes an untagged variant accepts, as [`Lead::to_le_bytes`]; never written.
     Lead(Lead),
     /// Positional: no identifier.
     None,
+    /// A `skip`ped field's: one byte of text that is not UTF-8, which no key can match.
+    Skipped,
 }
 
 /// The total length of `keys`' pre-encoded identifiers.
@@ -67,12 +69,49 @@ pub const fn field(keys: &[Key], index: usize, at: usize, omit_if_absent: bool) 
     }
 }
 
+/// Whether an entry of `layout` is named by the text `name`. An internally tagged enum's tag shares
+/// its payload's map, so no payload field may be keyed like it (D-10).
+#[must_use]
+pub const fn names_text(layout: Option<&Layout>, name: &str) -> bool {
+    match layout {
+        None => false,
+        Some(layout) => names_from(
+            layout,
+            Head::new(Major::Text, name.len() as u64).as_bytes(),
+            name.as_bytes(),
+            0,
+        ),
+    }
+}
+
+const fn names_from(layout: &Layout, head: &[u8], name: &[u8], index: usize) -> bool {
+    match layout.fields.split_at(index).1.split_first() {
+        None => false,
+        Some((place, _)) => {
+            (place.name_len as usize == name.len()
+                && place.name_at as usize >= head.len()
+                && holds(layout.names, place.name_at as usize - head.len(), head)
+                && holds(layout.names, place.name_at as usize, name))
+                || names_from(layout, head, name, index + 1)
+        }
+    }
+}
+
+/// Whether `blob` holds `bytes` from `at`.
+const fn holds(blob: &[u8], at: usize, bytes: &[u8]) -> bool {
+    match bytes.split_first() {
+        None => true,
+        Some((&byte, rest)) => at < blob.len() && blob[at] == byte && holds(blob, at + 1, rest),
+    }
+}
+
 const fn head(key: &Key) -> Option<Head> {
     match *key {
         Key::Text(text) => Some(Head::new(Major::Text, text.len() as u64)),
         Key::Int(int) if int < 0 => Some(Head::new(Major::Nint, !int.cast_unsigned())),
         Key::Int(int) => Some(Head::new(Major::Uint, int.cast_unsigned())),
         Key::Tag(tag) => Some(Head::new(Major::Tag, tag)),
+        Key::Skipped => Some(Head::new(Major::Text, 1)),
         Key::Lead(_) | Key::None => None,
     }
 }
@@ -81,7 +120,8 @@ const fn payload(key: &Key) -> &[u8] {
     match key {
         Key::Text(text) => text.as_bytes(),
         Key::Int(_) | Key::Tag(_) | Key::None => &[],
-        Key::Lead(_) => &[0; 2],
+        Key::Lead(_) => &[0; Lead::ENCODED_LEN],
+        Key::Skipped => &[0xff],
     }
 }
 
@@ -99,7 +139,7 @@ const fn item_len(key: &Key) -> usize {
 /// Bytes of the item before `name_at`.
 const fn prefix(key: &Key) -> usize {
     match key {
-        Key::Text(_) => head_len(key),
+        Key::Text(_) | Key::Skipped => head_len(key),
         Key::Int(_) | Key::Tag(_) => 1,
         Key::Lead(_) | Key::None => 0,
     }
@@ -151,7 +191,9 @@ mod tests {
         Key::Int(1000),
         Key::Tag(18),
         Key::Text("a twenty-four byte name!"),
-        Key::Lead(Lead::from_le_bytes([0x23, 0x01])),
+        Key::Lead(Lead::from_le_bytes([
+            0x23, 0x01, 1, 18, 0, 0, 0, 0, 0, 0, 0,
+        ])),
         Key::None,
     ];
     const NAMES: [u8; names_len(KEYS)] = names(KEYS);
@@ -173,10 +215,19 @@ mod tests {
             [
                 b"\x62id\x20\x19\x03\xe8\xd2\x78\x18".as_slice(),
                 b"a twenty-four byte name!",
-                b"\x23\x01",
+                b"\x23\x01\x01\x12\0\0\0\0\0\0\0",
             ]
             .concat()
         );
+    }
+
+    #[test]
+    fn only_a_text_entry_names_a_text() {
+        assert!(super::names_text(Some(&LAYOUT), "id"));
+        assert!(super::names_text(Some(&LAYOUT), "a twenty-four byte name!"));
+        assert!(!super::names_text(Some(&LAYOUT), "i"));
+        assert!(!super::names_text(Some(&LAYOUT), "\x19"));
+        assert!(!super::names_text(None, "id"));
     }
 
     #[test]

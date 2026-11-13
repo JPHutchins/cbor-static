@@ -1,7 +1,7 @@
 #[derive(cbor_static::Cbor)]
 #[cbor(array)]
 pub struct T${i} {
-    pub a${i}: u32,
-    pub b${i}: u32,
-    pub c${i}: Option<u32>,
+    pub a${i}: ${f0},
+    pub b${i}: ${f1},
+    pub c${i}: ${f2},
 }

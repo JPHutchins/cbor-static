@@ -4,6 +4,9 @@
 use proc_macro2::Span;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, LitInt, LitStr, Path, UnOp};
 
+use super::Fallback;
+use super::case::{Case, RULES};
+
 /// One attribute and where it was written.
 pub struct Spanned<T> {
     pub value: T,
@@ -12,8 +15,15 @@ pub struct Spanned<T> {
 
 pub enum Attr {
     Rename(String),
-    Default,
+    RenameAll(Case),
+    /// `default`, or with a path, `default = "path"`.
+    Default(Option<Path>),
     SkipIfNone,
+    Skip,
+    /// `borrow`, or `borrow = "'a + 'b"` with the lifetimes it names.
+    Borrow(Vec<String>),
+    Transparent,
+    OffsetOfEnum,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -36,10 +46,20 @@ pub struct StructAttrs {
     pub keys: Option<Path>,
     pub array: bool,
     pub deny_unknown_fields: bool,
+    pub rename_all: Option<Case>,
+    pub transparent: bool,
 }
 
 #[derive(Default)]
 pub struct EnumAttrs {
+    pub form: FormAttrs,
+    pub rename_all: Option<Case>,
+    pub offset_of_enum: bool,
+}
+
+/// The attributes that choose an enum's representation.
+#[derive(Default)]
+pub struct FormAttrs {
     pub index: bool,
     pub tag: Option<String>,
     pub content: Option<String>,
@@ -49,10 +69,13 @@ pub struct EnumAttrs {
 #[derive(Default)]
 pub struct FieldAttrs {
     pub rename: Option<String>,
-    pub default: bool,
+    pub default: Fallback,
     pub skip_if_none: bool,
+    pub skip: bool,
     pub key: Option<KeyLit>,
     pub bytes: bool,
+    /// The lifetimes `borrow` names; empty for every one the field's type has.
+    pub borrow: Option<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -76,6 +99,14 @@ impl StructAttrs {
                 deny_unknown_fields: true,
                 ..self
             }),
+            Attr::RenameAll(case) => Ok(Self {
+                rename_all: Some(case),
+                ..self
+            }),
+            Attr::Transparent => Ok(Self {
+                transparent: true,
+                ..self
+            }),
             _ => Err(misplaced(attr.span, "a struct")),
         }
     }
@@ -85,19 +116,39 @@ impl EnumAttrs {
     pub fn with(self, attr: Spanned<Attr>) -> syn::Result<Self> {
         match attr.value {
             Attr::Index => Ok(Self {
-                index: true,
+                form: FormAttrs {
+                    index: true,
+                    ..self.form
+                },
                 ..self
             }),
             Attr::Tag(tag) => Ok(Self {
-                tag: Some(tag),
+                form: FormAttrs {
+                    tag: Some(tag),
+                    ..self.form
+                },
                 ..self
             }),
             Attr::Content(content) => Ok(Self {
-                content: Some(content),
+                form: FormAttrs {
+                    content: Some(content),
+                    ..self.form
+                },
                 ..self
             }),
             Attr::Untagged => Ok(Self {
-                untagged: true,
+                form: FormAttrs {
+                    untagged: true,
+                    ..self.form
+                },
+                ..self
+            }),
+            Attr::RenameAll(case) => Ok(Self {
+                rename_all: Some(case),
+                ..self
+            }),
+            Attr::OffsetOfEnum => Ok(Self {
+                offset_of_enum: true,
                 ..self
             }),
             _ => Err(misplaced(attr.span, "an enum")),
@@ -112,12 +163,17 @@ impl FieldAttrs {
                 rename: Some(rename),
                 ..self
             }),
-            Attr::Default => Ok(Self {
-                default: true,
+            Attr::Default(path) => Ok(Self {
+                default: path.map_or(Fallback::Default, Fallback::Path),
                 ..self
             }),
             Attr::SkipIfNone => Ok(Self {
                 skip_if_none: true,
+                ..self
+            }),
+            Attr::Skip => Ok(Self { skip: true, ..self }),
+            Attr::Borrow(lifetimes) => Ok(Self {
+                borrow: Some(lifetimes),
                 ..self
             }),
             Attr::Key(key) => Ok(Self {
@@ -167,7 +223,22 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     .map_or_else(String::new, ToString::to_string);
                 let value = match (name.as_str(), cbor) {
                     ("rename", _) => Attr::Rename(meta.value()?.parse::<LitStr>()?.value()),
-                    ("default", _) => Attr::Default,
+                    ("rename_all", _) => {
+                        let rule = meta.value()?.parse::<LitStr>()?;
+                        Attr::RenameAll(Case::named(&rule.value()).ok_or_else(|| {
+                            syn::Error::new(
+                                rule.span(),
+                                format!(
+                                    "cbor-static: `rename_all` is one of {rules}",
+                                    rules = RULES.map(|(name, _)| format!("\"{name}\"")).join(", ")
+                                ),
+                            )
+                        })?)
+                    }
+                    ("default", _) if meta.input.peek(syn::Token![=]) => {
+                        Attr::Default(Some(meta.value()?.parse::<LitStr>()?.parse::<Path>()?))
+                    }
+                    ("default", _) => Attr::Default(None),
                     ("skip_serializing_if", _) => {
                         if meta.value()?.parse::<LitStr>()?.value() != "Option::is_none" {
                             return Err(meta.error(
@@ -175,6 +246,23 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                             ));
                         }
                         Attr::SkipIfNone
+                    }
+                    ("skip", _) => Attr::Skip,
+                    ("borrow", _) if meta.input.peek(syn::Token![=]) => Attr::Borrow(
+                        meta.value()?
+                            .parse::<LitStr>()?
+                            .value()
+                            .split('+')
+                            .map(|lifetime| lifetime.trim().to_owned())
+                            .collect(),
+                    ),
+                    ("borrow", _) => Attr::Borrow(Vec::new()),
+                    ("transparent", _) => Attr::Transparent,
+                    ("skip_serializing" | "skip_deserializing", _) => {
+                        return Err(meta.error(
+                            "cbor-static: a field is skipped in both directions or not at all; \
+                             use `skip`",
+                        ));
                     }
                     ("deny_unknown_fields", _) => Attr::DenyUnknownFields,
                     ("tag", _) => Attr::Tag(meta.value()?.parse::<LitStr>()?.value()),
@@ -185,10 +273,14 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("array", true) => Attr::Array,
                     ("bytes", true) => Attr::Bytes,
                     ("index", true) => Attr::Index,
+                    ("offset_of_enum", true) => Attr::OffsetOfEnum,
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }
-                    _ => return Err(meta.error("cbor-static: unsupported attribute")),
+                    _ => {
+                        return Err(meta
+                            .error(format!("cbor-static: `{name}` is an unsupported attribute")));
+                    }
                 };
                 parsed.push(Spanned { value, span });
                 Ok(())

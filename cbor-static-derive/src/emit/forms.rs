@@ -4,8 +4,9 @@
 
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
+use syn::Type;
 
-use super::text_key;
+use super::{Trait, text_key};
 use crate::model::{EnumForm, Payload, Variant};
 
 pub struct Ops {
@@ -25,15 +26,48 @@ pub fn ops(form: &EnumForm) -> Ops {
     Ops { encode, decode }
 }
 
-/// How the layout identifies `variant`. An untagged variant's classes depend on its payload type,
-/// so the layout holds a placeholder that only the decoder's own layout fills in.
-pub fn variant_key(form: &EnumForm, variant: &Variant) -> TokenStream {
-    match (form, variant.cbor_tag) {
-        (EnumForm::Index, _) => quote!(__p::Key::None),
-        (EnumForm::CborTag, Some(tag)) => quote!(__p::Key::Tag(#tag)),
-        (EnumForm::Untagged, _) => quote!(__p::Key::Lead(__p::Lead::NONE)),
-        _ => text_key(&variant.name),
+/// How the layout identifies each variant. An untagged variant's classes depend on its payload
+/// type, so the layout holds a placeholder that only the decoder's own layout fills in.
+pub fn variant_keys(form: &EnumForm, variants: &[Variant]) -> Vec<TokenStream> {
+    match form {
+        EnumForm::Index => discriminants(variants)
+            .into_iter()
+            .map(|discriminant| quote!(__p::Key::Int(#discriminant)))
+            .collect(),
+        EnumForm::CborTag => variants
+            .iter()
+            .filter_map(|variant| variant.cbor_tag)
+            .map(|tag| quote!(__p::Key::Tag(#tag)))
+            .collect(),
+        EnumForm::Untagged => variants
+            .iter()
+            .map(|_| quote!(__p::Key::Lead(__p::Lead::NONE)))
+            .collect(),
+        EnumForm::External | EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => variants
+            .iter()
+            .map(|variant| text_key(&variant.name))
+            .collect(),
     }
+}
+
+/// Each variant's discriminant as Rust assigns it: the one written, or one more than the one
+/// before, starting from 0 (D-10a). Each is the last one written plus a count, so the tokens grow
+/// linearly with the variants.
+fn discriminants(variants: &[Variant]) -> Vec<TokenStream> {
+    variants
+        .iter()
+        .scan(None, |last: &mut Option<(TokenStream, i64)>, variant| {
+            let (base, after) = match (&variant.discriminant, last.take()) {
+                (Some(written), _) => (quote!((#written) as i64), 0),
+                (None, Some((base, after))) => (base, after + 1),
+                (None, None) => (quote!(0), 0),
+            };
+            let offset = Literal::i64_unsuffixed(after);
+            let discriminant = quote!(#base + #offset);
+            *last = Some((base, after));
+            Some(discriminant)
+        })
+        .collect()
 }
 
 /// Entries after the variants: the tag and content keys of internally and adjacently tagged enums.
@@ -45,6 +79,36 @@ pub fn extras(form: &EnumForm) -> Vec<TokenStream> {
     }
 }
 
+/// What a newtype variant's payload type must be under `form`, checked at compile time for the
+/// direction its impl derives (`Encode` or `Decode`, at `path`): an internally tagged payload joins
+/// the tag entry to its own entries, so it must be a map-form struct, none of whose keys is the tag.
+pub fn newtype_check(
+    form: &EnumForm,
+    ty: &Type,
+    which: Trait,
+    path: &TokenStream,
+) -> Option<TokenStream> {
+    let EnumForm::Internal { tag } = form else {
+        return None;
+    };
+    let (direction, kind) = match which {
+        Trait::Encode => (
+            quote!(Encoding),
+            quote!(__p::EncKind::layout(<#ty as #path>::ENCODE)),
+        ),
+        Trait::Decode => (
+            quote!(Decoding),
+            quote!(__p::DecKind::layout(<#ty as #path>::DECODE)),
+        ),
+    };
+    let message =
+        format!("cbor-static: a field of the payload is keyed like the enum's tag, `{tag}`");
+    Some(quote! {
+        __p::map_form::<#ty, __p::#direction>();
+        assert!(!__p::names_text(#kind, #tag), #message);
+    })
+}
+
 /// The classes of initial byte the enum's values start with.
 pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenStream {
     match form {
@@ -52,8 +116,16 @@ pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenS
             Payload::Unit => quote!(__p::Lead::TEXT),
             Payload::Newtype(_) | Payload::Struct(_) => quote!(__p::Lead::MAP),
         })),
-        EnumForm::Index => quote!(__p::Lead::ARRAY),
-        EnumForm::CborTag => quote!(__p::Lead::TAG),
+        EnumForm::Index => union(variants.iter().map(|variant| match variant.payload {
+            Payload::Unit => quote!(__p::Lead::UINT.union(__p::Lead::NINT)),
+            Payload::Newtype(_) | Payload::Struct(_) => quote!(__p::Lead::ARRAY),
+        })),
+        EnumForm::CborTag => union(
+            variants
+                .iter()
+                .filter_map(|variant| variant.cbor_tag)
+                .map(|tag| quote!(__p::Lead::tagged(#tag))),
+        ),
         EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => quote!(__p::Lead::MAP),
         EnumForm::Untagged => union(variants.iter().map(|variant| variant_lead(variant, path))),
     }
@@ -83,10 +155,10 @@ pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) 
             quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
         })
             });
-    let len = Literal::usize_unsuffixed(2 * variants.len());
+    let count = Literal::usize_unsuffixed(variants.len());
     quote!({
         #(#disjoint)*
-        &__p::Layout { names: &__p::names::<#len>(&[#(__p::Key::Lead(#leads)),*]), fields: LAYOUT.fields }
+        &__p::Layout { names: &const { __p::names::<{ __p::Lead::ENCODED_LEN * #count }>(&[#(__p::Key::Lead(#leads)),*]) }, fields: LAYOUT.fields }
     })
 }
 
@@ -94,7 +166,11 @@ pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) 
 fn variant_lead(variant: &Variant, path: &TokenStream) -> TokenStream {
     match &variant.payload {
         Payload::Unit => quote!(__p::Lead::NULL),
-        Payload::Newtype(ty) => quote!(<#ty as #path>::LEAD),
+        Payload::Newtype(field) if field.bytes => quote!(__p::Lead::BYTES),
+        Payload::Newtype(field) => {
+            let ty = &field.ty;
+            quote!(<#ty as #path>::LEAD)
+        }
         Payload::Struct(_) => quote!(__p::Lead::MAP),
     }
 }

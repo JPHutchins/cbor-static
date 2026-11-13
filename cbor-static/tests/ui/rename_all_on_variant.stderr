@@ -1,0 +1,5 @@
+error: cbor-static: this attribute does not apply to a variant
+ --> tests/ui/rename_all_on_variant.rs:3:13
+  |
+3 |     #[serde(rename_all = "camelCase")]
+  |             ^^^^^^^^^^

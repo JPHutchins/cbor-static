@@ -1,0 +1,5 @@
+error: cbor-static: `cbor_tag` goes on every variant or on none
+ --> tests/ui/cbor_tag_partial.rs:5:5
+  |
+5 |     Mac0(u32),
+  |     ^^^^

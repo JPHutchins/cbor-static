@@ -81,6 +81,28 @@ fn array_structs_are_positional_and_truncate_trailing_nones() {
 }
 
 #[test]
+fn array_struct_layouts_carry_no_field_names() {
+    use cbor_static::__private::{DecKind, EncKind};
+
+    let (
+        EncKind::Struct {
+            layout: encoded, ..
+        },
+        DecKind::Struct {
+            layout: decoded, ..
+        },
+    ) = (
+        <Point as cbor_static::Encode>::ENCODE,
+        <Point as cbor_static::Decode>::DECODE,
+    )
+    else {
+        panic!("Point is a struct");
+    };
+    assert_eq!((encoded.names, decoded.names), (&[][..], &[][..]));
+    assert_eq!(encoded.fields.len(), 4);
+}
+
+#[test]
 fn array_structs_decode_indefinite_arrays_and_reject_wrong_lengths() {
     assert_eq!(
         decode::<Point>(b"\x9f\x01\x21\x07\xff"),

@@ -64,9 +64,14 @@ impl Header {
         matches!(self.major, Major::Simple) && self.indefinite()
     }
 
+    /// The initial byte of the head it was read from.
+    pub const fn initial(self) -> u8 {
+        (self.major as u8) << 5 | self.info
+    }
+
     /// The length of the head it was read from, which its additional information fixes.
     pub const fn head_len(self) -> Result<usize, ErrorKind> {
-        header_len((self.major as u8) << 5 | self.info)
+        header_len(self.initial())
     }
 }
 

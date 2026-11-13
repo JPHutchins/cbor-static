@@ -21,6 +21,7 @@ proc-macro2 = "1"
 proptest = { version = "1", default-features = false, features = ["std"] }
 quote = "1"
 syn = { version = "2", features = ["full"] }
+trybuild = "1"
 
 [lints]
 workspace = true

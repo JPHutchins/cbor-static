@@ -1,0 +1,5 @@
+error: cbor-static: variants `Sign1` and `Signed` share a `cbor_tag`
+ --> tests/ui/cbor_tag_duplicate.rs:8:5
+  |
+8 |     Signed(u64),
+  |     ^^^^^^

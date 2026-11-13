@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `Inner: Default` is not satisfied
+ --> tests/ui/default_not_default.rs:9:12
+  |
+9 |     inner: Inner,
+  |            ^^^^^ the trait `Default` is not implemented for `Inner`
+  |
+note: required by a bound in `cbor_static::__private::write_default`
+ --> src/engine/glue.rs
+  |
+  | pub unsafe fn write_default<T: Default>(slot: *mut u8) {
+  |                                ^^^^^^^ required by this bound in `write_default`
+help: consider annotating `Inner` with `#[derive(Default)]`
+  |
+2 + #[derive(Default)]
+3 | struct Inner {
+  |

@@ -1,0 +1,17 @@
+error: cbor-static: `borrow` needs a field type with a lifetime
+ --> tests/ui/borrow_without_lifetime.rs:4:12
+  |
+4 |     count: u32,
+  |            ^^^
+
+error: cbor-static: `borrow` names a lifetime this field's type does not have
+  --> tests/ui/borrow_without_lifetime.rs:10:11
+   |
+10 |     name: &'a str,
+   |           ^
+
+error: cbor-static: `borrow` needs a field type with a lifetime
+  --> tests/ui/borrow_without_lifetime.rs:16:11
+   |
+16 |     name: &'static str,
+   |           ^

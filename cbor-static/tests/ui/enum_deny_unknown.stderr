@@ -1,0 +1,5 @@
+error: cbor-static: this attribute does not apply to an enum
+ --> tests/ui/enum_deny_unknown.rs:2:23
+  |
+2 | #[serde(tag = "type", deny_unknown_fields)]
+  |                       ^^^^^^^^^^^^^^^^^^^

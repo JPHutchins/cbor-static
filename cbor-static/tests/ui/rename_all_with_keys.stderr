@@ -1,0 +1,7 @@
+error: cbor-static: `keys` names every key, so `rename_all` has nothing to rename
+ --> tests/ui/rename_all_with_keys.rs:6:10
+  |
+6 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

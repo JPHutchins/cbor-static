@@ -19,6 +19,21 @@ pub use kinds::{DecKind, DecVariant, EncKind};
 /// and every handler reads only a valid `Self` or field of it. `Stack` must hold `MAX_DEPTH`
 /// frames, and `MAX_DEPTH` must be the deepest nesting `ENCODE` reaches.
 /// `OPTION_ENCODE` must describe `Option<Self>` within `Stack`.
+///
+/// A `Stack` that does not hold `MAX_DEPTH` frames does not compile where the type is encoded
+/// (D-14, R-111):
+///
+/// ```compile_fail,E0080
+/// struct Liar(u32);
+///
+/// unsafe impl cbor_static::Encode for Liar {
+///     const ENCODE: &'static cbor_static::__private::EncKind = <u32 as cbor_static::Encode>::ENCODE;
+///     type Stack = ();
+///     const MAX_DEPTH: usize = 1;
+/// }
+///
+/// let _ = cbor_static::encode_into(&Liar(1), &mut [0u8; 8]);
+/// ```
 #[allow(unsafe_code)]
 pub unsafe trait Encode: Sized {
     #[doc(hidden)]
@@ -48,6 +63,25 @@ pub unsafe trait Encode: Sized {
 /// outlives. `Stack` must hold `MAX_DEPTH` frames, and `MAX_DEPTH` must be the deepest nesting
 /// `DECODE` reaches. `OPTION_DECODE` must describe `Option<Self>`, and `OptionStack` must hold the
 /// frames it reaches.
+///
+/// A `Stack` that does not hold `MAX_DEPTH` frames does not compile where the type is decoded
+/// (D-14, R-111):
+///
+/// ```compile_fail,E0080
+/// #[derive(Debug)]
+/// struct Liar(u32);
+///
+/// unsafe impl<'de> cbor_static::Decode<'de> for Liar {
+///     const DECODE: &'static cbor_static::__private::DecKind =
+///         <u32 as cbor_static::Decode<'de>>::DECODE;
+///     type Stack = ();
+///     const MAX_DEPTH: usize = 2;
+///     type OptionStack = ();
+/// }
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// let _ = cbor_static::decode_into::<Liar>(b"\x01", &mut slot);
+/// ```
 #[allow(unsafe_code)]
 pub unsafe trait Decode<'de>: Sized {
     #[doc(hidden)]
@@ -117,6 +151,58 @@ pub trait ByteString: sealed::ByteString {
     const ENCODE_BYTES: &'static EncKind;
     #[doc(hidden)]
     const DECODE_BYTES: &'static DecKind;
+}
+
+/// A struct encoded as a map, which is what an internally tagged enum's newtype variant must wrap:
+/// the tag entry joins the payload's own entries (D-10). The derive implements it for named structs
+/// that are not `#[cbor(array)]`, in each direction it derives.
+///
+/// ```
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// struct Size {
+///     w: u32,
+/// }
+///
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// #[serde(tag = "type")]
+/// enum Event {
+///     Resize(Size),
+/// }
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::encode_into(&Event::Resize(Size { w: 3 }), &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x64type\x66Resize\x61w\x03");
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
+/// Anything else does not compile:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Cbor)]
+/// #[serde(tag = "type")]
+/// enum Event {
+///     Count(u32),
+/// }
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a struct encoded as a map",
+    label = "an internally tagged enum's newtype variant must wrap a map-form struct"
+)]
+pub trait MapForm<Direction> {}
+
+/// [`MapForm`]'s directions: each derive implements it for the one it derives, so a type that
+/// derives `Encode` and `Decode` separately implements it once per direction.
+pub enum Encoding {}
+pub enum Decoding {}
+
+/// Compiles only for a [`MapForm`] type in `Direction`.
+pub const fn map_form<T: MapForm<Direction>, Direction>() {}
+
+/// A field's `default = "path"`: the derive implements it on a type of its own per field, whose
+/// `make` calls the path.
+pub trait MakeDefault {
+    type Value;
+    fn make() -> Self::Value;
 }
 
 /// The types whose byte-string kinds cbor-static describes, so the engine may trust them.

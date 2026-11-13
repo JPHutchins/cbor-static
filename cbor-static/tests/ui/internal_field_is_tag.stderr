@@ -1,0 +1,5 @@
+error: cbor-static: this field's key is the enum's tag, `type`
+ --> tests/ui/internal_field_is_tag.rs:7:9
+  |
+7 |         kind: u32,
+  |         ^^^^

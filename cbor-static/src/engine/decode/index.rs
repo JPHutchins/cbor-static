@@ -1,5 +1,6 @@
-//! Integer-indexed enums (`#[cbor(index)]`, D-10): `[index]` for a unit variant, otherwise
-//! `[index, payload]`. Provisional: unit variants carry no payload element.
+//! Integer-indexed enums (`#[cbor(index)]`, D-10a): a unit variant is its discriminant alone, any
+//! other `[discriminant, payload]`. The initial byte tells the two apart, and the layout holds each
+//! discriminant pre-encoded, matched in any encoding.
 
 use core::mem::MaybeUninit;
 
@@ -11,7 +12,7 @@ use super::{
 };
 use crate::engine::input::Input;
 use crate::error::ErrorKind;
-use crate::schema::{DecKind, DecVariant};
+use crate::schema::{DecKind, DecVariant, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major};
 
@@ -31,8 +32,43 @@ fn value(
     header: Header,
 ) -> Result<Flow, ErrorKind> {
     match header.major {
+        Major::Uint | Major::Nint => unit(state, frames, header),
         Major::Array => open(state, frames, Phase::EnumName, entries(header)?),
         _ => Err(ErrorKind::TypeMismatch),
+    }
+}
+
+/// A bare discriminant, which only a unit variant is.
+fn unit(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    header: Header,
+) -> Result<Flow, ErrorKind> {
+    use super::complete;
+
+    let DecKind::Enum {
+        layout, variants, ..
+    } = state.target.kind
+    else {
+        return Err(ErrorKind::Unsupported);
+    };
+    match variant(layout, variants, header)? {
+        (
+            _,
+            DecVariant {
+                payload: None,
+                assemble,
+            },
+        ) => {
+            unsafe { assemble(state.target.dst) };
+            complete(state, frames).map(|()| Flow::Continue)
+        }
+        (
+            _,
+            DecVariant {
+                payload: Some(_), ..
+            },
+        ) => Err(ErrorKind::TypeMismatch),
     }
 }
 
@@ -44,15 +80,9 @@ fn entry(
     match top(state.depth, frames)?.phase {
         Phase::EnumName => match next_entry(state, frames, input)? {
             Entry::Wait => Ok(Flow::NeedInput),
-            Entry::Item(Header {
-                major: Major::Uint,
-                arg,
-                ..
-            }) => select(
-                state,
-                frames,
-                u8::try_from(arg).map_err(|_| ErrorKind::UnknownVariant)?,
-            ),
+            Entry::Item(header) if matches!(header.major, Major::Uint | Major::Nint) => {
+                select(state, frames, header)
+            }
             Entry::Item(_) | Entry::End => Err(ErrorKind::TypeMismatch),
         },
         Phase::EnumPayload => match element(state, frames, input)? {
@@ -68,31 +98,45 @@ fn entry(
     }
 }
 
-/// Takes the index: a unit variant is complete, any other expects its payload next.
+/// Takes the discriminant that opens the array, which only a variant with a payload has.
 fn select(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
-    variant: u8,
+    header: Header,
 ) -> Result<Flow, ErrorKind> {
     let frame = top(state.depth, frames)?;
-    let DecKind::Enum { variants, .. } = desc(frame) else {
+    let DecKind::Enum {
+        layout, variants, ..
+    } = desc(frame)
+    else {
         return Err(ErrorKind::Unsupported);
     };
-    frame.field = variant;
-    match variants.get(usize::from(variant)) {
-        Some(DecVariant {
-            payload: None,
-            assemble,
-        }) => {
-            unsafe { assemble(frame.base) };
-            frame.phase = Phase::EnumDone;
+    match variant(layout, variants, header)? {
+        (_, DecVariant { payload: None, .. }) => Err(ErrorKind::TypeMismatch),
+        (
+            index,
+            DecVariant {
+                payload: Some(_), ..
+            },
+        ) => {
+            frame.field = index;
+            frame.phase = Phase::EnumPayload;
+            Ok(Flow::Continue)
         }
-        Some(DecVariant {
-            payload: Some(_), ..
-        }) => frame.phase = Phase::EnumPayload,
-        None => return Err(ErrorKind::UnknownVariant),
     }
-    Ok(Flow::Continue)
+}
+
+/// The variant whose discriminant `header` holds, and its position.
+fn variant(
+    layout: &Layout,
+    variants: &'static [DecVariant],
+    header: Header,
+) -> Result<(u8, &'static DecVariant), ErrorKind> {
+    use super::map::item_index;
+
+    item_index(layout, header)
+        .and_then(|index| Some((index, variants.get(usize::from(index))?)))
+        .ok_or(ErrorKind::UnknownVariant)
 }
 
 fn payload(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<Flow, ErrorKind> {

@@ -1,6 +1,6 @@
 use core::mem::needs_drop;
 
-use crate::schema::{Assemble, EnumGlue};
+use crate::schema::{Assemble, EnumGlue, MakeDefault};
 
 pub type IndexFn = unsafe fn(*const u8) -> u8;
 pub type FieldPtrFn = unsafe fn(*const u8, u8) -> *const u8;
@@ -53,6 +53,18 @@ pub unsafe fn assemble<E: Assemble<V>, const V: u8>(slot: *mut u8) {
 /// `slot` is a primitive-`repr` enum whose variant `V` payload is initialized.
 pub unsafe fn write_tag<const V: u8>(slot: *mut u8) {
     unsafe { slot.write(V) };
+}
+
+/// # Safety
+/// `slot` is valid for writes of a `T`.
+pub unsafe fn write_default<T: Default>(slot: *mut u8) {
+    unsafe { slot.cast::<T>().write(T::default()) };
+}
+
+/// # Safety
+/// `slot` is valid for writes of an `M::Value`.
+pub unsafe fn write_made<M: MakeDefault>(slot: *mut u8) {
+    unsafe { slot.cast::<M::Value>().write(M::make()) };
 }
 
 /// # Safety

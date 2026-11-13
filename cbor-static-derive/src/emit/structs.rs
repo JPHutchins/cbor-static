@@ -3,7 +3,10 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
-use super::{Body, Trait, field_child, field_kind, impls, key, layout, level, static_type};
+use super::{
+    Body, Trait, derives, field_child, field_decode, field_encode, field_kind, field_stack, impls,
+    key, layout, level, makers, static_type,
+};
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
 
@@ -34,14 +37,8 @@ pub fn structure(
         StructForm::Array => quote!(__p::Lead::ARRAY),
     };
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = level(
-            fields
-                .iter()
-                .map(|field| field_child(&field.ty, field.bytes, path)),
-        );
-        let kinds = fields
-            .iter()
-            .map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
+        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
+        let kinds = fields.iter().map(|field| field_encode(field, path));
         Body {
             kind: quote!(&__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
@@ -49,15 +46,13 @@ pub fn structure(
             lead: lead.clone(),
         }
     });
+    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = level(
-            fields
-                .iter()
-                .map(|field| field_child(&field.ty, field.bytes, path)),
-        );
+        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
         let kinds = fields
             .iter()
-            .map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
+            .enumerate()
+            .map(|(index, field)| field_decode(field, index, &item.ident, generics.as_ref(), path));
         Body {
             kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
             stack,
@@ -66,25 +61,47 @@ pub fn structure(
         }
     });
     let labels = labels(fields);
+    let map_form = [
+        (Trait::Encode, quote!(__p::Encoding)),
+        (Trait::Decode, quote!(__p::Decoding)),
+    ]
+    .into_iter()
+    .filter(|(which, _)| matches!(form, StructForm::Map { .. }) && derives(directions, *which))
+    .map(|(_, direction)| {
+        let ident = &item.ident;
+        quote!(impl #generics __p::MapForm<#direction> for #ident #generics {})
+    });
+    let makers = makers(
+        &item.ident,
+        fields,
+        generics.as_ref(),
+        item.lifetime
+            .as_ref()
+            .map(|lifetime| quote!(pub __marker: ::core::marker::PhantomData<&#lifetime ()>,))
+            .as_ref(),
+    );
     quote! {
         #layout
         #labels
+        #(#map_form)*
+        #makers
         #encode
         #decode
     }
 }
 
-/// A unit struct, as `()`, or a newtype struct, as its `field` (D-08): the wrapped type's
-/// descriptor, behind a const assert that the struct is laid out as that type. A decoded value
-/// drops as the wrapper, which may have its own `Drop`.
+/// A unit struct, as `()`, or a newtype or `transparent` struct, as its `field` (D-08): the wrapped
+/// type's descriptor, behind a const assert that the struct is laid out as that type. A decoded
+/// value drops as the wrapper, which may have its own `Drop`.
 pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -> TokenStream {
     let (ty, bytes, offset) = field.map_or_else(
         || (quote!(()), false, quote!(0)),
         |field| {
+            let member = &field.member;
             (
                 field.ty.to_token_stream(),
                 field.bytes,
-                quote!(::core::mem::offset_of!(Self, 0)),
+                quote!(::core::mem::offset_of!(Self, #member)),
             )
         },
     );
@@ -134,7 +151,7 @@ pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -
 pub fn decode_map_ops(fields: &[Field], unknown: Unknown) -> TokenStream {
     let int = fields
         .iter()
-        .any(|field| !matches!(field.key, Key::Text(_)));
+        .any(|field| matches!(field.key, Key::Int(_) | Key::Label { .. }));
     let text = fields.iter().any(|field| matches!(field.key, Key::Text(_)));
     match (int, text, unknown) {
         (false, _, Unknown::Skip) => quote!(__p::DECODE_MAP),
@@ -153,7 +170,7 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| match &field.key {
             Key::Label { label, variant } => Some((label, variant)),
-            Key::Text(_) | Key::Int(_) | Key::Position => None,
+            Key::Text(_) | Key::Int(_) | Key::Position | Key::Skipped => None,
         })
         .unzip();
     labels.first().map(|label| {

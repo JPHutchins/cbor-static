@@ -35,6 +35,27 @@ enum Packet {
     },
 }
 
+#[derive(Cbor, Clone, Copy, Debug, PartialEq)]
+enum Frame {
+    Raw(#[cbor(bytes)] [u8; 2]),
+    Words([u8; 2]),
+}
+
+#[derive(Cbor, Clone, Copy, Debug, PartialEq)]
+#[repr(C, u8)]
+#[cbor(index)]
+enum Tabled {
+    Raw(#[cbor(bytes)] [u8; 2]),
+    Words([u8; 2]),
+}
+
+#[derive(Cbor, Clone, Copy, Debug, PartialEq)]
+#[serde(untagged)]
+enum Blob {
+    Raw(#[cbor(bytes)] [u8; 2]),
+    Words([u8; 2]),
+}
+
 #[test]
 fn a_newtype_of_bytes_is_a_byte_string_an_untagged_enum_tells_apart() {
     golden(&Digest([0xab, 0xcd]), b"\x42\xab\xcd");
@@ -48,6 +69,20 @@ fn bytes_mark_a_tuple_struct_field_and_a_struct_variant_field() {
     golden(
         &Packet::Signed { mac: [1, 2] },
         b"\xa1\x66Signed\xa1\x63mac\x42\x01\x02",
+    );
+}
+
+#[test]
+fn bytes_mark_a_newtype_variant_field_through_glue_tables_and_untagged() {
+    golden(&Frame::Raw([1, 2]), b"\xa1\x63Raw\x42\x01\x02");
+    golden(&Frame::Words([1, 2]), b"\xa1\x65Words\x82\x01\x02");
+    golden(&Tabled::Raw([1, 2]), b"\x82\x00\x42\x01\x02");
+    golden(&Tabled::Words([1, 2]), b"\x82\x01\x82\x01\x02");
+    golden(&Blob::Raw([1, 2]), b"\x42\x01\x02");
+    golden(&Blob::Words([1, 2]), b"\x82\x01\x02");
+    assert_eq!(
+        decode::<Frame>(b"\xa1\x63Raw\x82\x01\x02"),
+        Err(ErrorKind::TypeMismatch)
     );
 }
 

@@ -50,6 +50,39 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! A field maps to the `keys` variant its name gives in `UpperCamelCase`, so `key_ops` maps to
+//! `KeyOps` (R-122). A field without its variant does not compile:
+//!
+//! ```compile_fail,E0599
+//! #[derive(Clone, Copy)]
+//! enum Label {
+//!     Alg = 1,
+//! }
+//!
+//! #[derive(cbor_static::Cbor)]
+//! #[cbor(keys = Label)]
+//! struct Key {
+//!     alg: i32,
+//!     key_ops: u32,
+//! }
+//! ```
+//!
+//! Nor does a variant without its field:
+//!
+//! ```compile_fail,E0004
+//! #[derive(Clone, Copy)]
+//! enum Label {
+//!     Alg = 1,
+//!     KeyOps = 4,
+//! }
+//!
+//! #[derive(cbor_static::Cbor)]
+//! #[cbor(keys = Label)]
+//! struct Key {
+//!     alg: i32,
+//! }
+//! ```
+//!
 //! Positional structs, whose trailing `None`s are truncated, and tuples (D-09, D-20):
 //!
 //! ```
@@ -92,12 +125,24 @@
 //! struct Meters(#[serde(rename = "m")] u32);
 //! ```
 //!
-//! Nor does any attribute on a newtype variant's field, which nothing would honour:
+//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]` and nothing else.
+//!
+//! ```
+//! #[derive(cbor_static::Cbor)]
+//! enum Frame {
+//!     Raw(#[cbor(bytes)] [u8; 4]),
+//! }
+//!
+//! let mut out = [0u8; 16];
+//! let len = cbor_static::encode_into(&Frame::Raw([1, 2, 3, 4]), &mut out)?;
+//! assert_eq!(&out[..len], b"\xa1\x63Raw\x44\x01\x02\x03\x04");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
 //!
 //! ```compile_fail
 //! #[derive(cbor_static::Cbor)]
 //! enum Frame {
-//!     Raw(#[cbor(bytes)] [u8; 4]),
+//!     Raw(#[serde(rename = "r")] [u8; 4]),
 //! }
 //! ```
 //!
@@ -154,6 +199,20 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! A `repr(u8)` or `repr(C, u8)` enum with implicit discriminants decodes in place through tables
+//! (D-21), whose payload offsets come from shadow structs laid out as RFC 2195 lays out the
+//! variants. With `#[cbor(offset_of_enum)]` they come from `offset_of!` on the enum itself, which
+//! needs nightly and `#![feature(offset_of_enum)]` in the deriving crate (R-129); without it:
+//!
+//! ```compile_fail,E0658
+//! #[derive(cbor_static::Cbor)]
+//! #[repr(u8)]
+//! #[cbor(offset_of_enum)]
+//! enum Frame {
+//!     Data(u32),
+//! }
+//! ```
+//!
 //! Internally and adjacently tagged enums, whose decoding needs contiguous input (D-10, D-16):
 //!
 //! ```
@@ -195,11 +254,15 @@
 //! let mut slot = core::mem::MaybeUninit::uninit();
 //! let _ = cbor_static::decode_into::<Ambiguous>(b"\x01", &mut slot);
 //! ```
+//!
+//! The serde attributes beyond names and keys (`rename_all`, `default`, `skip`, `transparent`,
+//! `borrow`) are described in [`attributes`].
 
 extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+pub mod attributes;
 #[cfg(feature = "heapless")]
 mod bounded;
 mod containers;
@@ -315,13 +378,14 @@ pub mod __private {
         DECODE_INTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY,
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
         ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
-        ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
-        wraps, write_tag,
+        ENCODE_SKIPPED, ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of,
+        index_tag, offset, wraps, write_default, write_made, write_tag,
     };
-    pub use crate::keys::{Key, field, names, names_len};
+    pub use crate::keys::{Key, field, names, names_len, names_text};
     pub use crate::lead::Lead;
     pub use crate::schema::{
-        Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout,
+        Assemble, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout, Layout,
+        MakeDefault, MapForm, map_form,
     };
     pub use crate::stack::{Level, Widest, deeper};
 }

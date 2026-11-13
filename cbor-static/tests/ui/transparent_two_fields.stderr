@@ -1,0 +1,29 @@
+error: cbor-static: a `transparent` struct has exactly one field
+ --> tests/ui/transparent_two_fields.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: a `transparent` struct has exactly one field
+ --> tests/ui/transparent_two_fields.rs:8:10
+  |
+8 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: a `transparent` struct takes no other struct attribute
+  --> tests/ui/transparent_two_fields.rs:12:10
+   |
+12 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: this attribute does not apply to an enum
+  --> tests/ui/transparent_two_fields.rs:19:9
+   |
+19 | #[serde(transparent)]
+   |         ^^^^^^^^^^^

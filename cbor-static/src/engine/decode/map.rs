@@ -115,15 +115,18 @@ fn select(
     ))
 }
 
-/// Skips the rest of an entry no field claims, `items` items of which remain, or rejects it.
+/// Skips the rest of an entry no field claims, `items` items of which remain, or rejects it unless
+/// it is an internally tagged enum's tag entry.
 fn unknown<const DENY: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     items: u64,
     header: Option<Header>,
 ) -> Result<Flow, ErrorKind> {
+    use super::tagged::admit;
+
     if DENY {
-        Err(ErrorKind::UnknownField)
+        admit(state, frames, header)
     } else {
         skip_unknown(state, frames, items, header)
     }
@@ -250,6 +253,30 @@ mod tests {
             field(KEYS, 4, 0, false),
         ],
     };
+
+    #[test]
+    fn a_skipped_entry_is_never_a_head_whatever_precedes_it() {
+        const SKIPPING: &[Key] = &[Key::Text("x1"), Key::Skipped, Key::Int(5)];
+        const SKIPPING_NAMES: [u8; names_len(SKIPPING)] = names(SKIPPING);
+        const SKIPPING_LAYOUT: Layout = Layout {
+            names: &SKIPPING_NAMES,
+            fields: &[
+                field(SKIPPING, 0, 0, false),
+                field(SKIPPING, 1, 0, true),
+                field(SKIPPING, 2, 0, false),
+            ],
+        };
+        assert_eq!(SKIPPING_NAMES, *b"\x62x1\x61\xff\x05");
+        assert_eq!(heads(&SKIPPING_LAYOUT), 0b100);
+        for bytes in [b"\x31".as_slice(), b"\x61", b"\x05"] {
+            let header = parse(bytes).expect("a head");
+            assert_eq!(
+                item_index(&SKIPPING_LAYOUT, header),
+                (bytes == b"\x05").then_some(2),
+                "{bytes:x?}"
+            );
+        }
+    }
 
     #[test]
     fn heads_are_the_integer_and_tag_entries() {

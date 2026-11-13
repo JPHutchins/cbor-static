@@ -95,7 +95,7 @@ unsafe impl<'de, const TAG: u64, T: Decode<'de>> Decode<'de> for Tagged<TAG, T> 
     type Stack = T::Stack;
     const MAX_DEPTH: usize = T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
-    const LEAD: Lead = Lead::TAG;
+    const LEAD: Lead = Lead::tagged(TAG);
 }
 
 #[allow(unsafe_code)]

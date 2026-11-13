@@ -1,0 +1,7 @@
+error: cbor-static: one enum representation: `index`, `tag` (with `content`), `untagged`, or `cbor_tag` on every variant
+ --> tests/ui/cbor_tag_with_index.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

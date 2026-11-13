@@ -14,6 +14,7 @@ std::thread_local! {
     static DROPS: Cell<usize> = const { Cell::new(0) };
 }
 
+#[derive(Default)]
 struct Tracked;
 
 impl Drop for Tracked {
@@ -133,6 +134,7 @@ const MAYBE_DROPS: [(usize, usize); 4] = [(10, 0), (13, 1), (16, 2), (23, 2)];
 
 #[derive(crate::Decode)]
 #[serde(untagged)]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Choice {
     Count(u32),
     Pair(Pair),
@@ -144,12 +146,14 @@ const CHOICE_DROPS: [(usize, usize); 3] = [(3, 0), (6, 1), (9, 2)];
 
 #[derive(crate::Decode)]
 #[cbor(index)]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Indexed {
     Unit,
     Pair(Pair),
 }
 
 #[derive(crate::Decode)]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum CborTagged {
     #[cbor(cbor_tag = 5)]
     Pair(Pair),
@@ -157,15 +161,20 @@ enum CborTagged {
 
 #[derive(crate::Decode)]
 #[serde(tag = "t", content = "c")]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Adjacent {
     Pair(Pair),
 }
 
 #[derive(crate::Decode)]
 #[serde(tag = "t")]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Internal {
     Pair(Pair),
 }
+
+/// An adjacently tagged map's entries up to its content, `CHOICE`.
+const ADJACENT_PAIR: &[u8] = b"\xa2\x61t\x64Pair\x61c";
 
 /// `CHOICE`'s entries after an internal tag entry, which moves each value 7 bytes on.
 const INTERNAL_PAIR: &[u8] = b"\xa4\x61t\x64Pair\x61a\x01\x61b\x02\x61c\x03";
@@ -282,6 +291,28 @@ fn drops_at<T: for<'de> Decode<'de>>(complete: &[u8], values: [(usize, usize); 3
     }
 }
 
+/// `drops_at` for a form that scans its whole map before decoding it: a value that fails drops what
+/// came before it, and a map cut short fails the scan before anything is initialized.
+fn scanned_drops_at<T: for<'de> Decode<'de>>(
+    complete: &[u8],
+    values: [(usize, usize); 3],
+    chunk: usize,
+) {
+    for (at, drops) in values {
+        assert_eq!(
+            drops_after::<T>(
+                &[&complete[..at], b"\xf5", &complete[at + 1..]].concat(),
+                chunk
+            ),
+            (Some(ErrorKind::TypeMismatch), drops)
+        );
+        assert_eq!(
+            drops_after::<T>(&complete[..at], chunk),
+            (Some(ErrorKind::NeedContiguous), 0)
+        );
+    }
+}
+
 /// `drops_at` for `CHOICE` decoded as a `Pair` payload after `prefix`.
 fn drops_inside_payload<T: for<'de> Decode<'de>>(prefix: &[u8], chunk: usize) {
     drops_at::<T>(
@@ -299,8 +330,12 @@ fn enum_variants_drop_what_their_payload_initialized() {
         drops_inside_payload::<CborTagged>(b"\xc5", chunk);
         assert_eq!(drops_after::<Choice>(CHOICE, chunk), (None, 2));
         if chunk >= INTERNAL_PAIR.len() {
-            drops_inside_payload::<Adjacent>(b"\xa2\x61t\x64Pair\x61c", chunk);
-            drops_at::<Internal>(
+            scanned_drops_at::<Adjacent>(
+                &[ADJACENT_PAIR, CHOICE].concat(),
+                CHOICE_DROPS.map(|(value, drops)| (value + ADJACENT_PAIR.len(), drops)),
+                chunk,
+            );
+            scanned_drops_at::<Internal>(
                 INTERNAL_PAIR,
                 CHOICE_DROPS.map(|(value, drops)| (value + 7, drops)),
                 chunk,
@@ -364,6 +399,61 @@ fn an_encode_error_reports_its_field_and_its_offset_across_buffers() {
                 .chunks_mut(chunk)
                 .find_map(|piece| encoder.resume(piece).err()),
             Some(Error::new(ErrorKind::UnknownVariant, 1, 6))
+        );
+    }
+}
+
+#[derive(crate::Decode)]
+struct Defaulted {
+    #[serde(default)]
+    early: Tracked,
+    required: Tracked,
+    #[serde(default)]
+    late: Tracked,
+}
+
+#[test]
+fn a_default_written_before_a_missing_field_is_dropped() {
+    for chunk in [1, 64] {
+        assert_eq!(
+            drops_after::<Defaulted>(b"\xa0", chunk),
+            (Some(ErrorKind::MissingField), 1)
+        );
+        assert_eq!(
+            drops_after::<Defaulted>(b"\xa1\x68required\x01", chunk),
+            (None, 3)
+        );
+        assert_eq!(
+            drops_after::<Defaulted>(b"\xa2\x68required\x01\x64late\xf5", chunk),
+            (Some(ErrorKind::TypeMismatch), 1)
+        );
+    }
+}
+
+#[derive(crate::Decode)]
+struct Skipping {
+    #[serde(skip)]
+    cached: Tracked,
+    a: Tracked,
+}
+
+#[derive(crate::Decode)]
+struct Holder {
+    inner: Skipping,
+    after: u32,
+}
+
+#[test]
+fn a_skipped_default_is_dropped_with_its_struct() {
+    for chunk in [1, 64] {
+        assert_eq!(
+            drops_after::<Holder>(b"\xa2\x65inner\xa1\x61a\x01\x65after\xf5", chunk),
+            (Some(ErrorKind::TypeMismatch), 2)
+        );
+        assert_eq!(
+            drops_after::<Holder>(b"\xa1\x65inner\xa0", chunk),
+            (Some(ErrorKind::MissingField), 0),
+            "the skipped field comes last, so a missing field fails before its default"
         );
     }
 }

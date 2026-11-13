@@ -1,0 +1,11 @@
+error[E0599]: no variant, associated function, or constant named `KeyOps` found for enum `Label` in the current scope
+  --> tests/ui/keys_missing_variant.rs:10:5
+   |
+ 2 | enum Label {
+   | ---------- variant, associated function, or constant `KeyOps` not found for this enum
+...
+ 7 | #[cbor(keys = Label)]
+ 8 | struct Key {
+ 9 |     alg: i32,
+10 |     key_ops: u32,
+   |     ^^^^^^^ variant, associated function, or constant not found in `Label`
