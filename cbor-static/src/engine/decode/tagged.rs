@@ -10,8 +10,8 @@ use super::enums::{assembled, child_done, drop};
 use super::map::MAP;
 use super::option::{done, holds_nothing, payload_only};
 use super::{
-    Begin, DecOps, Entry, Flow, State, Target, at, desc, end, entries, expect, next_entry, open,
-    ops, skip_unknown, start_name, start_skip, top, unnamed,
+    Begin, DecOps, Entry, Flow, Scratch, State, Target, at, desc, end, entries, expect, next_entry,
+    open, ops, skip_unknown, start_name, start_skip, top, unnamed,
 };
 use crate::engine::StrictOps;
 use crate::engine::input::Input;
@@ -50,9 +50,10 @@ static NOTHING: DecKind = DecKind::Struct {
     kinds: &[],
 };
 
-/// Decodes the whole map as the named variant's payload struct, a map-form struct by a check at
-/// compile time, whose decoder skips the tag entry like any key it does not know, and claims it
-/// where it would reject one ([`claim_tag`]).
+/// Decodes the whole map as the named variant's payload struct, whose decoder skips the tag entry
+/// like any key it does not know, and claims it where it would reject one ([`claim_tag`]). The
+/// derive checks at compile time that the payload is a map-form struct; a descriptor that is not
+/// one anyway is Unsupported.
 fn internal(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -69,11 +70,15 @@ fn internal(
     open(state, frames, Phase::EnumPayload, 0)?;
     top(state.depth, frames)?.field = variant;
     state.target = Target {
-        kind: variants
+        kind: match variants
             .get(usize::from(variant))
             .ok_or(ErrorKind::Unsupported)?
             .payload
-            .unwrap_or(&NOTHING),
+        {
+            None => &NOTHING,
+            Some(kind @ DecKind::Struct { .. }) => kind,
+            Some(_) => return Err(ErrorKind::Unsupported),
+        },
         dst: at(state.target.dst, layout, variant),
     };
     open(state, frames, Phase::TagAhead, count)
@@ -255,21 +260,25 @@ pub(super) fn admit(
         Some(_) => return Err(ErrorKind::UnknownField),
     };
     claim_tag(frames, state.depth)?;
-    top(state.depth, frames)?.field = key_left;
+    state.scratch.write(Scratch {
+        tag_key_left: key_left,
+    });
     state.step = tag_value;
     Ok(Flow::Continue)
 }
 
-/// The rest of a claimed tag entry from contiguous input: what is left of its key (frame `field`
-/// bytes), then its value, which as the tag's is a definite text string. Any other value marks a
-/// stray entry, not the tag.
+/// The rest of a claimed tag entry from contiguous input: what is left of its key, kept in the
+/// scratch so the map's frame keeps the field it last decoded, then its value, which as the tag's
+/// is a definite text string. Any other value marks a stray entry, not the tag.
 fn tag_value(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
     input
-        .take_exact(usize::from(top(state.depth, frames)?.field))
+        .take_exact(usize::from(unsafe {
+            state.scratch.assume_init_ref().tag_key_left
+        }))
         .ok_or(ErrorKind::NeedContiguous)?;
     match state.carry.header(input, state.strict)? {
         Some(value) if value.major == Major::Text && !value.indefinite() => {

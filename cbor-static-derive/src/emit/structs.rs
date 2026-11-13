@@ -4,8 +4,8 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
 use super::{
-    Body, Trait, field_child, field_decode, field_encode, field_kind, field_stack, impls, key,
-    layout, level, makers, static_type,
+    Body, Trait, derives, field_child, field_decode, field_encode, field_kind, field_stack, impls,
+    key, layout, level, makers, static_type,
 };
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
@@ -61,9 +61,15 @@ pub fn structure(
         }
     });
     let labels = labels(fields);
-    let map_form = matches!(form, StructForm::Map { .. }).then(|| {
+    let map_form = [
+        (Trait::Encode, quote!(__p::Encoding)),
+        (Trait::Decode, quote!(__p::Decoding)),
+    ]
+    .into_iter()
+    .filter(|(which, _)| matches!(form, StructForm::Map { .. }) && derives(directions, *which))
+    .map(|(_, direction)| {
         let ident = &item.ident;
-        quote!(impl #generics __p::MapForm for #ident #generics {})
+        quote!(impl #generics __p::MapForm<#direction> for #ident #generics {})
     });
     let makers = makers(
         &item.ident,
@@ -77,7 +83,7 @@ pub fn structure(
     quote! {
         #layout
         #labels
-        #map_form
+        #(#map_form)*
         #makers
         #encode
         #decode

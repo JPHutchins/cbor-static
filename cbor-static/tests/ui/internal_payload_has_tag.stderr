@@ -1,0 +1,17 @@
+error[E0080]: evaluation panicked: cbor-static: a field of the payload is keyed like the enum's tag, `t`
+ --> tests/ui/internal_payload_has_tag.rs:6:10
+  |
+6 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Encode for Event>::ENCODE` failed here
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |             state: encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+  |                                       ^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Encoder::<'_, Event>::new`
+ --> src/lib.rs
+  |
+  |     match Encoder::new(value).resume(out)? {
+  |           ^^^^^^^^^^^^^^^^^^^

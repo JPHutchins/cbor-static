@@ -45,6 +45,17 @@ struct Body {
     lead: TokenStream,
 }
 
+/// Whether `directions` derives `which`. Each derive expands alone, so an impl of a trait other than
+/// the codec traits goes with the one direction that uses it, or `#[derive(Encode, Decode)]` would
+/// implement it twice (E0119).
+const fn derives(directions: Directions, which: Trait) -> bool {
+    matches!(
+        (which, directions),
+        (Trait::Encode, Directions::Encode | Directions::Both)
+            | (Trait::Decode, Directions::Decode | Directions::Both)
+    )
+}
+
 /// The `Encode` or `Decode` impl, when `directions` asks for it, around the body built from the
 /// trait path.
 fn impls(

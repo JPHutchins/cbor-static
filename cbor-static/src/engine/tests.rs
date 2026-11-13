@@ -134,6 +134,7 @@ const MAYBE_DROPS: [(usize, usize); 4] = [(10, 0), (13, 1), (16, 2), (23, 2)];
 
 #[derive(crate::Decode)]
 #[serde(untagged)]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Choice {
     Count(u32),
     Pair(Pair),
@@ -145,12 +146,14 @@ const CHOICE_DROPS: [(usize, usize); 3] = [(3, 0), (6, 1), (9, 2)];
 
 #[derive(crate::Decode)]
 #[cbor(index)]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Indexed {
     Unit,
     Pair(Pair),
 }
 
 #[derive(crate::Decode)]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum CborTagged {
     #[cbor(cbor_tag = 5)]
     Pair(Pair),
@@ -158,12 +161,14 @@ enum CborTagged {
 
 #[derive(crate::Decode)]
 #[serde(tag = "t", content = "c")]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Adjacent {
     Pair(Pair),
 }
 
 #[derive(crate::Decode)]
 #[serde(tag = "t")]
+#[expect(dead_code, reason = "decoded only for the drops it counts")]
 enum Internal {
     Pair(Pair),
 }

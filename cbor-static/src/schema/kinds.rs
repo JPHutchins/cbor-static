@@ -68,6 +68,22 @@ pub enum EncKind {
     },
 }
 
+impl EncKind {
+    #[must_use]
+    pub const fn layout(&self) -> Option<&'static Layout> {
+        match self {
+            Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
+            Self::Leaf { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Chunks { .. }
+            | Self::Seq { .. }
+            | Self::Tagged { .. }
+            | Self::Map { .. } => None,
+        }
+    }
+}
+
 /// `repr(C, u8)` keeps `ops` (or a leaf's `decode`) and `drop` each at one offset in every variant,
 /// and `default` at another, so the engine reads them without matching.
 #[repr(C, u8)]
@@ -294,7 +310,8 @@ impl DecKind {
         }
     }
 
-    pub(crate) const fn layout(&self) -> Option<&'static Layout> {
+    #[must_use]
+    pub const fn layout(&self) -> Option<&'static Layout> {
         match self {
             Self::Leaf { .. }
             | Self::Array { .. }

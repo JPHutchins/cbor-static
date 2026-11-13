@@ -4,7 +4,6 @@ mod enums;
 mod fields;
 
 use proc_macro2::Span;
-use quote::ToTokens as _;
 use syn::spanned::Spanned as _;
 use syn::{
     Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
@@ -12,7 +11,7 @@ use syn::{
 
 use attrs::StructAttrs;
 use enums::enumeration;
-use fields::{bare, fields_of, lone, names_itself, positional};
+use fields::{bare, fields_of, holds, lone, positional};
 
 const MAX_FIELDS: usize = 64;
 
@@ -199,7 +198,7 @@ fn holds_not_itself(ident: &Ident, shape: &Shape) -> syn::Result<()> {
     };
     fields
         .into_iter()
-        .find(|field| names_itself(field.ty.to_token_stream(), ident))
+        .find(|field| holds(&field.ty, ident))
         .map_or(Ok(()), |field| {
             Err(syn::Error::new(
                 field.ty.span(),

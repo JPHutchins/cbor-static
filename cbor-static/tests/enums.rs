@@ -367,6 +367,32 @@ fn an_internally_tagged_payload_that_denies_unknown_fields_claims_the_tag() {
     );
 }
 
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Unsorted {
+    z: u32,
+    a: u32,
+    c: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "t")]
+enum Wrapped {
+    V(Unsorted),
+}
+
+#[test]
+fn a_claimed_tag_leaves_strict_key_order_to_the_fields_around_it() {
+    assert_eq!(
+        decode_strict::<Wrapped>(b"\xa4\x61a\x01\x61c\x02\x61t\x61V\x61z\x03"),
+        Ok(Wrapped::V(Unsorted { z: 3, a: 1, c: 2 }))
+    );
+    assert_eq!(
+        decode_strict::<Wrapped>(b"\xa4\x61a\x01\x61t\x61V\x61z\x03\x61c\x02"),
+        Err(ErrorKind::NotDeterministic)
+    );
+}
+
 #[test]
 fn a_second_tag_key_is_a_duplicate() {
     let events: [&[u8]; 3] = [
@@ -440,4 +466,31 @@ fn adjacently_tagged_variants_put_their_payload_under_the_content_key() {
     for (bytes, error) in errors {
         assert_eq!(decode::<Message>(bytes), Err(error), "{bytes:x?}");
     }
+}
+
+/// Encode and Decode derived apart, each expanding alone: every helper impl comes once.
+#[derive(cbor_static::Encode, cbor_static::Decode, Debug, PartialEq, Clone, Copy)]
+struct Apart {
+    w: u32,
+}
+
+#[derive(cbor_static::Encode, cbor_static::Decode, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "kind")]
+enum ApartEvent {
+    Sized(Apart),
+    Moved { x: i32 },
+    Idle,
+}
+
+#[test]
+fn encode_and_decode_derived_apart_round_trip() {
+    golden_contiguous(
+        &ApartEvent::Sized(Apart { w: 3 }),
+        b"\xa2\x64kind\x65Sized\x61w\x03",
+    );
+    golden_contiguous(
+        &ApartEvent::Moved { x: -1 },
+        b"\xa2\x64kind\x65Moved\x61x\x20",
+    );
+    golden_contiguous(&ApartEvent::Idle, b"\xa1\x64kind\x64Idle");
 }

@@ -155,7 +155,7 @@ pub trait ByteString: sealed::ByteString {
 
 /// A struct encoded as a map, which is what an internally tagged enum's newtype variant must wrap:
 /// the tag entry joins the payload's own entries (D-10). The derive implements it for named structs
-/// that are not `#[cbor(array)]`.
+/// that are not `#[cbor(array)]`, in each direction it derives.
 ///
 /// ```
 /// #[derive(cbor_static::Cbor, Debug, PartialEq)]
@@ -188,10 +188,15 @@ pub trait ByteString: sealed::ByteString {
     message = "`{Self}` is not a struct encoded as a map",
     label = "an internally tagged enum's newtype variant must wrap a map-form struct"
 )]
-pub trait MapForm {}
+pub trait MapForm<Direction> {}
 
-/// Compiles only for a [`MapForm`] type.
-pub const fn map_form<T: MapForm>() {}
+/// [`MapForm`]'s directions: each derive implements it for the one it derives, so a type that
+/// derives `Encode` and `Decode` separately implements it once per direction.
+pub enum Encoding {}
+pub enum Decoding {}
+
+/// Compiles only for a [`MapForm`] type in `Direction`.
+pub const fn map_form<T: MapForm<Direction>, Direction>() {}
 
 /// A field's `default = "path"`: the derive implements it on a type of its own per field, whose
 /// `make` calls the path.

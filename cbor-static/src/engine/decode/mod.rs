@@ -138,11 +138,13 @@ pub struct State {
     strict: Option<&'static StrictOps>,
 }
 
-/// The key matcher, the skip and a string being copied, which are never live at the same time.
+/// The key matcher, the skip, a string being copied, and the bytes left of a claimed tag entry's
+/// key, which are never live at the same time.
 union Scratch {
     key: KeyMatch,
     skip: Skip,
     copy: owned::Copying,
+    tag_key_left: u8,
 }
 
 impl State {

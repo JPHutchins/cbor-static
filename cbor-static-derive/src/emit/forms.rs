@@ -6,7 +6,7 @@ use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 use syn::Type;
 
-use super::text_key;
+use super::{Trait, text_key};
 use crate::model::{EnumForm, Payload, Variant};
 
 pub struct Ops {
@@ -51,20 +51,23 @@ pub fn variant_keys(form: &EnumForm, variants: &[Variant]) -> Vec<TokenStream> {
 }
 
 /// Each variant's discriminant as Rust assigns it: the one written, or one more than the one
-/// before, starting from 0 (D-10a).
+/// before, starting from 0 (D-10a). Each is the last one written plus a count, so the tokens grow
+/// linearly with the variants.
 fn discriminants(variants: &[Variant]) -> Vec<TokenStream> {
-    variants.iter().fold(
-        Vec::new(),
-        |mut discriminants: Vec<TokenStream>, variant| {
-            let discriminant = match (&variant.discriminant, discriminants.last()) {
-                (Some(written), _) => quote!((#written) as i64),
-                (None, Some(before)) => quote!(#before + 1),
-                (None, None) => quote!(0),
+    variants
+        .iter()
+        .scan(None, |last: &mut Option<(TokenStream, i64)>, variant| {
+            let (base, after) = match (&variant.discriminant, last.take()) {
+                (Some(written), _) => (quote!((#written) as i64), 0),
+                (None, Some((base, after))) => (base, after + 1),
+                (None, None) => (quote!(0), 0),
             };
-            discriminants.push(discriminant);
-            discriminants
-        },
-    )
+            let offset = Literal::i64_unsuffixed(after);
+            let discriminant = quote!(#base + #offset);
+            *last = Some((base, after));
+            Some(discriminant)
+        })
+        .collect()
 }
 
 /// Entries after the variants: the tag and content keys of internally and adjacently tagged enums.
@@ -76,10 +79,34 @@ pub fn extras(form: &EnumForm) -> Vec<TokenStream> {
     }
 }
 
-/// What a newtype variant's payload type must be under `form`: an internally tagged payload joins
-/// the tag entry to its own entries, so it must be a map-form struct, checked at compile time.
-pub fn newtype_check(form: &EnumForm, ty: &Type) -> Option<TokenStream> {
-    matches!(form, EnumForm::Internal { .. }).then(|| quote!(__p::map_form::<#ty>();))
+/// What a newtype variant's payload type must be under `form`, checked at compile time for the
+/// direction its impl derives (`Encode` or `Decode`, at `path`): an internally tagged payload joins
+/// the tag entry to its own entries, so it must be a map-form struct, none of whose keys is the tag.
+pub fn newtype_check(
+    form: &EnumForm,
+    ty: &Type,
+    which: Trait,
+    path: &TokenStream,
+) -> Option<TokenStream> {
+    let EnumForm::Internal { tag } = form else {
+        return None;
+    };
+    let (direction, kind) = match which {
+        Trait::Encode => (
+            quote!(Encoding),
+            quote!(__p::EncKind::layout(<#ty as #path>::ENCODE)),
+        ),
+        Trait::Decode => (
+            quote!(Decoding),
+            quote!(__p::DecKind::layout(<#ty as #path>::DECODE)),
+        ),
+    };
+    let message =
+        format!("cbor-static: a field of the payload is keyed like the enum's tag, `{tag}`");
+    Some(quote! {
+        __p::map_form::<#ty, __p::#direction>();
+        assert!(!__p::names_text(#kind, #tag), #message);
+    })
 }
 
 /// The classes of initial byte the enum's values start with.

@@ -2,7 +2,10 @@ use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens as _, format_ident};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
-use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
+use syn::{
+    Attribute, Fields, FieldsUnnamed, GenericArgument, Ident, Index, Member, Path, PathArguments,
+    Type,
+};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::case::Case;
@@ -236,21 +239,36 @@ fn borrowed(field: &syn::Field, borrow: Option<&[String]>) -> syn::Result<()> {
     }
 }
 
-/// Whether `tokens` name the type `ident`, or `Self`, other than through a module path
-/// (`module::Node` is another type for all the derive knows).
-pub fn names_itself(tokens: TokenStream, ident: &Ident) -> bool {
-    let trees: Vec<TokenTree> = tokens.into_iter().collect();
-    trees.iter().enumerate().any(|(at, tree)| match tree {
-        TokenTree::Group(group) => names_itself(group.stream(), ident),
-        TokenTree::Ident(name) => (name == ident || name == "Self")
-            && !at
-                .checked_sub(1)
-                .and_then(|before| trees.get(before))
-                .is_some_and(
-                    |before| matches!(before, TokenTree::Punct(colon) if colon.as_char() == ':'),
-                ),
-        TokenTree::Punct(_) | TokenTree::Literal(_) => false,
-    })
+/// Whether a field of type `ty` holds a value of the type `ident`: it is `ident` or `Self`, or an
+/// array, a tuple or a container of the vocabulary that holds one. A type the derive does not know,
+/// such as `Id<Node>` or `PhantomData<Self>`, may name the type without holding it.
+pub fn holds(ty: &Type, ident: &Ident) -> bool {
+    const HOLDERS: [&str; 8] = [
+        "Option",
+        "Tagged",
+        "SelfDescribed",
+        "ArrayRef",
+        "MapRef",
+        "Vec",
+        "LinearMap",
+        "Box",
+    ];
+    match ty {
+        Type::Path(path) if path.qself.is_none() && path.path.is_ident("Self") => true,
+        Type::Path(path) if path.qself.is_none() => path.path.segments.last().is_some_and(|last| {
+            (path.path.segments.len() == 1 && last.ident == *ident)
+                || (HOLDERS.contains(&last.ident.to_string().as_str())
+                    && matches!(&last.arguments, PathArguments::AngleBracketed(arguments)
+                    if arguments.args.iter().any(|argument| {
+                        matches!(argument, GenericArgument::Type(inner) if holds(inner, ident))
+                    })))
+        }),
+        Type::Array(array) => holds(&array.elem, ident),
+        Type::Tuple(tuple) => tuple.elems.iter().any(|elem| holds(elem, ident)),
+        Type::Paren(inner) => holds(&inner.elem, ident),
+        Type::Group(inner) => holds(&inner.elem, ident),
+        _ => false,
+    }
 }
 
 /// The lifetimes in `tokens` other than `'static`, as written: `'a`.
@@ -296,11 +314,22 @@ pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
     })
 }
 
-/// The `keys = Label` variant a field maps to: its name in `UpperCamelCase`.
+/// The `keys = Label` variant a field maps to: its name in `UpperCamelCase`, by Rust's naming
+/// rules, which change case for any letter, where serde's `rename_all` (`Case`) changes only ASCII.
 fn camel(field: &Ident) -> Ident {
     format_ident!(
         "{}",
-        Case::Pascal.field(&field.unraw().to_string()),
+        field
+            .unraw()
+            .to_string()
+            .split('_')
+            .flat_map(|word| {
+                word.chars()
+                    .take(1)
+                    .flat_map(char::to_uppercase)
+                    .chain(word.chars().skip(1))
+            })
+            .collect::<String>(),
         span = field.span()
     )
 }
@@ -317,4 +346,38 @@ pub fn check_name(name: &str, span: Span) -> syn::Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use quote::format_ident;
+    use syn::{Type, parse_quote};
+
+    use super::holds;
+
+    #[test]
+    fn a_field_holds_its_type_directly_or_through_the_vocabulary() {
+        let node = format_ident!("Node");
+        let holding: [Type; 7] = [
+            parse_quote!(Node),
+            parse_quote!(Self),
+            parse_quote!(Option<Self>),
+            parse_quote!([Node; 2]),
+            parse_quote!((u32, Node)),
+            parse_quote!(cbor_static::ArrayRef<'a, Node<'a>>),
+            parse_quote!(heapless::Vec<Option<Node>, 4>),
+        ];
+        for ty in holding {
+            assert!(holds(&ty, &node), "{}", quote::quote!(#ty));
+        }
+        let naming: [Type; 4] = [
+            parse_quote!(Id<Node>),
+            parse_quote!(core::marker::PhantomData<Self>),
+            parse_quote!(other::Node),
+            parse_quote!(u32),
+        ];
+        for ty in naming {
+            assert!(!holds(&ty, &node), "{}", quote::quote!(#ty));
+        }
+    }
 }

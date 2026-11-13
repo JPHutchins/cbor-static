@@ -5,8 +5,8 @@ use syn::Ident;
 use super::shadows::{Placement, Shadow, mirror, owner, shadow};
 use super::structs::decode_map_ops;
 use super::{
-    Body, Trait, field_child, field_decode, field_encode, field_kind, field_stack, forms, impls,
-    key, layout, level,
+    Body, Trait, derives, field_child, field_decode, field_encode, field_kind, field_stack, forms,
+    impls, key, layout, level,
 };
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Offsets, Payload, Repr, Unknown, Variant};
@@ -79,7 +79,7 @@ pub fn enumeration(
             _ => None,
         });
     let definitions = shadows.iter().flatten().map(|s| &s.definition);
-    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows));
+    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, directions));
     let encode = impls(item, directions, Trait::Encode, |path| {
         encode_kind(variants, repr, form, &ops.encode, path)
     });
@@ -105,7 +105,14 @@ pub fn enumeration(
     }
 }
 
-fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenStream {
+/// The glue a Rust-repr enum's encoding (`EnumGlue`) and decoding (`Assemble`) go through, each with
+/// the direction that uses it.
+fn glue(
+    item: &Item,
+    variants: &[Variant],
+    shadows: &[Option<Shadow>],
+    directions: Directions,
+) -> TokenStream {
     let ident = &item.ident;
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let indices = variants.iter().enumerate().map(|(index, variant)| {
@@ -161,14 +168,23 @@ fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenS
                 }
             }
         });
-    quote! {
-        #[automatically_derived]
-        impl #generics __p::EnumGlue for #ident #generics {
-            fn variant_index(&self) -> u8 { match self { #(#indices),* } }
-            fn field_ptr(&self, field: u8) -> *const u8 {
-                match (self, field) { #(#pointers,)* _ => ::core::ptr::null() }
+    let enum_glue = derives(directions, Trait::Encode).then(|| {
+        quote! {
+            #[automatically_derived]
+            impl #generics __p::EnumGlue for #ident #generics {
+                fn variant_index(&self) -> u8 { match self { #(#indices),* } }
+                fn field_ptr(&self, field: u8) -> *const u8 {
+                    match (self, field) { #(#pointers,)* _ => ::core::ptr::null() }
+                }
             }
         }
+    });
+    let assembles = derives(directions, Trait::Decode)
+        .then_some(assembles)
+        .into_iter()
+        .flatten();
+    quote! {
+        #enum_glue
         #(#assembles)*
     }
 }
@@ -188,7 +204,7 @@ fn encode_kind(
     let payloads = variants.iter().map(|variant| match &variant.payload {
 		Payload::Unit => quote!(None),
 		Payload::Newtype(field) => {
-			let check = forms::newtype_check(form, &field.ty);
+			let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
 			let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
 			quote!(Some({ #check #kind }))
 		}
@@ -226,7 +242,7 @@ fn decode_kind(
 		let payload = match &variant.payload {
 			Payload::Unit => quote!(None),
 			Payload::Newtype(field) => {
-				let check = forms::newtype_check(form, &field.ty);
+				let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
 				let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
 				quote!(Some({ #check #kind }))
 			}

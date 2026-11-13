@@ -377,11 +377,11 @@ pub mod __private {
         ENCODE_SKIPPED, ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of,
         index_tag, offset, wraps, write_default, write_made, write_tag,
     };
-    pub use crate::keys::{Key, field, names, names_len};
+    pub use crate::keys::{Key, field, names, names_len, names_text};
     pub use crate::lead::Lead;
     pub use crate::schema::{
-        Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout, MakeDefault,
-        MapForm, map_form,
+        Assemble, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout, Layout,
+        MakeDefault, MapForm, map_form,
     };
     pub use crate::stack::{Level, Widest, deeper};
 }
