@@ -1,0 +1,5 @@
+error: cbor-static: unions are unsupported
+ --> tests/ui/union.rs:2:1
+  |
+2 | union Bits {
+  | ^^^^^

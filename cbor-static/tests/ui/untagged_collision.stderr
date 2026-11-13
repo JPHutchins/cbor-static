@@ -1,0 +1,17 @@
+error[E0080]: evaluation panicked: cbor-static: untagged variants `Small` and `Large` can start with the same item
+ --> tests/ui/untagged_collision.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Decode<'_> for Ambiguous>::DECODE` failed here
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |             state: decode::State::new(T::DECODE, slot.as_mut_ptr().cast()),
+  |                                       ^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Decoder::<'_, '_, Ambiguous>::new`
+ --> src/lib.rs
+  |
+  |     whole(&mut Decoder::new(slot), input)
+  |                ^^^^^^^^^^^^^^^^^^
