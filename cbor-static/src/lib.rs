@@ -50,6 +50,39 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! A field maps to the `keys` variant its name gives in `UpperCamelCase`, so `key_ops` maps to
+//! `KeyOps` (R-122). A field without its variant does not compile:
+//!
+//! ```compile_fail,E0599
+//! #[derive(Clone, Copy)]
+//! enum Label {
+//!     Alg = 1,
+//! }
+//!
+//! #[derive(cbor_static::Cbor)]
+//! #[cbor(keys = Label)]
+//! struct Key {
+//!     alg: i32,
+//!     key_ops: u32,
+//! }
+//! ```
+//!
+//! Nor does a variant without its field:
+//!
+//! ```compile_fail,E0004
+//! #[derive(Clone, Copy)]
+//! enum Label {
+//!     Alg = 1,
+//!     KeyOps = 4,
+//! }
+//!
+//! #[derive(cbor_static::Cbor)]
+//! #[cbor(keys = Label)]
+//! struct Key {
+//!     alg: i32,
+//! }
+//! ```
+//!
 //! Positional structs, whose trailing `None`s are truncated, and tuples (D-09, D-20):
 //!
 //! ```

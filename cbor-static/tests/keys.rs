@@ -236,3 +236,31 @@ fn rename_all_renames_unrenamed_text_keys_and_variant_names_as_serde_does() {
     );
     assert_eq!(decode::<Op>(b"\x67ReadAll"), Err(ErrorKind::UnknownVariant));
 }
+
+#[derive(Clone, Copy)]
+enum KeyParam {
+    Kty = 1,
+    KeyOps = 4,
+    BaseIv = 5,
+}
+
+/// R-122: a field's `snake_case` name maps to its `keys` variant in `UpperCamelCase`.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(keys = KeyParam)]
+struct Params {
+    kty: u32,
+    key_ops: u32,
+    base_iv: u32,
+}
+
+#[test]
+fn a_snake_case_field_takes_its_upper_camel_case_variant_as_key() {
+    golden(
+        &Params {
+            kty: 2,
+            key_ops: 1,
+            base_iv: 9,
+        },
+        b"\xa3\x01\x02\x04\x01\x05\x09",
+    );
+}
