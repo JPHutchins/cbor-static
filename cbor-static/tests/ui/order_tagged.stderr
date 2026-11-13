@@ -1,0 +1,15 @@
+error: cbor-static: an internally or adjacently tagged enum takes no key order
+ --> tests/ui/order_tagged.rs:1:10
+  |
+1 | #[derive(cbor_static::Encode)]
+  |          ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Encode` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: cbor-static: an internally or adjacently tagged enum takes no key order
+ --> tests/ui/order_tagged.rs:8:10
+  |
+8 | #[derive(cbor_static::Encode)]
+  |          ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Encode` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -8,7 +8,7 @@ use crate::engine::{
 use crate::error::ErrorKind;
 use crate::half::F16;
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Order};
 use crate::stack::{Level, depth_of};
 use crate::wire::{FALSE, Major, NULL, TRUE, float};
 
@@ -294,6 +294,7 @@ unsafe impl<T: Encode> Encode for Option<T> {
     const ENCODE: &'static EncKind = T::OPTION_ENCODE;
     type Stack = T::Stack;
     const MAX_DEPTH: usize = T::MAX_DEPTH;
+    const ORDER: Order = T::ORDER;
 }
 
 #[allow(unsafe_code)]

@@ -4,6 +4,7 @@
 mod array;
 mod cbor_tag;
 mod chunks;
+mod deterministic;
 mod elements;
 mod enums;
 mod index;
@@ -23,6 +24,7 @@ use core::ptr;
 pub use array::ARRAY;
 pub use cbor_tag::CBOR_TAG;
 pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
+pub use deterministic::{BYTEWISE, DeterministicOps, LENGTH_FIRST};
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
@@ -91,7 +93,24 @@ impl State {
             value,
             depth: 0,
             started: false,
-            pending: Pending::new(),
+            pending: Pending::new(None),
+            offset: 0,
+        }
+    }
+
+    /// An encoder of a root type that selects deterministic encoding (D-11b).
+    #[inline(never)]
+    pub(crate) const fn deterministic(
+        root: &'static EncKind,
+        value: *const u8,
+        ops: &'static DeterministicOps,
+    ) -> Self {
+        Self {
+            root,
+            value,
+            depth: 0,
+            started: false,
+            pending: Pending::new(Some(ops)),
             offset: 0,
         }
     }
@@ -138,6 +157,54 @@ pub(crate) fn next_byte(
     }
 }
 
+/// The bytewise order of two values' encodings, each encoded a byte at a time on half of `frames`:
+/// how `Strict` checks a map's keys rise (#12 Q29) and a deterministic map sorts them (Q33).
+#[cfg(feature = "heapless")]
+pub(crate) fn bytewise(
+    kind: &'static EncKind,
+    a: *const u8,
+    b: *const u8,
+    frames: &mut [MaybeUninit<Frame>],
+    deterministic: Option<&'static DeterministicOps>,
+) -> Result<core::cmp::Ordering, ErrorKind> {
+    let (for_a, for_b) = frames.split_at_mut(frames.len() / 2);
+    let (mut a, mut b) = (under(kind, a, deterministic), under(kind, b, deterministic));
+    loop {
+        match (next_byte(&mut a, for_a)?, next_byte(&mut b, for_b)?) {
+            (Some(x), Some(y)) if x == y => {}
+            (x, y) => return Ok(x.cmp(&y)),
+        }
+    }
+}
+
+/// The length of a value's encoding, encoded a byte at a time on `frames`.
+#[cfg(feature = "heapless")]
+fn encoded_len(
+    kind: &'static EncKind,
+    at: *const u8,
+    frames: &mut [MaybeUninit<Frame>],
+    deterministic: Option<&'static DeterministicOps>,
+) -> Result<usize, ErrorKind> {
+    let mut state = under(kind, at, deterministic);
+    let mut len = 0;
+    while next_byte(&mut state, frames)?.is_some() {
+        len += 1;
+    }
+    Ok(len)
+}
+
+#[cfg(feature = "heapless")]
+const fn under(
+    kind: &'static EncKind,
+    at: *const u8,
+    deterministic: Option<&'static DeterministicOps>,
+) -> State {
+    match deterministic {
+        Some(ops) => State::deterministic(kind, at, ops),
+        None => State::new(kind, at),
+    }
+}
+
 fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool, ErrorKind> {
     if !state.started {
         state.started = true;
@@ -174,7 +241,8 @@ fn emit(
             | EncKind::Chunks { ops }
             | EncKind::Seq { ops, .. }
             | EncKind::Tagged { ops, .. }
-            | EncKind::Map { ops, .. } => match (ops.open)(state, frames, next.kind, next.at)? {
+            | EncKind::Map { ops, .. }
+            | EncKind::Select { ops } => match (ops.open)(state, frames, next.kind, next.at)? {
                 Some(child) => next = child,
                 None => return Ok(()),
             },
@@ -252,7 +320,8 @@ fn ops(kind: &EncKind) -> Result<&'static EncOps, ErrorKind> {
         | EncKind::Chunks { ops }
         | EncKind::Seq { ops, .. }
         | EncKind::Tagged { ops, .. }
-        | EncKind::Map { ops, .. } => Ok(ops),
+        | EncKind::Map { ops, .. }
+        | EncKind::Select { ops } => Ok(ops),
         EncKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

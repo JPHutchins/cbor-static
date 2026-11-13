@@ -27,15 +27,34 @@ pub enum Shape {
     Struct {
         fields: Vec<Field>,
         form: StructForm,
+        order: Mode,
     },
     Unit,
-    Newtype(Box<Field>),
+    /// A newtype or `transparent` struct, which a key order makes a deterministic root of its
+    /// field.
+    Newtype {
+        field: Box<Field>,
+        order: Mode,
+    },
     Enum {
         variants: Vec<Variant>,
         repr: Repr,
         form: EnumForm,
         offsets: Offsets,
+        order: Mode,
     },
+}
+
+/// The key order a type writes its own maps in (D-01, D-11b).
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Declaration order.
+    #[default]
+    Declared,
+    /// `deterministic`: RFC 8949 §4.2.1, bytewise by the keys' encodings, sorted at compile time.
+    Bytewise,
+    /// `length_first`: RFC 8949 §4.2.3, shorter encodings first.
+    LengthFirst,
 }
 
 /// Where a primitive-`repr` enum's payload offsets come from (D-21, R-129).
@@ -141,14 +160,22 @@ impl Item {
             Data::Struct(data) => match &data.fields {
                 Fields::Named(named) => structure(&ast.attrs, named.named.iter())?,
                 Fields::Unnamed(unnamed) => {
-                    let transparent = tuple_attrs(&ast.attrs)?;
-                    match (<[Field; 1]>::try_from(positional(unnamed)?), transparent) {
-                        (Ok([field]), _) => Shape::Newtype(Box::new(field)),
-                        (Err(fields), false) => Shape::Struct {
+                    let (transparent, order) = tuple_attrs(&ast.attrs)?;
+                    match (
+                        <[Field; 1]>::try_from(positional(unnamed)?),
+                        transparent,
+                        order,
+                    ) {
+                        (Ok([field]), _, order) => Shape::Newtype {
+                            field: Box::new(field),
+                            order: order.unwrap_or_default(),
+                        },
+                        (Err(fields), false, order) => Shape::Struct {
                             fields,
                             form: StructForm::Array,
+                            order: order.unwrap_or_default(),
                         },
-                        (Err(_), true) => return Err(not_one_field()),
+                        (Err(_), true, _) => return Err(not_one_field()),
                     }
                 }
                 Fields::Unit => {
@@ -186,7 +213,7 @@ fn holds_not_itself(ident: &Ident, shape: &Shape) -> syn::Result<()> {
     match shape {
         Shape::Struct { fields, .. } => fields.iter().collect(),
         Shape::Unit => Vec::new(),
-        Shape::Newtype(field) => vec![field.as_ref()],
+        Shape::Newtype { field, .. } => vec![field.as_ref()],
         Shape::Enum { variants, .. } => variants
             .iter()
             .flat_map(|variant| match &variant.payload {
@@ -243,6 +270,7 @@ fn structure<'a>(
     Ok(Shape::Struct {
         fields: fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?,
         form,
+        order: attrs.order.unwrap_or_default(),
     })
 }
 
@@ -260,6 +288,7 @@ fn transparent<'a>(
                 deny_unknown_fields: false,
                 rename_all: None,
                 transparent: true,
+                order,
             },
             1,
             Some(field),
@@ -270,7 +299,10 @@ fn transparent<'a>(
                     .clone()
                     .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?,
             );
-            lone(field, member).map(|field| Shape::Newtype(Box::new(field)))
+            lone(field, member).map(|field| Shape::Newtype {
+                field: Box::new(field),
+                order: order.unwrap_or_default(),
+            })
         }
         (_, 1, _) => Err(syn::Error::new(
             Span::call_site(),
@@ -280,8 +312,8 @@ fn transparent<'a>(
     }
 }
 
-/// A tuple struct takes `transparent` alone, which it already is when it has one field.
-fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<bool> {
+/// A tuple struct takes `transparent`, which it already is when it has one field, or a key order.
+fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<(bool, Option<Mode>)> {
     match attrs::parse(attrs)?
         .into_iter()
         .try_fold(StructAttrs::default(), StructAttrs::with)?
@@ -292,10 +324,12 @@ fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<bool> {
             deny_unknown_fields: false,
             rename_all: None,
             transparent,
-        } => Ok(transparent),
+            order,
+        } => Ok((transparent, order)),
         _ => Err(syn::Error::new(
             Span::call_site(),
-            "cbor-static: a tuple struct takes only `transparent`",
+            "cbor-static: a tuple struct takes only `transparent`, `deterministic` or \
+             `length_first`",
         )),
     }
 }

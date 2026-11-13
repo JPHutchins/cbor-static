@@ -36,10 +36,10 @@ pub use decode::{
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{LINEAR_MAP as DECODE_LINEAR_MAP, SEQ as DECODE_SEQ};
 pub use encode::{
-    ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, CBOR_TAG as ENCODE_CBOR_TAG,
-    ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps, INDEX as ENCODE_INDEX,
-    INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
-    UNTAGGED as ENCODE_UNTAGGED,
+    ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, BYTEWISE, CBOR_TAG as ENCODE_CBOR_TAG,
+    DeterministicOps, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
+    INDEX as ENCODE_INDEX, INTERNAL as ENCODE_INTERNAL, LENGTH_FIRST, MAP as ENCODE_MAP,
+    OPTION as ENCODE_OPTION, TAG as ENCODE_TAG, UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 #[cfg(feature = "heapless")]
@@ -123,7 +123,12 @@ pub struct Decoder<'de, 's, T: Decode<'de>> {
 impl<'v, T: Encode> Encoder<'v, T> {
     pub fn new(value: &'v T) -> Self {
         Self {
-            state: encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+            state: match T::DETERMINISTIC {
+                None => encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+                Some(ops) => {
+                    encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
+                }
+            },
             stack: MaybeUninit::uninit(),
             value: PhantomData,
         }

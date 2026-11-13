@@ -65,6 +65,8 @@ pub enum EncKind {
         len: LenFn,
         entry: EntryFn,
     },
+    /// What a deterministic `Map`'s frame encodes in place of each key: its ops pick the key.
+    Select { ops: &'static EncOps },
 }
 
 impl EncKind {
@@ -78,7 +80,8 @@ impl EncKind {
             | Self::Chunks { .. }
             | Self::Seq { .. }
             | Self::Tagged { .. }
-            | Self::Map { .. } => None,
+            | Self::Map { .. }
+            | Self::Select { .. } => None,
         }
     }
 }

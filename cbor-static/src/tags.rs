@@ -3,7 +3,7 @@
 
 use crate::engine::{DECODE_SELF_DESCRIBED, ENCODE_TAG, dec_tagged, drop_fn};
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Order};
 use crate::stack::Level;
 use crate::wire::SELF_DESCRIBE;
 
@@ -83,6 +83,7 @@ unsafe impl<const TAG: u64, T: Encode> Encode for Tagged<TAG, T> {
     };
     type Stack = Level<T::Stack>;
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
+    const ORDER: Order = T::ORDER;
 }
 
 #[allow(unsafe_code)]
@@ -107,6 +108,7 @@ unsafe impl<T: Encode> Encode for SelfDescribed<T> {
     };
     type Stack = Level<T::Stack>;
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
+    const ORDER: Order = T::ORDER;
 }
 
 #[allow(unsafe_code)]

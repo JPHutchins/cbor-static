@@ -4,21 +4,27 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
 use super::{
-    Body, Trait, derives, field_child, field_decode, field_encode, field_kind, field_stack, impls,
-    key, layout, level, makers, static_type,
+    Body, Order, Trait, admitted, arranged, derives, field_child, field_decode, field_encode,
+    field_kind, field_stack, impls, joined, key, layout, level, makers, ordered, part_order,
+    static_type,
 };
 use crate::Directions;
-use crate::model::{Field, Item, Key, StructForm, Unknown};
+use crate::model::{Field, Item, Key, Mode, StructForm, Unknown};
 
 pub fn structure(
     item: &Item,
     fields: &[Field],
-    form: StructForm,
+    (form, mode): (StructForm, Mode),
     directions: Directions,
 ) -> TokenStream {
     let static_ty = static_type(item);
+    let name = format_ident!("LAYOUT");
+    let sort = match form {
+        StructForm::Map { .. } => mode,
+        StructForm::Array => Mode::Declared,
+    };
     let layout = layout(
-        &format_ident!("LAYOUT"),
+        &name,
         fields.iter().map(|field| {
             let member = &field.member;
             (
@@ -27,6 +33,7 @@ pub fn structure(
                 field.omit_if_absent,
             )
         }),
+        sort,
     );
     let (encode_ops, decode_ops) = match form {
         StructForm::Map { unknown } => (quote!(__p::ENCODE_MAP), decode_map_ops(fields, unknown)),
@@ -38,26 +45,47 @@ pub fn structure(
     };
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
-        let kinds = fields.iter().map(|field| field_encode(field, path));
+        let kinds = arranged(
+            &name,
+            sort,
+            fields.iter().map(|field| field_encode(field, path)),
+        );
+        let parts = fields
+            .iter()
+            .filter_map(|field| Some((member_name(field), part_order(field, path)?)));
+        let checks = admitted(mode, parts.clone());
+        let kind = quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: #kinds, field_ptr: None });
         Body {
-            kind: quote!(&__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
+            kind: if checks.is_empty() {
+                quote!(&#kind)
+            } else {
+                quote!(&{ #checks #kind })
+            },
             stack,
             depth,
             lead: lead.clone(),
+            order: match form {
+                StructForm::Map { .. } => ordered(mode),
+                StructForm::Array => joined(mode, parts.map(|(_, part)| part)),
+            },
         }
     });
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let decode = impls(item, directions, Trait::Decode, |path| {
         let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
-        let kinds = fields
-            .iter()
-            .enumerate()
-            .map(|(index, field)| field_decode(field, index, &item.ident, generics.as_ref(), path));
+        let kinds = arranged(
+            &name,
+            sort,
+            fields.iter().enumerate().map(|(index, field)| {
+                field_decode(field, index, &item.ident, generics.as_ref(), path)
+            }),
+        );
         Body {
-            kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
+            kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: #kinds, drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
             lead,
+            order: Order::default(),
         }
     });
     let labels = labels(fields);
@@ -92,8 +120,14 @@ pub fn structure(
 
 /// A unit struct, as `()`, or a newtype or `transparent` struct, as its `field` (D-08): the wrapped
 /// type's descriptor, behind a const assert that the struct is laid out as that type. A decoded
-/// value drops as the wrapper, which may have its own `Drop`.
-pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -> TokenStream {
+/// value drops as the wrapper, which may have its own `Drop`. It commits to its field's key order,
+/// or in `mode`, to that one, which makes it a deterministic root of the field.
+pub fn transparent(
+    item: &Item,
+    field: Option<&Field>,
+    mode: Mode,
+    directions: Directions,
+) -> TokenStream {
     let (ty, bytes, offset) = field.map_or_else(
         || (quote!(()), false, quote!(0)),
         |field| {
@@ -112,11 +146,20 @@ pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = field_child(&ty, bytes, path);
         let kind = field_kind(&ty, bytes, Trait::Encode, path);
+        let part = (!bytes).then(|| quote!(<#ty as #path>::ORDER));
+        let checks = admitted(
+            mode,
+            field
+                .zip(part.clone())
+                .map(|(field, part)| (member_name(field), part))
+                .into_iter(),
+        );
         Body {
-            kind: quote!({ #wraps #kind }),
+            kind: quote!({ #wraps #checks #kind }),
             stack,
             depth,
             lead: TokenStream::new(),
+            order: joined(mode, part.into_iter()),
         }
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
@@ -138,6 +181,7 @@ pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -
             } else {
                 quote!(<#ty as #path>::LEAD)
             },
+            order: Order::default(),
         }
     });
     quote! {
@@ -176,4 +220,9 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
     labels.first().map(|label| {
         quote!(const _: fn(#label) = |__label| match __label { #(#label::#variants)|* => {} };)
     })
+}
+
+/// A field's name, for a diagnostic.
+fn member_name(field: &Field) -> String {
+    field.member.to_token_stream().to_string()
 }

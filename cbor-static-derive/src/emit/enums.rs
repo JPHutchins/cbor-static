@@ -1,20 +1,20 @@
 use proc_macro2::{Literal, TokenStream};
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::Ident;
 
 use super::shadows::{Placement, Shadow, mirror, owner, shadow};
 use super::structs::decode_map_ops;
 use super::{
-    Body, Trait, derives, field_child, field_decode, field_encode, field_kind, field_stack, forms,
-    impls, key, layout, level,
+    Body, Order, Trait, admitted, arranged, derives, field_child, field_decode, field_encode,
+    field_kind, field_stack, forms, impls, joined, key, layout, level, ordered, part_order, sorted,
 };
 use crate::Directions;
-use crate::model::{EnumForm, Field, Item, Offsets, Payload, Repr, Unknown, Variant};
+use crate::model::{EnumForm, Field, Item, Mode, Offsets, Payload, Repr, Unknown, Variant};
 
 pub fn enumeration(
     item: &Item,
     variants: &[Variant],
-    (repr, offsets): (Repr, Offsets),
+    (repr, offsets, mode): (Repr, Offsets, Mode),
     form: &EnumForm,
     directions: Directions,
 ) -> TokenStream {
@@ -61,6 +61,7 @@ pub fn enumeration(
                     .into_iter()
                     .map(|key| (key, quote!(0), false)),
             ),
+        Mode::Declared,
     );
     let payload_layouts = variants
         .iter()
@@ -75,20 +76,21 @@ pub fn enumeration(
                         field.omit_if_absent,
                     )
                 }),
+                mode,
             )),
             _ => None,
         });
     let definitions = shadows.iter().flatten().map(|s| &s.definition);
-    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, directions));
+    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, (directions, mode)));
     let encode = impls(item, directions, Trait::Encode, |path| {
-        encode_kind(variants, repr, form, &ops.encode, path)
+        encode_kind(variants, (repr, mode), form, &ops.encode, path)
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         decode_kind(
             ident,
             variants,
             &shadows,
-            repr,
+            (repr, mode),
             generics.as_ref(),
             form,
             path,
@@ -106,12 +108,13 @@ pub fn enumeration(
 }
 
 /// The glue a Rust-repr enum's encoding (`EnumGlue`) and decoding (`Assemble`) go through, each with
-/// the direction that uses it.
+/// the direction that uses it. A struct variant's fields are asked for by their place in its layout,
+/// which in a key order other than declaration order is the sorted one.
 fn glue(
     item: &Item,
     variants: &[Variant],
     shadows: &[Option<Shadow>],
-    directions: Directions,
+    (directions, mode): (Directions, Mode),
 ) -> TokenStream {
     let ident = &item.ident;
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
@@ -134,7 +137,13 @@ fn glue(
 				.enumerate()
 				.map(|(index, Field { member, .. })| {
 					let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
-					quote!((Self::#name { #member: value, .. }, #index) => ::core::ptr::from_ref(value).cast())
+					match mode {
+						Mode::Declared => quote!((Self::#name { #member: value, .. }, #index) => ::core::ptr::from_ref(value).cast()),
+						Mode::Bytewise | Mode::LengthFirst => {
+							let order = sorted(&layout_ident(name));
+							quote!((Self::#name { #member: value, .. }, field) if #order.get(usize::from(field)) == Some(&#index) => ::core::ptr::from_ref(value).cast())
+						}
+					}
 				})
 				.collect(),
 		}
@@ -191,7 +200,7 @@ fn glue(
 
 fn encode_kind(
     variants: &[Variant],
-    repr: Repr,
+    (repr, mode): (Repr, Mode),
     form: &EnumForm,
     ops: &TokenStream,
     path: &TokenStream,
@@ -210,16 +219,47 @@ fn encode_kind(
 		}
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
-			let kinds = fields.iter().map(|field| field_encode(field, path));
-			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
+			let kinds = arranged(&name, mode, fields.iter().map(|field| field_encode(field, path)));
+			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: #kinds, field_ptr: #field_ptr }))
 		}
 	});
     let (stack, depth) = stack(variants, path, false);
+    let parts = variants.iter().flat_map(|variant| match &variant.payload {
+        Payload::Unit => Vec::new(),
+        Payload::Newtype(field) => part_order(field, path)
+            .map(|part| (variant.ident.to_string(), part))
+            .into_iter()
+            .collect(),
+        Payload::Struct(fields) => fields
+            .iter()
+            .filter_map(|field| {
+                Some((
+                    format!("{}::{}", variant.ident, field.member.to_token_stream()),
+                    part_order(field, path)?,
+                ))
+            })
+            .collect(),
+    });
+    let checks = admitted(mode, parts.clone());
+    let kind = quote!(__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr });
     Body {
-        kind: quote!(&__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr }),
+        kind: if checks.is_empty() {
+            quote!(&#kind)
+        } else {
+            quote!(&{ #checks #kind })
+        },
         stack,
         depth,
         lead: TokenStream::new(),
+        order: if variants
+            .iter()
+            .any(|variant| matches!(variant.payload, Payload::Struct(_)))
+            || matches!(form, EnumForm::Internal { .. } | EnumForm::Adjacent { .. })
+        {
+            ordered(mode)
+        } else {
+            joined(mode, parts.map(|(_, part)| part))
+        },
     }
 }
 
@@ -227,7 +267,7 @@ fn decode_kind(
     ident: &Ident,
     variants: &[Variant],
     shadows: &[Option<Shadow>],
-    repr: Repr,
+    (repr, mode): (Repr, Mode),
     generics: Option<&TokenStream>,
     form: &EnumForm,
     path: &TokenStream,
@@ -249,9 +289,9 @@ fn decode_kind(
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
 				let owner = owner(ident, variant);
-				let kinds = fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, generics, path));
+				let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, generics, path)));
 				let ops = decode_map_ops(fields, Unknown::Skip);
-				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: &[#(#kinds),*], drop: None }))
+				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: #kinds, drop: None }))
 			}
 		};
 		quote!(__p::DecVariant { payload: #payload, assemble: #assemble })
@@ -281,6 +321,7 @@ fn decode_kind(
         stack,
         depth,
         lead: forms::lead(form, variants, path),
+        order: Order::default(),
     }
 }
 

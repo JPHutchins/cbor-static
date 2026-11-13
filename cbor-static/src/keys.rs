@@ -8,7 +8,7 @@
 
 use crate::engine::offset;
 use crate::lead::Lead;
-use crate::schema::{FieldLayout, Layout};
+use crate::schema::{FieldLayout, Layout, head_before};
 use crate::wire::{Head, Major};
 
 /// An entry's identifier on the wire.
@@ -66,6 +66,78 @@ pub const fn field(keys: &[Key], index: usize, at: usize, omit_if_absent: bool) 
         #[expect(clippy::cast_possible_truncation, reason = "asserted above")]
         name_len: len as u8,
         omit_if_absent,
+    }
+}
+
+/// The order of `fields`' identifiers in `names` under deterministic encoding (D-11b), as indices
+/// into `fields`: bytewise by their encodings (RFC 8949 §4.2.1), or with `length_first`, shorter
+/// encodings first (§4.2.3). Entries that encode alike keep their order.
+#[must_use]
+pub const fn sorted<const N: usize>(
+    names: &[u8],
+    fields: &[FieldLayout; N],
+    length_first: bool,
+) -> [u8; N] {
+    let mut order = [0; N];
+    let mut at = 0;
+    while at < N {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a layout has at most 64 entries"
+        )]
+        let entry = at as u8;
+        let mut hole = at;
+        while hole > 0
+            && precedes(
+                identifier(names, fields[at]),
+                identifier(names, fields[order[hole - 1] as usize]),
+                length_first,
+            )
+        {
+            order[hole] = order[hole - 1];
+            hole -= 1;
+        }
+        order[hole] = entry;
+        at += 1;
+    }
+    order
+}
+
+/// `items` in the order [`sorted`] gives.
+#[must_use]
+pub const fn permuted<T: Copy, const N: usize>(items: [T; N], order: &[u8; N]) -> [T; N] {
+    let mut out = items;
+    let mut at = 0;
+    while at < N {
+        out[at] = items[order[at] as usize];
+        at += 1;
+    }
+    out
+}
+
+const fn identifier(names: &[u8], place: FieldLayout) -> &[u8] {
+    let name_at = place.name_at as usize;
+    names
+        .split_at(name_at + place.name_len as usize)
+        .0
+        .split_at(name_at - head_before(place.name_len))
+        .1
+}
+
+const fn precedes(a: &[u8], b: &[u8], length_first: bool) -> bool {
+    if length_first && a.len() != b.len() {
+        a.len() < b.len()
+    } else {
+        bytewise_less(a, b)
+    }
+}
+
+const fn bytewise_less(a: &[u8], b: &[u8]) -> bool {
+    match (a.split_first(), b.split_first()) {
+        (Some((x, a)), Some((y, b))) if *x == *y => bytewise_less(a, b),
+        (Some((x, _)), Some((y, _))) => *x < *y,
+        (None, b) => b.is_some(),
+        (Some(_), None) => false,
     }
 }
 
@@ -181,7 +253,7 @@ const fn copied<const N: usize>(blob: [u8; N], at: usize, bytes: &[u8]) -> [u8; 
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, field, names, names_len};
+    use super::{Key, field, names, names_len, permuted, sorted};
     use crate::lead::Lead;
     use crate::schema::Layout;
 
@@ -245,5 +317,45 @@ mod tests {
             (LAYOUT.fields[1].offset, LAYOUT.fields[1].omit_if_absent),
             (4, true)
         );
+    }
+
+    #[test]
+    fn entries_sort_bytewise_or_shorter_first_by_their_whole_encodings() {
+        const UNSORTED: &[Key] = &[
+            Key::Text("aa"),
+            Key::Int(-1),
+            Key::Text("a twenty-four byte name!"),
+            Key::Text("z"),
+            Key::Int(100),
+            Key::Int(10),
+        ];
+        const UNSORTED_NAMES: [u8; names_len(UNSORTED)] = names(UNSORTED);
+        const FIELDS: [crate::schema::FieldLayout; 6] = [
+            field(UNSORTED, 0, 0, false),
+            field(UNSORTED, 1, 0, false),
+            field(UNSORTED, 2, 0, false),
+            field(UNSORTED, 3, 0, false),
+            field(UNSORTED, 4, 0, false),
+            field(UNSORTED, 5, 0, false),
+        ];
+        assert_eq!(sorted(&UNSORTED_NAMES, &FIELDS, false), [5, 4, 1, 3, 0, 2]);
+        assert_eq!(sorted(&UNSORTED_NAMES, &FIELDS, true), [5, 1, 4, 3, 0, 2]);
+    }
+
+    #[test]
+    fn entries_that_encode_alike_keep_their_order() {
+        const TWICE: &[Key] = &[Key::Text("b"), Key::Text("a"), Key::Text("b")];
+        const TWICE_NAMES: [u8; names_len(TWICE)] = names(TWICE);
+        const FIELDS: [crate::schema::FieldLayout; 3] = [
+            field(TWICE, 0, 0, false),
+            field(TWICE, 1, 0, false),
+            field(TWICE, 2, 0, false),
+        ];
+        assert_eq!(sorted(&TWICE_NAMES, &FIELDS, false), [1, 0, 2]);
+    }
+
+    #[test]
+    fn items_take_the_order_given() {
+        assert_eq!(permuted(['a', 'b', 'c'], &[2, 0, 1]), ['c', 'a', 'b']);
     }
 }

@@ -117,19 +117,8 @@ fn keys(
     later: *const u8,
     frames: &mut [MaybeUninit<Frame>],
 ) -> Result<(), ErrorKind> {
-    use super::encode::{State, next_byte};
-
-    let (for_earlier, for_later) = frames.split_at_mut(frames.len() / 2);
-    let (mut earlier, mut later) = (State::new(kind, earlier), State::new(kind, later));
-    loop {
-        match (
-            next_byte(&mut earlier, for_earlier)?,
-            next_byte(&mut later, for_later)?,
-        ) {
-            (Some(a), Some(b)) if a == b => {}
-            (a, b) => return deterministic(a < b),
-        }
-    }
+    super::encode::bytewise(kind, earlier, later, frames, None)
+        .and_then(|order| deterministic(order.is_lt()))
 }
 
 fn deterministic(holds: bool) -> Result<(), ErrorKind> {

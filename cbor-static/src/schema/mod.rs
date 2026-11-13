@@ -2,13 +2,17 @@
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
 mod kinds;
+mod order;
 
-use crate::engine::{DECODE_OPTION, ENCODE_OPTION, absent_option, drop_fn, none, some, some_ptr};
+use crate::engine::{
+    DECODE_OPTION, DeterministicOps, ENCODE_OPTION, absent_option, drop_fn, none, some, some_ptr,
+};
 use crate::lead::Lead;
 
 #[cfg(feature = "heapless")]
 pub use kinds::MapGlue;
 pub use kinds::{DecKind, DecVariant, EncKind};
+pub use order::Order;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
 ///
@@ -50,6 +54,12 @@ pub unsafe trait Encode: Sized {
         some: Self::ENCODE,
         some_ptr: some_ptr::<Self>,
     };
+    /// The deterministic encoding a value of this type selects as the root (D-11b).
+    #[doc(hidden)]
+    const DETERMINISTIC: Option<&'static DeterministicOps> = None;
+    /// The map key order this type's encoding commits to (D-11b).
+    #[doc(hidden)]
+    const ORDER: Order = Order::Any;
 }
 
 /// Decodes through the engine via a constant descriptor; implemented by `#[derive(Decode)]`.
@@ -239,10 +249,16 @@ pub trait Assemble<const V: u8>: Sized {
 impl Layout {
     pub(crate) fn name_item(&self, index: u8) -> &'static [u8] {
         self.fields.get(usize::from(index)).map_or(&[], |field| {
-            let start = usize::from(field.name_at) - if field.name_len < 24 { 1 } else { 2 };
+            let start = usize::from(field.name_at) - head_before(field.name_len);
             self.names
                 .get(start..usize::from(field.name_at) + usize::from(field.name_len))
                 .unwrap_or(&[])
         })
     }
+}
+
+/// The bytes of an identifier's item before its `name_at`, by its `name_len`: its initial byte, and
+/// the length byte of a text of 24 bytes or more.
+pub(crate) const fn head_before(name_len: u8) -> usize {
+    if name_len < 24 { 1 } else { 2 }
 }

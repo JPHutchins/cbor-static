@@ -256,7 +256,7 @@
 //! ```
 //!
 //! The serde attributes beyond names and keys (`rename_all`, `default`, `skip`, `transparent`,
-//! `borrow`) are described in [`attributes`].
+//! `borrow`) are described in [`attributes`], and deterministic encoding in [`deterministic`].
 
 extern crate self as cbor_static;
 #[cfg(test)]
@@ -266,6 +266,7 @@ pub mod attributes;
 #[cfg(feature = "heapless")]
 mod bounded;
 mod containers;
+pub mod deterministic;
 mod engine;
 mod error;
 mod half;
@@ -374,18 +375,19 @@ fn whole<'de, 's, T: Decode<'de>>(
 #[doc(hidden)]
 pub mod __private {
     pub use crate::engine::{
-        DECODE_ADJACENT, DECODE_ARRAY, DECODE_CBOR_TAG, DECODE_EXTERNAL, DECODE_INDEX,
+        BYTEWISE, DECODE_ADJACENT, DECODE_ARRAY, DECODE_CBOR_TAG, DECODE_EXTERNAL, DECODE_INDEX,
         DECODE_INTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY,
-        DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
-        ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
-        ENCODE_SKIPPED, ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of,
-        index_tag, offset, wraps, write_default, write_made, write_tag,
+        DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, DeterministicOps,
+        ENCODE_ADJACENT, ENCODE_ARRAY, ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX,
+        ENCODE_INTERNAL, ENCODE_MAP, ENCODE_SKIPPED, ENCODE_UNTAGGED, LENGTH_FIRST, Pending,
+        assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, wraps, write_default,
+        write_made, write_tag,
     };
-    pub use crate::keys::{Key, field, names, names_len, names_text};
+    pub use crate::keys::{Key, field, names, names_len, names_text, permuted, sorted};
     pub use crate::lead::Lead;
     pub use crate::schema::{
         Assemble, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout, Layout,
-        MakeDefault, MapForm, map_form,
+        MakeDefault, MapForm, Order, map_form,
     };
     pub use crate::stack::{Level, Widest, deeper};
 }
