@@ -1,0 +1,47 @@
+error: cbor-static: `alias` is an unsupported attribute
+ --> tests/ui/serde_unsupported.rs:3:13
+  |
+3 |     #[serde(alias = "identifier")]
+  |             ^^^^^
+
+error: cbor-static: `with` is an unsupported attribute
+ --> tests/ui/serde_unsupported.rs:9:13
+  |
+9 |     #[serde(with = "module")]
+  |             ^^^^
+
+error: cbor-static: `serialize_with` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:15:13
+   |
+15 |     #[serde(serialize_with = "module::serialize")]
+   |             ^^^^^^^^^^^^^^
+
+error: cbor-static: `from` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:20:9
+   |
+20 | #[serde(from = "u32")]
+   |         ^^^^
+
+error: cbor-static: `into` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:26:9
+   |
+26 | #[serde(into = "u32")]
+   |         ^^^^
+
+error: cbor-static: `try_from` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:32:9
+   |
+32 | #[serde(try_from = "u32")]
+   |         ^^^^^^^^
+
+error: cbor-static: `bound` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:38:9
+   |
+38 | #[serde(bound = "")]
+   |         ^^^^^
+
+error: cbor-static: `other` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:46:13
+   |
+46 |     #[serde(other)]
+   |             ^^^^^

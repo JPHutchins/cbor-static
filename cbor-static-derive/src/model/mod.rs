@@ -11,7 +11,7 @@ use syn::{
 
 use attrs::StructAttrs;
 use enums::enumeration;
-use fields::{bare, fields_of, positional};
+use fields::{bare, fields_of, lone, positional};
 
 const MAX_FIELDS: usize = 64;
 
@@ -130,13 +130,14 @@ impl Item {
             Data::Struct(data) => match &data.fields {
                 Fields::Named(named) => structure(&ast.attrs, named.named.iter())?,
                 Fields::Unnamed(unnamed) => {
-                    bare(&ast.attrs, "a tuple struct")?;
-                    match <[Field; 1]>::try_from(positional(unnamed)?) {
-                        Ok([field]) => Shape::Newtype(Box::new(field)),
-                        Err(fields) => Shape::Struct {
+                    let transparent = tuple_attrs(&ast.attrs)?;
+                    match (<[Field; 1]>::try_from(positional(unnamed)?), transparent) {
+                        (Ok([field]), _) => Shape::Newtype(Box::new(field)),
+                        (Err(fields), false) => Shape::Struct {
                             fields,
                             form: StructForm::Array,
                         },
+                        (Err(_), true) => return Err(not_one_field()),
                     }
                 }
                 Fields::Unit => {
@@ -168,11 +169,14 @@ impl Item {
 
 fn structure<'a>(
     attrs: &[Attribute],
-    fields: impl ExactSizeIterator<Item = &'a syn::Field>,
+    mut fields: impl ExactSizeIterator<Item = &'a syn::Field>,
 ) -> syn::Result<Shape> {
     let attrs = attrs::parse(attrs)?
         .into_iter()
         .try_fold(StructAttrs::default(), StructAttrs::with)?;
+    if attrs.transparent {
+        return transparent(&attrs, &mut fields);
+    }
     let form = match (
         attrs.array,
         &attrs.keys,
@@ -201,6 +205,67 @@ fn structure<'a>(
         fields: fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?,
         form,
     })
+}
+
+/// A named struct with `transparent` (Q8): exactly one field, which it is on the wire, and no other
+/// struct attribute.
+fn transparent<'a>(
+    attrs: &StructAttrs,
+    fields: &mut impl ExactSizeIterator<Item = &'a syn::Field>,
+) -> syn::Result<Shape> {
+    match (attrs, fields.len(), fields.next()) {
+        (
+            StructAttrs {
+                keys: None,
+                array: false,
+                deny_unknown_fields: false,
+                rename_all: None,
+                transparent: true,
+            },
+            1,
+            Some(field),
+        ) => {
+            let member = Member::Named(
+                field
+                    .ident
+                    .clone()
+                    .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?,
+            );
+            lone(field, member).map(|field| Shape::Newtype(Box::new(field)))
+        }
+        (_, 1, _) => Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: a `transparent` struct takes no other struct attribute",
+        )),
+        _ => Err(not_one_field()),
+    }
+}
+
+/// A tuple struct takes `transparent` alone, which it already is when it has one field.
+fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<bool> {
+    match attrs::parse(attrs)?
+        .into_iter()
+        .try_fold(StructAttrs::default(), StructAttrs::with)?
+    {
+        StructAttrs {
+            keys: None,
+            array: false,
+            deny_unknown_fields: false,
+            rename_all: None,
+            transparent,
+        } => Ok(transparent),
+        _ => Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: a tuple struct takes only `transparent`",
+        )),
+    }
+}
+
+fn not_one_field() -> syn::Error {
+    syn::Error::new(
+        Span::call_site(),
+        "cbor-static: a `transparent` struct has exactly one field",
+    )
 }
 
 fn lifetime(ast: &DeriveInput) -> syn::Result<Option<Lifetime>> {

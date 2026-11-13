@@ -1,5 +1,5 @@
-use proc_macro2::Span;
-use quote::format_ident;
+use proc_macro2::{Span, TokenStream, TokenTree};
+use quote::{ToTokens as _, format_ident};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
 use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
@@ -79,6 +79,7 @@ pub fn fields_of<'a>(
                 .ident
                 .clone()
                 .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?;
+            borrowed(field, attrs.borrow.as_deref())?;
             if attrs.skip {
                 return skip(field, ident, attrs);
             }
@@ -154,6 +155,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             key: None,
             skip_if_none: false,
             bytes: false,
+            borrow: None,
             skip: _,
             default,
         } => Ok(Field {
@@ -175,38 +177,84 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
 }
 
 /// A tuple or newtype struct's fields, in order: never omitted, so every one is written, as serde
-/// does. Being positional, they take `#[cbor(bytes)]` and nothing else.
+/// does.
 pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
     within_limit(fields.unnamed.len())?;
     fields
         .unnamed
         .iter()
         .enumerate()
-        .map(|(index, field)| {
-            match attrs::parse(&field.attrs)?
-                .into_iter()
-                .try_fold(FieldAttrs::default(), FieldAttrs::with)?
+        .map(|(index, field)| lone(field, Member::Unnamed(Index::from(index))))
+        .collect()
+}
+
+/// A field identified by its place alone: a tuple struct's, a newtype variant's, or a transparent
+/// struct's one field. It takes `#[cbor(bytes)]` and `borrow`, and nothing else.
+pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
+    match attrs::parse(&field.attrs)?
+        .into_iter()
+        .try_fold(FieldAttrs::default(), FieldAttrs::with)?
+    {
+        FieldAttrs {
+            rename: None,
+            default: Fallback::Type,
+            skip_if_none: false,
+            skip: false,
+            key: None,
+            bytes,
+            borrow,
+        } => borrowed(field, borrow.as_deref()).map(|()| Field {
+            member,
+            ty: field.ty.clone(),
+            key: Key::Position,
+            fallback: Fallback::Type,
+            omit_if_absent: false,
+            bytes,
+        }),
+        _ => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: a positional field takes only `#[cbor(bytes)]` and `borrow`",
+        )),
+    }
+}
+
+/// `borrow` is a no-op, since a borrowing field decodes zero-copy anyway, but as in serde it needs a
+/// lifetime of the field's type to borrow, and each lifetime it names must be one.
+fn borrowed(field: &syn::Field, borrow: Option<&[String]>) -> syn::Result<()> {
+    let has = lifetimes(field.ty.to_token_stream());
+    match borrow {
+        None => Ok(()),
+        Some(_) if has.is_empty() => Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: `borrow` needs a field type with a lifetime",
+        )),
+        Some(named) if named.iter().all(|lifetime| has.contains(lifetime)) => Ok(()),
+        Some(_) => Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: `borrow` names a lifetime this field's type does not have",
+        )),
+    }
+}
+
+/// The lifetimes in `tokens` other than `'static`, as written: `'a`.
+fn lifetimes(tokens: TokenStream) -> Vec<String> {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees
+        .iter()
+        .enumerate()
+        .flat_map(|(at, tree)| {
+            match tree {
+            TokenTree::Group(group) => lifetimes(group.stream()),
+            TokenTree::Ident(name)
+                if name != "static"
+                    && at.checked_sub(1).and_then(|before| trees.get(before)).is_some_and(
+                        |before| matches!(before, TokenTree::Punct(tick) if tick.as_char() == '\''),
+                    ) =>
             {
-                FieldAttrs {
-                    rename: None,
-                    default: Fallback::Type,
-                    skip_if_none: false,
-                    skip: false,
-                    key: None,
-                    bytes,
-                } => Ok(Field {
-                    member: Member::Unnamed(Index::from(index)),
-                    ty: field.ty.clone(),
-                    key: Key::Position,
-                    fallback: Fallback::Type,
-                    omit_if_absent: false,
-                    bytes,
-                }),
-                _ => Err(syn::Error::new(
-                    field.span(),
-                    "cbor-static: a positional field takes only `#[cbor(bytes)]`",
-                )),
+                vec![format!("'{name}")]
             }
+            _ => vec![],
+        }
         })
         .collect()
 }

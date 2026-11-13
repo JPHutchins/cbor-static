@@ -276,3 +276,41 @@ fn a_skipped_field_is_never_written_and_decodes_to_its_default() {
         b"\xa1\x63Hit\xa1\x62at\x04",
     );
 }
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(transparent)]
+struct Meters {
+    value: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(transparent)]
+struct Digest(#[cbor(bytes)] [u8; 2]);
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(transparent)]
+struct Label<'a> {
+    #[serde(borrow)]
+    text: &'a str,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Borrowing<'a> {
+    #[serde(borrow = "'a")]
+    name: &'a str,
+    count: u32,
+}
+
+#[test]
+fn a_transparent_struct_is_its_one_field() {
+    golden(&Meters { value: 1000 }, b"\x19\x03\xe8");
+    golden(&Digest([1, 2]), b"\x42\x01\x02");
+    assert_eq!(decode::<Label>(b"\x62hi"), Ok(Label { text: "hi" }));
+    assert_eq!(
+        decode::<Borrowing>(b"\xa2\x64name\x61a\x65count\x01"),
+        Ok(Borrowing {
+            name: "a",
+            count: 1
+        })
+    );
+}

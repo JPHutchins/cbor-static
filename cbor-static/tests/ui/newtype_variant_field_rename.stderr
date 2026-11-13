@@ -1,4 +1,4 @@
-error: cbor-static: a positional field takes only `#[cbor(bytes)]`
+error: cbor-static: a positional field takes only `#[cbor(bytes)]` and `borrow`
  --> tests/ui/newtype_variant_field_rename.rs:3:9
   |
 3 |     Raw(#[serde(rename = "r")] [u8; 4]),

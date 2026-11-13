@@ -20,6 +20,9 @@ pub enum Attr {
     Default(Option<Path>),
     SkipIfNone,
     Skip,
+    /// `borrow`, or `borrow = "'a + 'b"` with the lifetimes it names.
+    Borrow(Vec<String>),
+    Transparent,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -43,6 +46,7 @@ pub struct StructAttrs {
     pub array: bool,
     pub deny_unknown_fields: bool,
     pub rename_all: Option<Case>,
+    pub transparent: bool,
 }
 
 #[derive(Default)]
@@ -68,6 +72,8 @@ pub struct FieldAttrs {
     pub skip: bool,
     pub key: Option<KeyLit>,
     pub bytes: bool,
+    /// The lifetimes `borrow` names; empty for every one the field's type has.
+    pub borrow: Option<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -93,6 +99,10 @@ impl StructAttrs {
             }),
             Attr::RenameAll(case) => Ok(Self {
                 rename_all: Some(case),
+                ..self
+            }),
+            Attr::Transparent => Ok(Self {
+                transparent: true,
                 ..self
             }),
             _ => Err(misplaced(attr.span, "a struct")),
@@ -156,6 +166,10 @@ impl FieldAttrs {
                 ..self
             }),
             Attr::Skip => Ok(Self { skip: true, ..self }),
+            Attr::Borrow(lifetimes) => Ok(Self {
+                borrow: Some(lifetimes),
+                ..self
+            }),
             Attr::Key(key) => Ok(Self {
                 key: Some(key),
                 ..self
@@ -226,6 +240,16 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                         Attr::SkipIfNone
                     }
                     ("skip", _) => Attr::Skip,
+                    ("borrow", _) if meta.input.peek(syn::Token![=]) => Attr::Borrow(
+                        meta.value()?
+                            .parse::<LitStr>()?
+                            .value()
+                            .split('+')
+                            .map(|lifetime| lifetime.trim().to_owned())
+                            .collect(),
+                    ),
+                    ("borrow", _) => Attr::Borrow(Vec::new()),
+                    ("transparent", _) => Attr::Transparent,
                     ("skip_serializing" | "skip_deserializing", _) => {
                         return Err(meta.error(
                             "cbor-static: a field is skipped in both directions or not at all; \
@@ -244,7 +268,10 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }
-                    _ => return Err(meta.error("cbor-static: unsupported attribute")),
+                    _ => {
+                        return Err(meta
+                            .error(format!("cbor-static: `{name}` is an unsupported attribute")));
+                    }
                 };
                 parsed.push(Spanned { value, span });
                 Ok(())

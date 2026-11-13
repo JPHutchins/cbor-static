@@ -84,17 +84,18 @@ pub fn structure(
     }
 }
 
-/// A unit struct, as `()`, or a newtype struct, as its `field` (D-08): the wrapped type's
-/// descriptor, behind a const assert that the struct is laid out as that type. A decoded value
-/// drops as the wrapper, which may have its own `Drop`.
+/// A unit struct, as `()`, or a newtype or `transparent` struct, as its `field` (D-08): the wrapped
+/// type's descriptor, behind a const assert that the struct is laid out as that type. A decoded
+/// value drops as the wrapper, which may have its own `Drop`.
 pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -> TokenStream {
     let (ty, bytes, offset) = field.map_or_else(
         || (quote!(()), false, quote!(0)),
         |field| {
+            let member = &field.member;
             (
                 field.ty.to_token_stream(),
                 field.bytes,
-                quote!(::core::mem::offset_of!(Self, 0)),
+                quote!(::core::mem::offset_of!(Self, #member)),
             )
         },
     );
