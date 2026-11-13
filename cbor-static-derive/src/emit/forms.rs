@@ -86,7 +86,7 @@ pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) 
     let len = Literal::usize_unsuffixed(2 * variants.len());
     quote!({
         #(#disjoint)*
-        &__p::Layout { names: &__p::names::<#len>(&[#(__p::Key::Lead(#leads)),*]), fields: LAYOUT.fields }
+        &__p::Layout { names: &const { __p::names::<#len>(&[#(__p::Key::Lead(#leads)),*]) }, fields: LAYOUT.fields }
     })
 }
 

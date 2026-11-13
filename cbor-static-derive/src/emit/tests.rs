@@ -1,4 +1,4 @@
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use syn::{DeriveInput, parse_quote};
 
 use super::item;
@@ -15,20 +15,54 @@ fn leaves(tokens: TokenStream) -> Vec<TokenTree> {
         .collect()
 }
 
-fn after_unsafe(input: &DeriveInput) -> Vec<String> {
-    leaves(item(
+fn expanded(input: &DeriveInput) -> TokenStream {
+    item(
         &Item::parse(input).expect("a supported item"),
         Directions::Both,
-    ))
-    .windows(2)
-    .filter(|pair| matches!(&pair[0], TokenTree::Ident(ident) if ident == "unsafe"))
-    .map(|pair| pair[1].to_string())
-    .collect()
+    )
 }
 
-#[test]
-fn the_only_unsafe_in_derive_output_is_the_codec_trait_impls() {
-    for input in [
+fn after_unsafe(input: &DeriveInput) -> Vec<String> {
+    leaves(expanded(input))
+        .windows(2)
+        .filter(|pair| matches!(&pair[0], TokenTree::Ident(ident) if ident == "unsafe"))
+        .map(|pair| pair[1].to_string())
+        .collect()
+}
+
+/// Every `__p::` call to a const fn that asserts (`field`, `names`) or sizes a blob (`names_len`),
+/// and whether an enclosing `const { }` block holds it.
+fn descriptor_calls(tokens: TokenStream, in_const: bool) -> Vec<(String, bool)> {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees
+        .iter()
+        .enumerate()
+        .flat_map(|(at, tree)| {
+            match tree {
+            TokenTree::Group(group) => descriptor_calls(
+                group.stream(),
+                in_const
+                    || (group.delimiter() == Delimiter::Brace
+                        && at.checked_sub(1).and_then(|before| trees.get(before)).is_some_and(
+                            |before| matches!(before, TokenTree::Ident(word) if word == "const"),
+                        )),
+            ),
+            TokenTree::Ident(name)
+                if ["field", "names", "names_len"].contains(&name.to_string().as_str())
+                    && at.checked_sub(3).and_then(|path| trees.get(path)).is_some_and(
+                        |path| matches!(path, TokenTree::Ident(module) if module == "__p"),
+                    ) =>
+            {
+                vec![(name.to_string(), in_const)]
+            }
+            _ => vec![],
+        }
+        })
+        .collect()
+}
+
+fn inputs() -> Vec<DeriveInput> {
+    vec![
         parse_quote!(
             struct Flat<'a> {
                 a: u32,
@@ -123,7 +157,27 @@ fn the_only_unsafe_in_derive_output_is_the_codec_trait_impls() {
                 B(u32),
             }
         ),
-    ] {
+    ]
+}
+
+#[test]
+fn the_only_unsafe_in_derive_output_is_the_codec_trait_impls() {
+    for input in inputs() {
         assert_eq!(after_unsafe(&input), ["impl", "impl"]);
     }
+}
+
+#[test]
+fn every_descriptor_const_fn_call_is_in_an_inline_const_block() {
+    let calls: Vec<(String, bool)> = inputs()
+        .iter()
+        .flat_map(|input| descriptor_calls(expanded(input), false))
+        .collect();
+    assert!(
+        ["field", "names", "names_len"]
+            .iter()
+            .all(|name| calls.iter().any(|(call, _)| call == name)),
+        "{calls:?}"
+    );
+    assert!(calls.iter().all(|&(_, in_const)| in_const), "{calls:?}");
 }

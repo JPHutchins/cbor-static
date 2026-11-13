@@ -108,12 +108,15 @@ fn layout(
     let (entry_keys, fields): (Vec<_>, Vec<_>) = entries
         .enumerate()
         .map(|(index, (key, offset, omit))| {
-            (key, quote!(__p::field(#keys, #index, #offset, #omit)))
+            (
+                key,
+                quote!(const { __p::field(#keys, #index, #offset, #omit) }),
+            )
         })
         .unzip();
     quote! {
         const #keys: &[__p::Key] = &[#(#entry_keys),*];
-        const #names: [u8; __p::names_len(#keys)] = __p::names(#keys);
+        const #names: [u8; const { __p::names_len(#keys) }] = const { __p::names(#keys) };
         const #name: &__p::Layout = &__p::Layout { names: &#names, fields: &[#(#fields),*] };
     }
 }
