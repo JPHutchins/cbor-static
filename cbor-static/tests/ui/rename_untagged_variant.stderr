@@ -1,0 +1,5 @@
+error: cbor-static: an `index`, `cbor_tag` or untagged enum writes no variant names, so it takes neither `rename_all` nor `rename`
+ --> tests/ui/rename_untagged_variant.rs:5:5
+  |
+5 |     Number(u64),
+  |     ^^^^^^

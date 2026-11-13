@@ -5,7 +5,8 @@ use proc_macro2::Span;
 use syn::Attribute;
 use syn::spanned::Spanned as _;
 
-use super::attrs::{self, EnumAttrs};
+use super::attrs::{self, EnumAttrs, FormAttrs};
+use super::case::Case;
 use super::fields::{check_name, variant};
 use super::{EnumForm, Key, Payload, Repr, Shape, Variant};
 
@@ -16,9 +17,10 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
     let variants = data
         .variants
         .iter()
-        .map(variant)
+        .map(|each| variant(each, attrs.rename_all))
         .collect::<syn::Result<Vec<_>>>()?;
-    let form = form(attrs, &variants)?;
+    let form = form(attrs.form, &variants)?;
+    names_written(&form, attrs.rename_all, &variants)?;
     if let EnumForm::Internal { tag } | EnumForm::Adjacent { tag, .. } = &form {
         check_name(tag, Span::call_site())?;
     }
@@ -35,13 +37,13 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
 }
 
 /// The one representation the enum's attributes and its variants' `cbor_tag`s choose.
-fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
+fn form(attrs: FormAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
     match (
         attrs,
         variants.iter().filter(|v| v.cbor_tag.is_some()).count(),
     ) {
         (
-            EnumAttrs {
+            FormAttrs {
                 index: false,
                 tag: None,
                 content: None,
@@ -50,7 +52,7 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             0,
         ) => Ok(EnumForm::External),
         (
-            EnumAttrs {
+            FormAttrs {
                 index: false,
                 tag: None,
                 content: None,
@@ -59,7 +61,7 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             all,
         ) if all == variants.len() => Ok(EnumForm::CborTag),
         (
-            EnumAttrs {
+            FormAttrs {
                 index: true,
                 tag: None,
                 content: None,
@@ -68,7 +70,7 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             0,
         ) => Ok(EnumForm::Index),
         (
-            EnumAttrs {
+            FormAttrs {
                 index: false,
                 tag: Some(tag),
                 content: None,
@@ -77,7 +79,7 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             0,
         ) => Ok(EnumForm::Internal { tag }),
         (
-            EnumAttrs {
+            FormAttrs {
                 index: false,
                 tag: Some(tag),
                 content: Some(content),
@@ -86,7 +88,7 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             0,
         ) => Ok(EnumForm::Adjacent { tag, content }),
         (
-            EnumAttrs {
+            FormAttrs {
                 index: false,
                 tag: None,
                 content: None,
@@ -95,7 +97,7 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             0,
         ) => Ok(EnumForm::Untagged),
         (
-            EnumAttrs {
+            FormAttrs {
                 index: false,
                 tag: None,
                 content: None,
@@ -114,6 +116,29 @@ fn form(attrs: EnumAttrs, variants: &[Variant]) -> syn::Result<EnumForm> {
             "cbor-static: one enum representation: `index`, `tag` (with `content`), \
              `untagged`, or `cbor_tag` on every variant",
         )),
+    }
+}
+
+/// Only the forms that write variant names take `rename_all` or a variant's `rename` (Q8).
+fn names_written(
+    form: &EnumForm,
+    rename_all: Option<Case>,
+    variants: &[Variant],
+) -> syn::Result<()> {
+    match (
+        form,
+        rename_all,
+        variants.iter().find(|variant| variant.renamed),
+    ) {
+        (EnumForm::External | EnumForm::Internal { .. } | EnumForm::Adjacent { .. }, ..)
+        | (_, None, None) => Ok(()),
+        (EnumForm::Index | EnumForm::CborTag | EnumForm::Untagged, _, renamed) => {
+            Err(syn::Error::new(
+                renamed.map_or_else(Span::call_site, |variant| variant.ident.span()),
+                "cbor-static: an `index`, `cbor_tag` or untagged enum writes no variant names, \
+                 so it takes neither `rename_all` nor `rename`",
+            ))
+        }
     }
 }
 

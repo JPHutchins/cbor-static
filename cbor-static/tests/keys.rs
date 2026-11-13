@@ -170,3 +170,69 @@ fn deny_unknown_fields_rejects_any_entry_no_field_claims() {
         );
     }
 }
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct Camel {
+    key_ops: u32,
+    #[serde(rename = "Alg")]
+    alg_id: u32,
+    #[cbor(key = 4)]
+    kid: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "PascalCase")]
+struct Pascal {
+    key_ops: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+struct Snake {
+    key_ops: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum Op {
+    ReadAll,
+    WriteOne(u32),
+    #[serde(rename = "Seek")]
+    SeekTo(u32),
+    Nested {
+        inner_field: u32,
+    },
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum Event {
+    MoveTo { x: i32 },
+}
+
+#[test]
+fn rename_all_renames_unrenamed_text_keys_and_variant_names_as_serde_does() {
+    golden(
+        &Camel {
+            key_ops: 1,
+            alg_id: 2,
+            kid: 3,
+        },
+        b"\xa3\x66keyOps\x01\x63Alg\x02\x04\x03",
+    );
+    golden(&Pascal { key_ops: 1 }, b"\xa1\x66KeyOps\x01");
+    golden(&Snake { key_ops: 1 }, b"\xa1\x67key_ops\x01");
+    golden(&Op::ReadAll, b"\x68read_all");
+    golden(&Op::WriteOne(5), b"\xa1\x69write_one\x05");
+    golden(&Op::SeekTo(6), b"\xa1\x64Seek\x06");
+    golden(
+        &Op::Nested { inner_field: 1 },
+        b"\xa1\x66nested\xa1\x6binner_field\x01",
+    );
+    assert_eq!(
+        decode::<Event>(b"\xa2\x64type\x66moveTo\x61x\x01"),
+        Ok(Event::MoveTo { x: 1 })
+    );
+    assert_eq!(decode::<Op>(b"\x67ReadAll"), Err(ErrorKind::UnknownVariant));
+}

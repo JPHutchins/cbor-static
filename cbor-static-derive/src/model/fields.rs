@@ -5,15 +5,21 @@ use syn::spanned::Spanned as _;
 use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
+use super::case::Case;
 use super::{Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
 
-pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
+/// A variant, named by its `rename`, else by its identifier under the enum's `rename_all`, which
+/// by default keeps it as written.
+pub fn variant(variant: &syn::Variant, rename_all: Option<Case>) -> syn::Result<Variant> {
     let attrs = attrs::parse(&variant.attrs)?
         .into_iter()
         .try_fold(VariantAttrs::default(), VariantAttrs::with)?;
-    let name = attrs
-        .rename
-        .unwrap_or_else(|| variant.ident.unraw().to_string());
+    let renamed = attrs.rename.is_some();
+    let name = attrs.rename.unwrap_or_else(|| {
+        rename_all
+            .unwrap_or(Case::Pascal)
+            .variant(&variant.ident.unraw().to_string())
+    });
     check_name(&name, variant.span())?;
     let payload = match &variant.fields {
         Fields::Unit => Payload::Unit,
@@ -32,11 +38,13 @@ pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
                 unknown: Unknown::Skip,
             },
             None,
+            None,
         )?),
     };
     Ok(Variant {
         ident: variant.ident.clone(),
         name,
+        renamed,
         cbor_tag: attrs.cbor_tag,
         discriminant: variant
             .discriminant
@@ -50,6 +58,7 @@ pub fn fields_of<'a>(
     fields: impl ExactSizeIterator<Item = &'a syn::Field>,
     form: StructForm,
     keys: Option<&Path>,
+    rename_all: Option<Case>,
 ) -> syn::Result<Vec<Field>> {
     within_limit(fields.len())?;
     fields
@@ -96,7 +105,11 @@ pub fn fields_of<'a>(
                 (_, None, Some(KeyLit::Text(text)), None) | (_, None, None, Some(text)) => {
                     Key::Text(text)
                 }
-                (_, None, None, None) => Key::Text(ident.unraw().to_string()),
+                (_, None, None, None) => Key::Text(
+                    rename_all
+                        .unwrap_or(Case::Snake)
+                        .field(&ident.unraw().to_string()),
+                ),
             };
             if let Key::Text(text) = &key {
                 check_name(text, field.span())?;
@@ -174,17 +187,7 @@ pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
 fn camel(field: &Ident) -> Ident {
     format_ident!(
         "{}",
-        field
-            .unraw()
-            .to_string()
-            .split('_')
-            .flat_map(|word| {
-                word.chars()
-                    .take(1)
-                    .flat_map(char::to_uppercase)
-                    .chain(word.chars().skip(1))
-            })
-            .collect::<String>(),
+        Case::Pascal.field(&field.unraw().to_string()),
         span = field.span()
     )
 }

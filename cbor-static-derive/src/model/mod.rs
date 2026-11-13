@@ -1,4 +1,5 @@
 mod attrs;
+mod case;
 mod enums;
 mod fields;
 
@@ -92,6 +93,8 @@ pub struct Field {
 pub struct Variant {
     pub ident: Ident,
     pub name: String,
+    /// Whether the variant names itself with `rename`.
+    pub renamed: bool,
     pub cbor_tag: Option<u64>,
     /// The discriminant written as `= expr`; others follow the one before, as in Rust.
     pub discriminant: Option<Expr>,
@@ -154,20 +157,32 @@ fn structure<'a>(
     let attrs = attrs::parse(attrs)?
         .into_iter()
         .try_fold(StructAttrs::default(), StructAttrs::with)?;
-    let form = match (attrs.array, &attrs.keys, attrs.deny_unknown_fields) {
-        (true, None, false) => StructForm::Array,
+    let form = match (
+        attrs.array,
+        &attrs.keys,
+        attrs.deny_unknown_fields,
+        attrs.rename_all,
+    ) {
+        (true, None, false, None) => StructForm::Array,
         (true, ..) => {
             return Err(syn::Error::new(
                 Span::call_site(),
-                "cbor-static: `array` structs take neither `keys` nor `deny_unknown_fields`",
+                "cbor-static: `array` structs take neither `keys`, `deny_unknown_fields` \
+                 nor `rename_all`",
             ));
         }
-        (false, _, deny) => StructForm::Map {
+        (false, Some(_), _, Some(_)) => {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "cbor-static: `keys` names every key, so `rename_all` has nothing to rename",
+            ));
+        }
+        (false, _, deny, _) => StructForm::Map {
             unknown: if deny { Unknown::Deny } else { Unknown::Skip },
         },
     };
     Ok(Shape::Struct {
-        fields: fields_of(fields, form, attrs.keys.as_ref())?,
+        fields: fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?,
         form,
     })
 }

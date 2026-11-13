@@ -1,0 +1,7 @@
+error: cbor-static: `array` structs take neither `keys`, `deny_unknown_fields` nor `rename_all`
+ --> tests/ui/rename_all_array.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

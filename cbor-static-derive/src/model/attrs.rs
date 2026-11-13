@@ -4,6 +4,8 @@
 use proc_macro2::Span;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, LitInt, LitStr, Path, UnOp};
 
+use super::case::Case;
+
 /// One attribute and where it was written.
 pub struct Spanned<T> {
     pub value: T,
@@ -12,6 +14,7 @@ pub struct Spanned<T> {
 
 pub enum Attr {
     Rename(String),
+    RenameAll(Case),
     Default,
     SkipIfNone,
     Key(KeyLit),
@@ -36,10 +39,18 @@ pub struct StructAttrs {
     pub keys: Option<Path>,
     pub array: bool,
     pub deny_unknown_fields: bool,
+    pub rename_all: Option<Case>,
 }
 
 #[derive(Default)]
 pub struct EnumAttrs {
+    pub form: FormAttrs,
+    pub rename_all: Option<Case>,
+}
+
+/// The attributes that choose an enum's representation.
+#[derive(Default)]
+pub struct FormAttrs {
     pub index: bool,
     pub tag: Option<String>,
     pub content: Option<String>,
@@ -76,6 +87,10 @@ impl StructAttrs {
                 deny_unknown_fields: true,
                 ..self
             }),
+            Attr::RenameAll(case) => Ok(Self {
+                rename_all: Some(case),
+                ..self
+            }),
             _ => Err(misplaced(attr.span, "a struct")),
         }
     }
@@ -85,19 +100,35 @@ impl EnumAttrs {
     pub fn with(self, attr: Spanned<Attr>) -> syn::Result<Self> {
         match attr.value {
             Attr::Index => Ok(Self {
-                index: true,
+                form: FormAttrs {
+                    index: true,
+                    ..self.form
+                },
                 ..self
             }),
             Attr::Tag(tag) => Ok(Self {
-                tag: Some(tag),
+                form: FormAttrs {
+                    tag: Some(tag),
+                    ..self.form
+                },
                 ..self
             }),
             Attr::Content(content) => Ok(Self {
-                content: Some(content),
+                form: FormAttrs {
+                    content: Some(content),
+                    ..self.form
+                },
                 ..self
             }),
             Attr::Untagged => Ok(Self {
-                untagged: true,
+                form: FormAttrs {
+                    untagged: true,
+                    ..self.form
+                },
+                ..self
+            }),
+            Attr::RenameAll(case) => Ok(Self {
+                rename_all: Some(case),
                 ..self
             }),
             _ => Err(misplaced(attr.span, "an enum")),
@@ -167,6 +198,16 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     .map_or_else(String::new, ToString::to_string);
                 let value = match (name.as_str(), cbor) {
                     ("rename", _) => Attr::Rename(meta.value()?.parse::<LitStr>()?.value()),
+                    ("rename_all", _) => {
+                        let rule = meta.value()?.parse::<LitStr>()?;
+                        Attr::RenameAll(Case::named(&rule.value()).ok_or_else(|| {
+                            syn::Error::new(
+                                rule.span(),
+                                "cbor-static: `rename_all` is \"snake_case\", \"camelCase\" \
+                                 or \"PascalCase\"",
+                            )
+                        })?)
+                    }
                     ("default", _) => Attr::Default,
                     ("skip_serializing_if", _) => {
                         if meta.value()?.parse::<LitStr>()?.value() != "Option::is_none" {
