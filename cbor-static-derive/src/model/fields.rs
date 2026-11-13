@@ -17,19 +17,15 @@ pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
     check_name(&name, variant.span())?;
     let payload = match &variant.fields {
         Fields::Unit => Payload::Unit,
-        Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => {
-            let field = unnamed.unnamed.first().ok_or_else(|| {
-                syn::Error::new(unnamed.span(), "cbor-static: empty tuple variant")
-            })?;
-            bare(&field.attrs, "a newtype variant's field")?;
-            Payload::Newtype(field.ty.clone())
-        }
-        Fields::Unnamed(unnamed) => {
-            return Err(syn::Error::new(
-                unnamed.span(),
-                "cbor-static: tuple variants need exactly one field",
-            ));
-        }
+        Fields::Unnamed(unnamed) => match <[Field; 1]>::try_from(positional(unnamed)?) {
+            Ok([field]) => Payload::Newtype(Box::new(field)),
+            Err(_) => {
+                return Err(syn::Error::new(
+                    unnamed.span(),
+                    "cbor-static: tuple variants need exactly one field",
+                ));
+            }
+        },
         Fields::Named(named) => Payload::Struct(fields_of(
             named.named.iter(),
             StructForm::Map {

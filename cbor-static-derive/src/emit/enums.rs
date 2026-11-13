@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::Ident;
 
 use super::structs::decode_map_ops;
-use super::{Body, Trait, child, field_child, field_kind, forms, impls, key, layout, level};
+use super::{Body, Trait, field_child, field_kind, forms, impls, key, layout, level};
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
 
@@ -132,14 +132,16 @@ fn shadow(
     };
     let definition = match &variant.payload {
         Payload::Unit => return None,
-        Payload::Newtype(ty) if repr == Repr::Rust => {
+        Payload::Newtype(field) if repr == Repr::Rust => {
+            let ty = &field.ty;
             let definition = quote!(pub type #name #generics = #ty;);
             return Some(Shadow {
                 ident: name,
                 definition,
             });
         }
-        Payload::Newtype(ty) => {
+        Payload::Newtype(field) => {
+            let ty = &field.ty;
             quote!(#attrs pub struct #name #generics { #tag pub f0: #ty, #marker })
         }
         Payload::Struct(fields) => {
@@ -231,7 +233,10 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
         .map_or_else(|| quote!(__p::index_tag), |_| quote!(__p::index_of::<Self>));
     let payloads = variants.iter().map(|variant| match &variant.payload {
 		Payload::Unit => quote!(None),
-		Payload::Newtype(ty) => quote!(Some(<#ty as #path>::ENCODE)),
+		Payload::Newtype(field) => {
+			let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
+			quote!(Some(#kind))
+		}
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
 			let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
@@ -264,7 +269,10 @@ fn decode_kind(
 		};
 		let payload = match &variant.payload {
 			Payload::Unit => quote!(None),
-			Payload::Newtype(ty) => quote!(Some(<#ty as #path>::DECODE)),
+			Payload::Newtype(field) => {
+				let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
+				quote!(Some(#kind))
+			}
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
 				let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
@@ -313,7 +321,7 @@ fn stack(
         match &variant.payload {
             Payload::Unit if unit_frames => level(core::iter::empty()),
             Payload::Unit => (quote!(()), quote!(0)),
-            Payload::Newtype(ty) => child(ty, path),
+            Payload::Newtype(field) => field_child(&field.ty, field.bytes, path),
             Payload::Struct(fields) => level(
                 fields
                     .iter()

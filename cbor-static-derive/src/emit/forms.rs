@@ -127,7 +127,11 @@ pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) 
 fn variant_lead(variant: &Variant, path: &TokenStream) -> TokenStream {
     match &variant.payload {
         Payload::Unit => quote!(__p::Lead::NULL),
-        Payload::Newtype(ty) => quote!(<#ty as #path>::LEAD),
+        Payload::Newtype(field) if field.bytes => quote!(__p::Lead::BYTES),
+        Payload::Newtype(field) => {
+            let ty = &field.ty;
+            quote!(<#ty as #path>::LEAD)
+        }
         Payload::Struct(_) => quote!(__p::Lead::MAP),
     }
 }

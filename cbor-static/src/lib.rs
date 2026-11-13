@@ -92,12 +92,24 @@
 //! struct Meters(#[serde(rename = "m")] u32);
 //! ```
 //!
-//! Nor does any attribute on a newtype variant's field, which nothing would honour:
+//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]` and nothing else.
+//!
+//! ```
+//! #[derive(cbor_static::Cbor)]
+//! enum Frame {
+//!     Raw(#[cbor(bytes)] [u8; 4]),
+//! }
+//!
+//! let mut out = [0u8; 16];
+//! let len = cbor_static::encode_into(&Frame::Raw([1, 2, 3, 4]), &mut out)?;
+//! assert_eq!(&out[..len], b"\xa1\x63Raw\x44\x01\x02\x03\x04");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
 //!
 //! ```compile_fail
 //! #[derive(cbor_static::Cbor)]
 //! enum Frame {
-//!     Raw(#[cbor(bytes)] [u8; 4]),
+//!     Raw(#[serde(rename = "r")] [u8; 4]),
 //! }
 //! ```
 //!

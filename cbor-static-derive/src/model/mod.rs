@@ -100,7 +100,8 @@ pub struct Variant {
 
 pub enum Payload {
     Unit,
-    Newtype(Type),
+    /// A positional field, which takes `#[cbor(bytes)]` alone, as a tuple struct's fields do.
+    Newtype(Box<Field>),
     Struct(Vec<Field>),
 }
 
