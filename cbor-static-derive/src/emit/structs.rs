@@ -66,9 +66,15 @@ pub fn structure(
         }
     });
     let labels = labels(fields);
+    let map_form = matches!(form, StructForm::Map { .. }).then(|| {
+        let ident = &item.ident;
+        let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+        quote!(impl #generics __p::MapForm for #ident #generics {})
+    });
     quote! {
         #layout
         #labels
+        #map_form
         #encode
         #decode
     }

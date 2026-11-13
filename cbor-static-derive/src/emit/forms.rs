@@ -4,6 +4,7 @@
 
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
+use syn::Type;
 
 use super::text_key;
 use crate::model::{EnumForm, Payload, Variant};
@@ -73,6 +74,12 @@ pub fn extras(form: &EnumForm) -> Vec<TokenStream> {
         EnumForm::Adjacent { tag, content } => vec![text_key(tag), text_key(content)],
         EnumForm::External | EnumForm::Index | EnumForm::CborTag | EnumForm::Untagged => vec![],
     }
+}
+
+/// What a newtype variant's payload type must be under `form`: an internally tagged payload joins
+/// the tag entry to its own entries, so it must be a map-form struct, checked at compile time.
+pub fn newtype_check(form: &EnumForm, ty: &Type) -> Option<TokenStream> {
+    matches!(form, EnumForm::Internal { .. }).then(|| quote!(__p::map_form::<#ty>();))
 }
 
 /// The classes of initial byte the enum's values start with.

@@ -123,9 +123,9 @@ FEATURES: Final = (
 		"`Strict` profile",
 		"strict",
 		"struct",
-		tuple(
-			f"{STRICT}::{name}"
-			for name in ("STRICT", "head", "order", "bignum", "unknown", "sorted", "raw", "keys")
+		(
+			*(f"{STRICT}::{name}" for name in ("STRICT", "head", "order", "bignum", "sorted", "raw", "keys")),
+			f"{DECODE}::tagged::claim_tag",
 		),
 		"roundtrip_strict",
 	),

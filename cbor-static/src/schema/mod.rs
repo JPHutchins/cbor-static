@@ -119,6 +119,46 @@ pub trait ByteString: sealed::ByteString {
     const DECODE_BYTES: &'static DecKind;
 }
 
+/// A struct encoded as a map, which is what an internally tagged enum's newtype variant must wrap:
+/// the tag entry joins the payload's own entries (D-10). The derive implements it for named structs
+/// that are not `#[cbor(array)]`.
+///
+/// ```
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// struct Size {
+///     w: u32,
+/// }
+///
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// #[serde(tag = "type")]
+/// enum Event {
+///     Resize(Size),
+/// }
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::encode_into(&Event::Resize(Size { w: 3 }), &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x64type\x66Resize\x61w\x03");
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
+/// Anything else does not compile:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Cbor)]
+/// #[serde(tag = "type")]
+/// enum Event {
+///     Count(u32),
+/// }
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a struct encoded as a map",
+    label = "an internally tagged enum's newtype variant must wrap a map-form struct"
+)]
+pub trait MapForm {}
+
+/// Compiles only for a [`MapForm`] type.
+pub const fn map_form<T: MapForm>() {}
+
 /// The types whose byte-string kinds cbor-static describes, so the engine may trust them.
 pub(crate) mod sealed {
     pub trait ByteString {}

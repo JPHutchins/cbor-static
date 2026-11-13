@@ -4,6 +4,7 @@
 
 use core::mem::MaybeUninit;
 
+use super::decode::claim_tag;
 use crate::error::ErrorKind;
 #[cfg(feature = "heapless")]
 use crate::schema::EncKind;
@@ -39,7 +40,7 @@ pub static STRICT: StrictOps = StrictOps {
     head,
     order,
     bignum,
-    unknown,
+    unknown: claim_tag,
     sorted,
     raw,
     #[cfg(feature = "heapless")]
@@ -68,20 +69,6 @@ fn order(layout: &Layout, frame: &Frame, field: u8) -> Result<(), ErrorKind> {
 
 fn bignum(digits: &[u8]) -> Result<(), ErrorKind> {
     deterministic(digits.len() > size_of::<u64>() && digits.first() != Some(&0))
-}
-
-fn unknown(frames: &mut [MaybeUninit<Frame>], depth: u8) -> Result<(), ErrorKind> {
-    use super::frame_mut;
-    use crate::stack::Phase;
-
-    let frame = frame_mut(frames, depth.checked_sub(1).ok_or(ErrorKind::Unsupported)?)?;
-    match frame.phase {
-        Phase::TagAhead => {
-            frame.phase = Phase::Key;
-            Ok(())
-        }
-        _ => Err(ErrorKind::UnknownField),
-    }
 }
 
 fn sorted(bytes: &[u8], count: u64) -> Result<(), ErrorKind> {

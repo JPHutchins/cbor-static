@@ -7,7 +7,7 @@ use syn::spanned::Spanned as _;
 
 use super::attrs::{self, EnumAttrs};
 use super::fields::{check_name, variant};
-use super::{EnumForm, Payload, Repr, Shape, Variant};
+use super::{EnumForm, Key, Payload, Repr, Shape, Variant};
 
 pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Result<Shape> {
     let attrs = attrs::parse(item_attrs)?
@@ -26,6 +26,7 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
         check_name(content, Span::call_site())?;
     }
     cbor_tags(&form, &variants)?;
+    tag_keys(&form, &variants)?;
     Ok(Shape::Enum {
         repr: tables_or_glue(repr(item_attrs)?, &variants),
         variants,
@@ -143,6 +144,36 @@ fn cbor_tags(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// The tag key shares its map with an internally tagged struct variant's fields, and with an
+/// adjacently tagged enum's content key, so neither may reuse it.
+fn tag_keys(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
+    match form {
+        EnumForm::Internal { tag } => variants
+            .iter()
+            .filter_map(|variant| match &variant.payload {
+                Payload::Struct(fields) => Some(fields),
+                Payload::Unit | Payload::Newtype(_) => None,
+            })
+            .flatten()
+            .find(|field| matches!(&field.key, Key::Text(key) if key == tag))
+            .map_or(Ok(()), |field| {
+                Err(syn::Error::new(
+                    field.member.span(),
+                    format!("cbor-static: this field's key is the enum's tag, `{tag}`"),
+                ))
+            }),
+        EnumForm::Adjacent { tag, content } if tag == content => Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: `tag` and `content` must differ",
+        )),
+        EnumForm::External
+        | EnumForm::Index
+        | EnumForm::CborTag
+        | EnumForm::Adjacent { .. }
+        | EnumForm::Untagged => Ok(()),
+    }
 }
 
 /// A primitive-`repr` enum's tables write and read each variant's position as its tag byte, which

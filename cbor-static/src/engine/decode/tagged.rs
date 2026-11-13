@@ -1,7 +1,7 @@
 //! Internally (`#[serde(tag = "t")]`) and adjacently (`#[serde(tag = "t", content = "c")]`) tagged
 //! enums (D-10). The variant's name may follow any other entry, so the decoder first scans the
-//! map's rest in the current chunk for it: these enums need contiguous input (D-16). The layout
-//! holds the variant names, then the tag key, then the content key.
+//! whole map in the current chunk for it, and for a second tag key: these enums need contiguous
+//! input (D-16). The layout holds the variant names, then the tag key, then the content key.
 
 use core::mem::MaybeUninit;
 use core::ops::Range;
@@ -11,7 +11,7 @@ use super::map::MAP;
 use super::option::{done, holds_nothing, payload_only};
 use super::{
     Begin, DecOps, Entry, Flow, State, Target, at, desc, end, entries, expect, next_entry, open,
-    skip_unknown, start_name, start_skip, top, unnamed,
+    ops, skip_unknown, start_name, start_skip, top, unnamed,
 };
 use crate::engine::StrictOps;
 use crate::engine::input::Input;
@@ -50,8 +50,9 @@ static NOTHING: DecKind = DecKind::Struct {
     kinds: &[],
 };
 
-/// Decodes the whole map as the named variant's payload struct, whose decoder skips the tag
-/// entry like any key it does not know.
+/// Decodes the whole map as the named variant's payload struct, a map-form struct by a check at
+/// compile time, whose decoder skips the tag entry like any key it does not know, and claims it
+/// where it would reject one ([`claim_tag`]).
 fn internal(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -68,15 +69,11 @@ fn internal(
     open(state, frames, Phase::EnumPayload, 0)?;
     top(state.depth, frames)?.field = variant;
     state.target = Target {
-        kind: match variants
+        kind: variants
             .get(usize::from(variant))
             .ok_or(ErrorKind::Unsupported)?
             .payload
-        {
-            None => &NOTHING,
-            Some(kind @ DecKind::Struct { .. }) => kind,
-            Some(_) => return Err(ErrorKind::Unsupported),
-        },
+            .unwrap_or(&NOTHING),
         dst: at(state.target.dst, layout, variant),
     };
     open(state, frames, Phase::TagAhead, count)
@@ -191,31 +188,99 @@ fn tagged_map(
 }
 
 /// The variant the map in `bytes`, of `count` entries, names under its tag key: the layout entry
-/// after the `variants` names.
+/// after the `variants` names. The whole map is walked, so a second tag key is a duplicate.
 fn tagged(layout: &Layout, variants: usize, count: u64, bytes: &[u8]) -> Result<u8, ErrorKind> {
     let tag = variants..variants + 1;
     let mut at = 0;
     let mut left = count;
+    let mut found = None;
     loop {
         if left == 0 {
-            return Err(ErrorKind::MissingField);
+            return found.ok_or(ErrorKind::MissingField);
         }
         let (key, name) = text(bytes, at)?;
         match (left, key.is_break()) {
-            (INDEFINITE, true) => return Err(ErrorKind::MissingField),
+            (INDEFINITE, true) => return found.ok_or(ErrorKind::MissingField),
             (INDEFINITE, false) => {}
             _ => left -= 1,
         }
         let value = at + item_len(bytes.get(at..).unwrap_or(&[]))?;
         if name.is_some_and(|key| named(layout, tag.clone(), key).is_some()) {
-            return text(bytes, value)?
-                .1
-                .ok_or(ErrorKind::TypeMismatch)
-                .and_then(|name| {
-                    named(layout, 0..variants, name).ok_or(ErrorKind::UnknownVariant)
-                });
+            if found.is_some() {
+                return Err(ErrorKind::DuplicateKey);
+            }
+            found = Some(
+                text(bytes, value)?
+                    .1
+                    .ok_or(ErrorKind::TypeMismatch)
+                    .and_then(|name| {
+                        named(layout, 0..variants, name).ok_or(ErrorKind::UnknownVariant)
+                    })?,
+            );
         }
         at = value + item_len(bytes.get(value..).unwrap_or(&[]))?;
+    }
+}
+
+/// Claims an entry no field of the top frame's map knows as the internal tag entry, while the map
+/// still has it ahead: the one unknown entry an internally tagged payload admits, under `Strict` or
+/// `deny_unknown_fields`. The scan already found exactly one tag entry, and any other unknown entry
+/// is an error either way, so claiming the first unknown one decides the same.
+pub(crate) fn claim_tag(frames: &mut [MaybeUninit<Frame>], depth: u8) -> Result<(), ErrorKind> {
+    let frame = top(depth, frames)?;
+    match frame.phase {
+        Phase::TagAhead => {
+            frame.phase = Phase::Key;
+            Ok(())
+        }
+        _ => Err(ErrorKind::UnknownField),
+    }
+}
+
+/// Under `deny_unknown_fields`, an entry no field claims is an error unless [`claim_tag`] claims it.
+/// Only a text key can be the tag: one the key matcher took whole (`header` is `None`), or, in a map
+/// of integer keys, one whose `header` was read, which a tag key's 255-byte limit keeps short.
+/// [`tag_value`] takes the rest without the skip machinery, so a map that denies unknown entries
+/// still links none of it.
+pub(super) fn admit(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    header: Option<Header>,
+) -> Result<Flow, ErrorKind> {
+    let key_left = match header {
+        None => 0,
+        Some(key) if key.major == Major::Text && !key.indefinite() => {
+            u8::try_from(key.arg).map_err(|_| ErrorKind::UnknownField)?
+        }
+        Some(_) => return Err(ErrorKind::UnknownField),
+    };
+    claim_tag(frames, state.depth)?;
+    top(state.depth, frames)?.field = key_left;
+    state.step = tag_value;
+    Ok(Flow::Continue)
+}
+
+/// The rest of a claimed tag entry from contiguous input: what is left of its key (frame `field`
+/// bytes), then its value, which as the tag's is a definite text string. Any other value marks a
+/// stray entry, not the tag.
+fn tag_value(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    input: &mut Input,
+) -> Result<Flow, ErrorKind> {
+    input
+        .take_exact(usize::from(top(state.depth, frames)?.field))
+        .ok_or(ErrorKind::NeedContiguous)?;
+    match state.carry.header(input, state.strict)? {
+        Some(value) if value.major == Major::Text && !value.indefinite() => {
+            input
+                .take_exact(length(value.arg)?)
+                .ok_or(ErrorKind::NeedContiguous)?;
+            state.step = ops(desc(top(state.depth, frames)?))?.entry;
+            Ok(Flow::Continue)
+        }
+        Some(_) => Err(ErrorKind::UnknownField),
+        None => Err(ErrorKind::NeedContiguous),
     }
 }
 
@@ -283,14 +348,22 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_cut_or_mistyped_tag_is_an_error() {
-        let cases: [(u64, &[u8], ErrorKind); 6] = [
+    fn a_missing_cut_mistyped_or_repeated_tag_is_an_error() {
+        let cases: [(u64, &[u8], ErrorKind); 10] = [
             (1, b"\x61x\x01", ErrorKind::MissingField),
             (u64::MAX, b"\x61x\x01\xff", ErrorKind::MissingField),
             (2, b"\x61x\x01", ErrorKind::NeedContiguous),
             (1, b"\x61t\x61", ErrorKind::NeedContiguous),
+            (2, b"\x61t\x61A", ErrorKind::NeedContiguous),
             (1, b"\x61t\x01", ErrorKind::TypeMismatch),
             (1, b"\x61t\x61C", ErrorKind::UnknownVariant),
+            (2, b"\x61t\x61A\x61t\x61B", ErrorKind::DuplicateKey),
+            (3, b"\x61t\x61A\x61x\x01\x61t\x61A", ErrorKind::DuplicateKey),
+            (
+                u64::MAX,
+                b"\x61t\x61B\x61t\x61B\xff",
+                ErrorKind::DuplicateKey,
+            ),
         ];
         for (count, bytes, error) in cases {
             assert_eq!(scan(count, bytes), Err(error), "{bytes:x?}");

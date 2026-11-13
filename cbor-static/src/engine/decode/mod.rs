@@ -37,6 +37,7 @@ pub use owned::{AppendFn, BYTES as BYTES_OWNED, BeginFn, FinishFn, TEXT as TEXT_
 pub use raw::{RAW, StoreFn};
 #[cfg(feature = "heapless")]
 pub use seq::SEQ;
+pub(crate) use tagged::claim_tag;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
 

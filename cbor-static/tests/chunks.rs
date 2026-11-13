@@ -2,7 +2,7 @@
 
 mod common;
 
-use cbor_static::{Cbor, Chunks, ErrorKind, Tagged, encode_into};
+use cbor_static::{Cbor, Chunks, ErrorKind, Tagged};
 use common::{chunked_decode, chunked_encode, decode, decode_strict, encode};
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
@@ -163,23 +163,8 @@ enum External<'a> {
     Text(Chunks<'a, str>),
 }
 
-#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
-#[serde(tag = "t")]
-enum Internal<'a> {
-    Text(Chunks<'a, str>),
-    Number(u32),
-}
-
 #[test]
-fn chunks_are_a_variant_payload_but_never_a_map_to_merge() {
+fn chunks_are_a_variant_payload() {
     let text = decode::<Chunks<str>>(b"\x7f\x62ab\x61c\xff").expect("decodes");
     assert_eq!(encode(&External::Text(text)), b"\xa1\x64Text\x63abc");
-    let mut out = [0u8; 16];
-    for value in [Internal::Text(text), Internal::Number(1)] {
-        assert_eq!(
-            encode_into(&value, &mut out).map_err(|e| e.kind),
-            Err(ErrorKind::Unsupported),
-            "{value:?}"
-        );
-    }
 }

@@ -5,6 +5,7 @@
 
 use core::mem::MaybeUninit;
 
+use super::tagged::admit;
 use super::{
     After, Begin, DecOps, Entry, Flow, Scratch, State, at, desc, end, entries, expect, name,
     next_entry, open, skip_unknown, start_name, top,
@@ -115,7 +116,8 @@ fn select(
     ))
 }
 
-/// Skips the rest of an entry no field claims, `items` items of which remain, or rejects it.
+/// Skips the rest of an entry no field claims, `items` items of which remain, or rejects it unless
+/// it is an internally tagged enum's tag entry.
 fn unknown<const DENY: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -123,7 +125,7 @@ fn unknown<const DENY: bool>(
     header: Option<Header>,
 ) -> Result<Flow, ErrorKind> {
     if DENY {
-        Err(ErrorKind::UnknownField)
+        admit(state, frames, header)
     } else {
         skip_unknown(state, frames, items, header)
     }

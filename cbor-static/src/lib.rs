@@ -333,7 +333,7 @@ pub mod __private {
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::lead::Lead;
     pub use crate::schema::{
-        Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout,
+        Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout, MapForm, map_form,
     };
     pub use crate::stack::{Level, Widest, deeper};
 }

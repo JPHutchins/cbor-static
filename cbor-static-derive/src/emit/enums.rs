@@ -93,7 +93,7 @@ pub fn enumeration(
     let definitions = shadows.iter().flatten().map(|s| &s.definition);
     let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows));
     let encode = impls(item, directions, Trait::Encode, |path| {
-        encode_kind(variants, repr, &ops.encode, path)
+        encode_kind(variants, repr, form, &ops.encode, path)
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         decode_kind(
@@ -225,7 +225,13 @@ fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenS
     }
 }
 
-fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &TokenStream) -> Body {
+fn encode_kind(
+    variants: &[Variant],
+    repr: Repr,
+    form: &EnumForm,
+    ops: &TokenStream,
+    path: &TokenStream,
+) -> Body {
     let glue = (repr == Repr::Rust).then(|| quote!(Some(__p::field_ptr_of::<Self>)));
     let field_ptr = glue.clone().unwrap_or_else(|| quote!(None));
     let index = glue
@@ -234,8 +240,9 @@ fn encode_kind(variants: &[Variant], repr: Repr, ops: &TokenStream, path: &Token
     let payloads = variants.iter().map(|variant| match &variant.payload {
 		Payload::Unit => quote!(None),
 		Payload::Newtype(field) => {
+			let check = forms::newtype_check(form, &field.ty);
 			let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
-			quote!(Some(#kind))
+			quote!(Some({ #check #kind }))
 		}
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
@@ -270,8 +277,9 @@ fn decode_kind(
 		let payload = match &variant.payload {
 			Payload::Unit => quote!(None),
 			Payload::Newtype(field) => {
+				let check = forms::newtype_check(form, &field.ty);
 				let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
-				quote!(Some(#kind))
+				quote!(Some({ #check #kind }))
 			}
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);

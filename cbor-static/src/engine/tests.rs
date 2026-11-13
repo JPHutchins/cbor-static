@@ -167,6 +167,9 @@ enum Internal {
     Pair(Pair),
 }
 
+/// An adjacently tagged map's entries up to its content, `CHOICE`.
+const ADJACENT_PAIR: &[u8] = b"\xa2\x61t\x64Pair\x61c";
+
 /// `CHOICE`'s entries after an internal tag entry, which moves each value 7 bytes on.
 const INTERNAL_PAIR: &[u8] = b"\xa4\x61t\x64Pair\x61a\x01\x61b\x02\x61c\x03";
 
@@ -282,6 +285,28 @@ fn drops_at<T: for<'de> Decode<'de>>(complete: &[u8], values: [(usize, usize); 3
     }
 }
 
+/// `drops_at` for a form that scans its whole map before decoding it: a value that fails drops what
+/// came before it, and a map cut short fails the scan before anything is initialized.
+fn scanned_drops_at<T: for<'de> Decode<'de>>(
+    complete: &[u8],
+    values: [(usize, usize); 3],
+    chunk: usize,
+) {
+    for (at, drops) in values {
+        assert_eq!(
+            drops_after::<T>(
+                &[&complete[..at], b"\xf5", &complete[at + 1..]].concat(),
+                chunk
+            ),
+            (Some(ErrorKind::TypeMismatch), drops)
+        );
+        assert_eq!(
+            drops_after::<T>(&complete[..at], chunk),
+            (Some(ErrorKind::NeedContiguous), 0)
+        );
+    }
+}
+
 /// `drops_at` for `CHOICE` decoded as a `Pair` payload after `prefix`.
 fn drops_inside_payload<T: for<'de> Decode<'de>>(prefix: &[u8], chunk: usize) {
     drops_at::<T>(
@@ -299,8 +324,12 @@ fn enum_variants_drop_what_their_payload_initialized() {
         drops_inside_payload::<CborTagged>(b"\xc5", chunk);
         assert_eq!(drops_after::<Choice>(CHOICE, chunk), (None, 2));
         if chunk >= INTERNAL_PAIR.len() {
-            drops_inside_payload::<Adjacent>(b"\xa2\x61t\x64Pair\x61c", chunk);
-            drops_at::<Internal>(
+            scanned_drops_at::<Adjacent>(
+                &[ADJACENT_PAIR, CHOICE].concat(),
+                CHOICE_DROPS.map(|(value, drops)| (value + ADJACENT_PAIR.len(), drops)),
+                chunk,
+            );
+            scanned_drops_at::<Internal>(
                 INTERNAL_PAIR,
                 CHOICE_DROPS.map(|(value, drops)| (value + 7, drops)),
                 chunk,

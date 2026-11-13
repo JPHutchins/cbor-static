@@ -268,6 +268,129 @@ enum Kind {
     B,
 }
 
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Bounds {
+    w: u32,
+    h: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Keyed {
+    #[cbor(key = 1)]
+    alg: i32,
+    #[cbor(key = 4)]
+    kid: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Labeled {
+    #[cbor(key = 1)]
+    alg: i32,
+    name: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(tag = "type")]
+enum Shaped {
+    Box(Bounds),
+    Dot,
+    Key(Keyed),
+    Label(Labeled),
+}
+
+#[test]
+fn an_internally_tagged_payload_that_denies_unknown_fields_claims_the_tag() {
+    golden_contiguous(
+        &Shaped::Box(Bounds { w: 1, h: 2 }),
+        b"\xa3\x64type\x63Box\x61w\x01\x61h\x02",
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x61w\x01\x61h\x02\x64type\x63Box"),
+        Ok(Shaped::Box(Bounds { w: 1, h: 2 }))
+    );
+    assert_eq!(
+        decode_strict::<Shaped>(b"\xa3\x61h\x02\x61w\x01\x64type\x63Box"),
+        Ok(Shaped::Box(Bounds { w: 1, h: 2 }))
+    );
+    golden_contiguous(
+        &Shaped::Key(Keyed { alg: -7, kid: 2 }),
+        b"\xa3\x64type\x63Key\x01\x26\x04\x02",
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x01\x26\x64type\x63Key\x04\x02"),
+        Ok(Shaped::Key(Keyed { alg: -7, kid: 2 }))
+    );
+    golden_contiguous(
+        &Shaped::Label(Labeled { alg: -7, name: 3 }),
+        b"\xa3\x64type\x65Label\x01\x26\x64name\x03",
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x01\x26\x64name\x03\x64type\x65Label"),
+        Ok(Shaped::Label(Labeled { alg: -7, name: 3 }))
+    );
+    assert_eq!(
+        decode::<Shaped>(b"\xa3\x64type\x63Key\x01\x26\x05\x02"),
+        Err(ErrorKind::UnknownField)
+    );
+    let mut slot = core::mem::MaybeUninit::uninit();
+    let after_key = |bytes: &[u8], key: &[u8]| {
+        bytes
+            .windows(key.len())
+            .position(|window| window == key)
+            .and_then(|at| u32::try_from(at + key.len()).ok())
+    };
+    let stray_first: &[u8] = b"\xa4\x61z\x61q\x64type\x63Box\x61w\x01\x61h\x02";
+    let error = cbor_static::decode_into::<Shaped>(stray_first, &mut slot).unwrap_err();
+    assert_eq!(
+        (error.kind, Some(error.offset)),
+        (ErrorKind::UnknownField, after_key(stray_first, b"\x64type")),
+        "a stray text entry is claimed as the tag, so the tag itself is the unknown entry"
+    );
+    let stray_number: &[u8] = b"\xa4\x61z\x00\x64type\x63Box\x61w\x01\x61h\x02";
+    let error = cbor_static::decode_into::<Shaped>(stray_number, &mut slot).unwrap_err();
+    assert_eq!(
+        (error.kind, Some(error.offset)),
+        (
+            ErrorKind::UnknownField,
+            after_key(stray_number, b"\x61z\x00")
+        ),
+        "a tag's value is text, so a stray entry with a number is unknown at its value"
+    );
+    let stray_last: &[u8] = b"\xa4\x64type\x63Box\x61w\x01\x61h\x02\x61z\x00";
+    let error = cbor_static::decode_into::<Shaped>(stray_last, &mut slot).unwrap_err();
+    assert_eq!(
+        (error.kind, Some(error.offset)),
+        (ErrorKind::UnknownField, after_key(stray_last, b"\x61z"))
+    );
+}
+
+#[test]
+fn a_second_tag_key_is_a_duplicate() {
+    let events: [&[u8]; 3] = [
+        b"\xa4\x64type\x64Move\x61x\x01\x61y\x02\x64type\x64Move",
+        b"\xa4\x64type\x64Move\x64type\x65Start\x61x\x01\x61y\x02",
+        b"\xbf\x64type\x65Start\x64type\x65Start\xff",
+    ];
+    for bytes in events {
+        assert_eq!(
+            decode::<Event>(bytes),
+            Err(ErrorKind::DuplicateKey),
+            "{bytes:x?}"
+        );
+    }
+    assert_eq!(
+        decode::<Shaped>(b"\xa4\x64type\x63Box\x61w\x01\x61h\x02\x64type\x63Dot"),
+        Err(ErrorKind::DuplicateKey)
+    );
+    assert_eq!(
+        decode::<Message>(b"\xa3\x61t\x64Data\x61c\x07\x61t\x64Data"),
+        Err(ErrorKind::DuplicateKey)
+    );
+}
+
 #[test]
 fn internally_tagged_variants_merge_the_tag_into_their_map() {
     golden_contiguous(&Event::Start, b"\xa1\x64type\x65Start");
