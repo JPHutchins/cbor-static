@@ -186,3 +186,70 @@ fn every_descriptor_const_fn_call_is_in_an_inline_const_block() {
     );
     assert!(calls.iter().all(|&(_, in_const)| in_const), "{calls:?}");
 }
+
+/// The identifiers that only a field with `default`, `default = "path"` or `skip` brings into
+/// derive output (#13 Q5).
+const FALLBACK_IDENTS: [&str; 6] = [
+    "defaulted",
+    "skipped",
+    "ENCODE_SKIPPED",
+    "write_default",
+    "write_made",
+    "MakeDefault",
+];
+
+fn fallback_idents(input: &DeriveInput) -> Vec<String> {
+    leaves(expanded(input))
+        .into_iter()
+        .filter_map(|tree| match tree {
+            TokenTree::Ident(ident) if FALLBACK_IDENTS.contains(&ident.to_string().as_str()) => {
+                Some(ident.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_type_without_default_or_skip_emits_none_of_their_machinery() {
+    for input in inputs() {
+        assert_eq!(
+            fallback_idents(&input),
+            Vec::<String>::new(),
+            "{ident}",
+            ident = input.ident
+        );
+    }
+    let fallbacks: [DeriveInput; 2] = [
+        parse_quote!(
+            struct Config {
+                #[serde(default)]
+                a: u32,
+                #[serde(default = "five")]
+                b: u32,
+                #[serde(skip)]
+                c: u32,
+            }
+        ),
+        parse_quote!(
+            enum Command {
+                Move {
+                    #[serde(default)]
+                    a: u32,
+                    #[serde(skip, default = "five")]
+                    b: u32,
+                },
+            }
+        ),
+    ];
+    for input in fallbacks {
+        let found = fallback_idents(&input);
+        assert!(
+            FALLBACK_IDENTS
+                .iter()
+                .all(|ident| found.iter().any(|name| name == ident)),
+            "{ident}: {found:?}",
+            ident = input.ident
+        );
+    }
+}

@@ -254,11 +254,15 @@
 //! let mut slot = core::mem::MaybeUninit::uninit();
 //! let _ = cbor_static::decode_into::<Ambiguous>(b"\x01", &mut slot);
 //! ```
+//!
+//! The serde attributes beyond names and keys (`rename_all`, `default`, `skip`, `transparent`,
+//! `borrow`) are described in [`attributes`].
 
 extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+pub mod attributes;
 #[cfg(feature = "heapless")]
 mod bounded;
 mod containers;
