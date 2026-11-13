@@ -1,0 +1,5 @@
+error: cbor-static: a `cbor_tag` variant needs a payload
+ --> tests/ui/cbor_tag_unit.rs:6:5
+  |
+6 |     Empty,
+  |     ^^^^^

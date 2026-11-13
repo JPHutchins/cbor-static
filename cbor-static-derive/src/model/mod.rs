@@ -1,4 +1,5 @@
 mod attrs;
+mod enums;
 mod fields;
 
 use proc_macro2::Span;
@@ -7,8 +8,9 @@ use syn::{
     Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
 };
 
-use attrs::{EnumAttrs, StructAttrs};
-use fields::{bare, check_name, fields_of, positional, variant};
+use attrs::StructAttrs;
+use enums::enumeration;
+use fields::{bare, fields_of, positional};
 
 const MAX_FIELDS: usize = 64;
 
@@ -169,116 +171,6 @@ fn structure<'a>(
     })
 }
 
-fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Result<Shape> {
-    let attrs = attrs::parse(item_attrs)?
-        .into_iter()
-        .try_fold(EnumAttrs::default(), EnumAttrs::with)?;
-    let variants = data
-        .variants
-        .iter()
-        .map(variant)
-        .collect::<syn::Result<Vec<_>>>()?;
-    let form = match (
-        attrs,
-        variants.iter().filter(|v| v.cbor_tag.is_some()).count(),
-    ) {
-        (
-            EnumAttrs {
-                index: false,
-                tag: None,
-                content: None,
-                untagged: false,
-            },
-            0,
-        ) => EnumForm::External,
-        (
-            EnumAttrs {
-                index: false,
-                tag: None,
-                content: None,
-                untagged: false,
-            },
-            all,
-        ) if all == variants.len() => EnumForm::CborTag,
-        (
-            EnumAttrs {
-                index: true,
-                tag: None,
-                content: None,
-                untagged: false,
-            },
-            0,
-        ) => EnumForm::Index,
-        (
-            EnumAttrs {
-                index: false,
-                tag: Some(tag),
-                content: None,
-                untagged: false,
-            },
-            0,
-        ) => EnumForm::Internal { tag },
-        (
-            EnumAttrs {
-                index: false,
-                tag: Some(tag),
-                content: Some(content),
-                untagged: false,
-            },
-            0,
-        ) => EnumForm::Adjacent { tag, content },
-        (
-            EnumAttrs {
-                index: false,
-                tag: None,
-                content: None,
-                untagged: true,
-            },
-            0,
-        ) => EnumForm::Untagged,
-        _ => {
-            return Err(syn::Error::new(
-                Span::call_site(),
-                "cbor-static: one enum representation: `index`, `tag` (with `content`), \
-                 `untagged`, or `cbor_tag` on every variant",
-            ));
-        }
-    };
-    if let EnumForm::Internal { tag } | EnumForm::Adjacent { tag, .. } = &form {
-        check_name(tag, Span::call_site())?;
-    }
-    if let EnumForm::Adjacent { content, .. } = &form {
-        check_name(content, Span::call_site())?;
-    }
-    if let (EnumForm::CborTag, Some(unit)) = (
-        &form,
-        variants.iter().find(|v| matches!(v.payload, Payload::Unit)),
-    ) {
-        return Err(syn::Error::new(
-            unit.ident.span(),
-            "cbor-static: a `cbor_tag` variant needs a payload",
-        ));
-    }
-    Ok(Shape::Enum {
-        repr: tables_or_glue(repr(item_attrs)?, &variants),
-        variants,
-        form,
-    })
-}
-
-/// A primitive-`repr` enum's tables write and read each variant's position as its tag byte, which
-/// holds only while every discriminant is implicit; any other enum takes the glue.
-fn tables_or_glue(repr: Repr, variants: &[Variant]) -> Repr {
-    if variants
-        .iter()
-        .any(|variant| variant.discriminant.is_some())
-    {
-        Repr::Rust
-    } else {
-        repr
-    }
-}
-
 fn lifetime(ast: &DeriveInput) -> syn::Result<Option<Lifetime>> {
     ast.generics
         .params
@@ -291,35 +183,5 @@ fn lifetime(ast: &DeriveInput) -> syn::Result<Option<Lifetime>> {
                 other.span(),
                 "cbor-static: at most one unbounded lifetime parameter is supported",
             )),
-        })
-}
-
-fn repr(attrs: &[Attribute]) -> syn::Result<Repr> {
-    attrs
-        .iter()
-        .filter(|a| a.path().is_ident("repr"))
-        .try_fold(Repr::Rust, |_, attr| {
-            let mut words = Vec::new();
-            attr.parse_nested_meta(|meta| {
-                words.push(
-                    meta.path
-                        .get_ident()
-                        .map_or_else(String::new, ToString::to_string),
-                );
-                Ok(())
-            })?;
-            match words
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .as_slice()
-            {
-                ["u8"] => Ok(Repr::U8),
-                ["C", "u8"] | ["u8", "C"] => Ok(Repr::CU8),
-                _ => Err(syn::Error::new(
-                    attr.span(),
-                    "cbor-static: enums support repr(u8) or repr(C, u8)",
-                )),
-            }
         })
 }
