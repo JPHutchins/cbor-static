@@ -111,6 +111,9 @@ pub enum Key {
     Position,
     /// A `skip`ped field, which no key names: never written, and given its default on decode.
     Skipped,
+    /// A `flatten`ed field, which has no key of its own: its type's entries join its struct's map
+    /// in its place (#14 Q34).
+    Flattened,
 }
 
 /// What decoding writes into a field that its container lacks (D-08, #13 Q31).

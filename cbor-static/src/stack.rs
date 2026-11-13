@@ -49,6 +49,16 @@ pub struct Twice<S> {
     _second: MaybeUninit<S>,
 }
 
+/// A stack's levels below its first: those of a map-form struct's fields, which a struct that
+/// flattens it holds in its own frame's place (#14 Q34).
+pub trait Unlevel {
+    type Children;
+}
+
+impl<Children> Unlevel for Level<Children> {
+    type Children = Children;
+}
+
 #[must_use]
 pub const fn deeper(a: usize, b: usize) -> usize {
     if a > b { a } else { b }

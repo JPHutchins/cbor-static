@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
+mod flat;
 mod kinds;
 mod order;
 
@@ -9,6 +10,7 @@ use crate::engine::{
 };
 use crate::lead::Lead;
 
+pub use flat::{Concat, Flat, Run, Storage, entries, flattened};
 #[cfg(feature = "heapless")]
 pub use kinds::MapGlue;
 pub use kinds::{DecKind, DecVariant, EncKind};

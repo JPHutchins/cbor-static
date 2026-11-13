@@ -256,7 +256,8 @@
 //! ```
 //!
 //! The serde attributes beyond names and keys (`rename_all`, `default`, `skip`, `transparent`,
-//! `borrow`) are described in [`attributes`], and deterministic encoding in [`deterministic`].
+//! `borrow`, `flatten`) are described in [`attributes`], and deterministic encoding in
+//! [`deterministic`].
 
 extern crate self as cbor_static;
 #[cfg(test)]
@@ -380,14 +381,16 @@ pub mod __private {
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, DeterministicOps,
         ENCODE_ADJACENT, ENCODE_ARRAY, ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX,
         ENCODE_INTERNAL, ENCODE_MAP, ENCODE_SKIPPED, ENCODE_UNTAGGED, LENGTH_FIRST, Pending,
-        assemble, drop_fn, field_ptr_of, index_of, index_tag, offset, wraps, write_default,
-        write_made, write_tag,
+        as_slice, assemble, drop_fn, field_ptr_of, gathered, index_of, index_tag, offset, wraps,
+        write_default, write_made, write_tag,
     };
-    pub use crate::keys::{Key, field, map_ops, names, names_len, names_text, permuted, sorted};
+    pub use crate::keys::{
+        Key, distinct, field, map_ops, names, names_len, names_text, permuted, sorted,
+    };
     pub use crate::lead::Lead;
     pub use crate::schema::{
-        Assemble, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout, Layout,
-        MakeDefault, MapForm, Order, map_form,
+        Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
+        Flat, Layout, MakeDefault, MapForm, Order, Run, entries, flattened, map_form,
     };
-    pub use crate::stack::{Level, Widest, deeper};
+    pub use crate::stack::{Level, Unlevel, Widest, deeper};
 }

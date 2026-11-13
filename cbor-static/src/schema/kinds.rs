@@ -70,6 +70,23 @@ pub enum EncKind {
 }
 
 impl EncKind {
+    /// A struct's field kinds, which a struct flattening it takes in its own (#14 Q34).
+    #[must_use]
+    pub const fn kinds(&self) -> &'static [&'static Self] {
+        match self {
+            Self::Struct { kinds, .. } => kinds,
+            Self::Leaf { .. }
+            | Self::Enum { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Chunks { .. }
+            | Self::Seq { .. }
+            | Self::Tagged { .. }
+            | Self::Map { .. }
+            | Self::Select { .. } => &[],
+        }
+    }
+
     #[must_use]
     pub const fn layout(&self) -> Option<&'static Layout> {
         match self {
@@ -313,6 +330,23 @@ impl DecKind {
             decode: dec_skipped,
             default: Some(default),
             drop,
+        }
+    }
+
+    /// A struct's field kinds, which a struct flattening it takes in its own (#14 Q34).
+    #[must_use]
+    pub const fn kinds(&self) -> &'static [&'static Self] {
+        match self {
+            Self::Struct { kinds, .. } => kinds,
+            Self::Leaf { .. }
+            | Self::Enum { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Owned { .. }
+            | Self::Seq { .. }
+            | Self::Raw { .. }
+            | Self::Described { .. }
+            | Self::Map { .. } => &[],
         }
     }
 

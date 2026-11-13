@@ -1,4 +1,5 @@
 mod enums;
+mod flatten;
 mod forms;
 mod shadows;
 mod structs;
@@ -7,7 +8,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 
 use crate::Directions;
-use crate::model::{Fallback, Field, Item, Key, Mode, Shape};
+use crate::model::{Fallback, Field, Item, Key, Mode, Shape, StructForm};
 
 #[derive(Clone, Copy)]
 enum Trait {
@@ -17,6 +18,13 @@ enum Trait {
 
 pub fn item(item: &Item, directions: Directions) -> TokenStream {
     let body = match &item.shape {
+        Shape::Struct {
+            fields,
+            form: StructForm::Map { unknown },
+            order,
+        } if fields.iter().any(flatten::flattened) => {
+            flatten::flattening(item, fields, (*unknown, *order), directions)
+        }
         Shape::Struct {
             fields,
             form,
@@ -254,7 +262,7 @@ fn part_order(field: &Field, path: &TokenStream) -> Option<TokenStream> {
     match field.key {
         Key::Skipped => None,
         _ if field.bytes => None,
-        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
+        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
             Some(quote!(<#ty as #path>::ORDER))
         }
     }
@@ -269,7 +277,7 @@ fn key(key: &Key) -> TokenStream {
         Key::Text(text) => text_key(text),
         Key::Int(int) => quote!(__p::Key::Int(#int)),
         Key::Label { label, variant } => quote!(__p::Key::Int(#label::#variant as i64)),
-        Key::Position => quote!(__p::Key::None),
+        Key::Position | Key::Flattened => quote!(__p::Key::None),
         Key::Skipped => quote!(__p::Key::Skipped),
     }
 }
@@ -325,12 +333,18 @@ fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream)
     }
 }
 
-/// A named field's stack and depth: a `skip`ped field's take none.
+/// A named field's stack and depth: a `skip`ped field's take none, and a flattened field's are its
+/// type's below its own frame, whose place its struct's frame takes.
 fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) {
+    let ty = &field.ty;
     match field.key {
         Key::Skipped => (quote!(()), quote!(0)),
+        Key::Flattened => (
+            quote!(<<#ty as #path>::Stack as __p::Unlevel>::Children),
+            quote!(<#ty as #path>::MAX_DEPTH - 1),
+        ),
         Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
-            field_child(&field.ty, field.bytes, path)
+            field_child(ty, field.bytes, path)
         }
     }
 }
@@ -340,7 +354,7 @@ fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) 
 fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
     match field.key {
         Key::Skipped => quote!(&__p::ENCODE_SKIPPED),
-        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
+        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
             field_kind(&field.ty, field.bytes, Trait::Encode, path)
         }
     }

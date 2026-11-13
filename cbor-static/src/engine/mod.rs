@@ -13,6 +13,7 @@ mod leaf;
 mod pending;
 mod raw;
 mod skip;
+mod storage;
 mod strict;
 mod strings;
 mod text;
@@ -61,6 +62,7 @@ pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor};
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;
+pub use storage::{as_slice, filled, gathered, get, set};
 use strict::STRICT;
 pub(crate) use strict::StrictOps;
 pub(crate) use strings::{DEC_CHAR, ENC_CHAR, enc_view, exactly, nothing, within};

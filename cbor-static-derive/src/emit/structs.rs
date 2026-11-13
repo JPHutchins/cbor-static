@@ -86,16 +86,7 @@ pub fn structure(
         }
     });
     let labels = labels(fields);
-    let map_form = [
-        (Trait::Encode, quote!(__p::Encoding)),
-        (Trait::Decode, quote!(__p::Decoding)),
-    ]
-    .into_iter()
-    .filter(|(which, _)| matches!(form, StructForm::Map { .. }) && derives(directions, *which))
-    .map(|(_, direction)| {
-        let ident = &item.ident;
-        quote!(impl #generics __p::MapForm<#direction> for #ident #generics {})
-    });
+    let map_form = map_forms(item, fields, form, directions);
     let makers = makers(
         &item.ident,
         fields,
@@ -108,7 +99,7 @@ pub fn structure(
     quote! {
         #layout
         #labels
-        #(#map_form)*
+        #map_form
         #makers
         #encode
         #decode
@@ -187,6 +178,34 @@ pub fn transparent(
     }
 }
 
+/// A map-form struct's `MapForm` and `Flat` impls in each direction it derives.
+fn map_forms(
+    item: &Item,
+    fields: &[Field],
+    form: StructForm,
+    directions: Directions,
+) -> TokenStream {
+    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+    let ident = &item.ident;
+    let count = fields.len();
+    [
+        (Trait::Encode, quote!(__p::Encoding)),
+        (Trait::Decode, quote!(__p::Decoding)),
+    ]
+    .into_iter()
+    .filter(|(which, _)| matches!(form, StructForm::Map { .. }) && derives(directions, *which))
+    .map(|(_, direction)| {
+        quote! {
+            impl #generics __p::MapForm<#direction> for #ident #generics {}
+            impl #generics __p::Flat<#direction> for #ident #generics {
+                type Entries<__CborX: Copy + 'static> = [__CborX; #count];
+                type Names = [u8; LAYOUT_NAMES.len()];
+            }
+        }
+    })
+    .collect()
+}
+
 /// What a struct's form chooses: its encode ops, its decode ops (for a map, those its `LAYOUT`'s
 /// keys need), and the class of its first byte.
 struct Forms {
@@ -220,7 +239,7 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| match &field.key {
             Key::Label { label, variant } => Some((label, variant)),
-            Key::Text(_) | Key::Int(_) | Key::Position | Key::Skipped => None,
+            Key::Text(_) | Key::Int(_) | Key::Position | Key::Skipped | Key::Flattened => None,
         })
         .unzip();
     labels.first().map(|label| {

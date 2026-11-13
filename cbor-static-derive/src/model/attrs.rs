@@ -26,6 +26,7 @@ pub enum Attr {
     OffsetOfEnum,
     /// `deterministic` or `length_first`.
     Order(Mode),
+    Flatten,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -75,11 +76,21 @@ pub struct FieldAttrs {
     pub rename: Option<String>,
     pub default: Fallback,
     pub skip_if_none: bool,
-    pub skip: bool,
+    pub role: Role,
     pub key: Option<KeyLit>,
     pub bytes: bool,
     /// The lifetimes `borrow` names; empty for every one the field's type has.
     pub borrow: Option<Vec<String>>,
+}
+
+/// Whether a field is written under a key of its own, `skip`ped, or `flatten`ed into its struct's
+/// map.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Role {
+    #[default]
+    Keyed,
+    Skip,
+    Flatten,
 }
 
 #[derive(Default)]
@@ -183,7 +194,10 @@ impl FieldAttrs {
                 skip_if_none: true,
                 ..self
             }),
-            Attr::Skip => Ok(Self { skip: true, ..self }),
+            Attr::Skip => Ok(Self {
+                role: role(self.role, Role::Skip, attr.span)?,
+                ..self
+            }),
             Attr::Borrow(lifetimes) => Ok(Self {
                 borrow: Some(lifetimes),
                 ..self
@@ -194,6 +208,10 @@ impl FieldAttrs {
             }),
             Attr::Bytes => Ok(Self {
                 bytes: true,
+                ..self
+            }),
+            Attr::Flatten => Ok(Self {
+                role: role(self.role, Role::Flatten, attr.span)?,
                 ..self
             }),
             _ => Err(misplaced(attr.span, "a field")),
@@ -270,6 +288,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ),
                     ("borrow", _) => Attr::Borrow(Vec::new()),
                     ("transparent", _) => Attr::Transparent,
+                    ("flatten", _) => Attr::Flatten,
                     ("skip_serializing" | "skip_deserializing", _) => {
                         return Err(meta.error(
                             "cbor-static: a field is skipped in both directions or not at all; \
@@ -327,6 +346,17 @@ fn key(expr: &Expr) -> syn::Result<KeyLit> {
         other => Err(syn::Error::new_spanned(
             other,
             "cbor-static: a key is an integer or a string",
+        )),
+    }
+}
+
+/// A field is `skip`ped or `flatten`ed, not both.
+fn role(already: Role, role: Role, span: Span) -> syn::Result<Role> {
+    match already {
+        Role::Keyed => Ok(role),
+        Role::Skip | Role::Flatten => Err(syn::Error::new(
+            span,
+            "cbor-static: a field is `skip`ped or `flatten`ed, not both",
         )),
     }
 }

@@ -67,6 +67,10 @@ fn descriptor_calls(tokens: TokenStream, in_const: bool) -> Vec<(String, bool)> 
 }
 
 fn inputs() -> Vec<DeriveInput> {
+    structs().into_iter().chain(enums()).collect()
+}
+
+fn structs() -> Vec<DeriveInput> {
     vec![
         parse_quote!(
             struct Flat<'a> {
@@ -83,6 +87,39 @@ fn inputs() -> Vec<DeriveInput> {
         parse_quote!(
             struct Pair(u32, Option<u32>);
         ),
+        parse_quote!(
+            #[cbor(keys = Label, deny_unknown_fields)]
+            struct Keyed {
+                alg: i32,
+            }
+        ),
+        parse_quote!(
+            struct Mixed {
+                #[cbor(key = -1)]
+                a: u32,
+                b: u32,
+            }
+        ),
+        parse_quote!(
+            #[cbor(array)]
+            struct Positional {
+                a: u32,
+                b: Option<u32>,
+            }
+        ),
+        parse_quote!(
+            #[cbor(deterministic)]
+            struct Flattening<'a> {
+                a: u32,
+                #[serde(flatten)]
+                inner: Inner<'a>,
+            }
+        ),
+    ]
+}
+
+fn enums() -> Vec<DeriveInput> {
+    vec![
         parse_quote!(
             enum Glue {
                 A,
@@ -104,26 +141,6 @@ fn inputs() -> Vec<DeriveInput> {
                 A,
                 B(u32),
                 C { x: u32 },
-            }
-        ),
-        parse_quote!(
-            #[cbor(keys = Label, deny_unknown_fields)]
-            struct Keyed {
-                alg: i32,
-            }
-        ),
-        parse_quote!(
-            struct Mixed {
-                #[cbor(key = -1)]
-                a: u32,
-                b: u32,
-            }
-        ),
-        parse_quote!(
-            #[cbor(array)]
-            struct Positional {
-                a: u32,
-                b: Option<u32>,
             }
         ),
         parse_quote!(

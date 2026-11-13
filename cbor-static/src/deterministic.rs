@@ -66,8 +66,33 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! A flattened struct's keys sort among its parent's, since they share one map (#14 Q34):
+//!
+//! ```
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(deterministic)]
+//! struct Inner {
+//!     c: u8,
+//!     a: u8,
+//! }
+//!
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(deterministic)]
+//! struct Outer {
+//!     d: u8,
+//!     #[serde(flatten)]
+//!     inner: Inner,
+//!     b: u8,
+//! }
+//!
+//! let mut out = [0u8; 16];
+//! let len = cbor_static::encode_into(&Outer { d: 4, inner: Inner { c: 3, a: 1 }, b: 2 }, &mut out)?;
+//! assert_eq!(&out[..len], b"\xa4\x61a\x01\x61b\x02\x61c\x03\x61d\x04");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
 //! Every map under a deterministic type is sorted the same way, so each part must write no map of
-//! its own or take the same attribute. A struct writes a map, as does an enum with a struct
+//! its own or take the same attribute, a flattened struct included. A struct writes a map, as does an enum with a struct
 //! variant; a container, such as `Option`, an array or a tuple, writes the maps of what it holds.
 //! Anything else does not compile:
 //!

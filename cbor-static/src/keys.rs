@@ -8,10 +8,10 @@
 
 use crate::engine::{
     DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_MIXED,
-    DECODE_MAP_MIXED_DENY, DecOps, offset,
+    DECODE_MAP_MIXED_DENY, DecOps, filled, get, offset, set,
 };
 use crate::lead::Lead;
-use crate::schema::{FieldLayout, Layout, head_before};
+use crate::schema::{FieldLayout, Layout, Storage, head_before};
 use crate::wire::{Head, Major};
 
 /// An entry's identifier on the wire.
@@ -76,31 +76,27 @@ pub const fn field(keys: &[Key], index: usize, at: usize, omit_if_absent: bool) 
 /// into `fields`: bytewise by their encodings (RFC 8949 §4.2.1), or with `length_first`, shorter
 /// encodings first (§4.2.3). Entries that encode alike keep their order.
 #[must_use]
-pub const fn sorted<const N: usize>(
-    names: &[u8],
-    fields: &[FieldLayout; N],
-    length_first: bool,
-) -> [u8; N] {
-    let mut order = [0; N];
+pub const fn sorted<S: Storage<u8>>(names: &[u8], fields: &[FieldLayout], length_first: bool) -> S {
+    let mut order: S = filled(0);
     let mut at = 0;
-    while at < N {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a layout has at most 64 entries"
-        )]
-        let entry = at as u8;
+    while at < fields.len() {
         let mut hole = at;
         while hole > 0
             && precedes(
                 identifier(names, fields[at]),
-                identifier(names, fields[order[hole - 1] as usize]),
+                identifier(names, fields[get::<u8, S>(&order, hole - 1) as usize]),
                 length_first,
             )
         {
-            order[hole] = order[hole - 1];
+            let later = get::<u8, S>(&order, hole - 1);
+            set(&mut order, hole, later);
             hole -= 1;
         }
-        order[hole] = entry;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a layout has at most 64 entries"
+        )]
+        set(&mut order, hole, at as u8);
         at += 1;
     }
     order
@@ -108,14 +104,34 @@ pub const fn sorted<const N: usize>(
 
 /// `items` in the order [`sorted`] gives.
 #[must_use]
-pub const fn permuted<T: Copy, const N: usize>(items: [T; N], order: &[u8; N]) -> [T; N] {
+pub const fn permuted<X: Copy, S: Storage<X>>(items: S, order: &[u8]) -> S {
     let mut out = items;
     let mut at = 0;
-    while at < N {
-        out[at] = items[order[at] as usize];
+    while at < order.len() {
+        set(&mut out, at, get::<X, S>(&items, order[at] as usize));
         at += 1;
     }
     out
+}
+
+/// Whether no two of `layout`'s entries are named alike, `skip`ped fields aside, whose name no key
+/// can match; a struct and the structs it flattens share one map (#14 Q34).
+#[must_use]
+pub const fn distinct(layout: &Layout) -> bool {
+    let mut a = 0;
+    while a < layout.fields.len() {
+        let name = identifier(layout.names, layout.fields[a]);
+        let mut b = a + 1;
+        while b < layout.fields.len() {
+            let other = identifier(layout.names, layout.fields[b]);
+            if !skipped(name) && name.len() == other.len() && holds(other, 0, name) {
+                return false;
+            }
+            b += 1;
+        }
+        a += 1;
+    }
+    true
 }
 
 const fn identifier(names: &[u8], place: FieldLayout) -> &[u8] {
@@ -376,8 +392,14 @@ mod tests {
             field(UNSORTED, 4, 0, false),
             field(UNSORTED, 5, 0, false),
         ];
-        assert_eq!(sorted(&UNSORTED_NAMES, &FIELDS, false), [5, 4, 1, 3, 0, 2]);
-        assert_eq!(sorted(&UNSORTED_NAMES, &FIELDS, true), [5, 1, 4, 3, 0, 2]);
+        assert_eq!(
+            sorted::<[u8; 6]>(&UNSORTED_NAMES, &FIELDS, false),
+            [5, 4, 1, 3, 0, 2]
+        );
+        assert_eq!(
+            sorted::<[u8; 6]>(&UNSORTED_NAMES, &FIELDS, true),
+            [5, 1, 4, 3, 0, 2]
+        );
     }
 
     #[test]
@@ -389,7 +411,7 @@ mod tests {
             field(TWICE, 1, 0, false),
             field(TWICE, 2, 0, false),
         ];
-        assert_eq!(sorted(&TWICE_NAMES, &FIELDS, false), [1, 0, 2]);
+        assert_eq!(sorted::<[u8; 3]>(&TWICE_NAMES, &FIELDS, false), [1, 0, 2]);
     }
 
     #[test]
@@ -440,5 +462,28 @@ mod tests {
             assert!(core::ptr::eq(map_ops(&layout, false), skip));
             assert!(core::ptr::eq(map_ops(&layout, true), deny));
         }
+    }
+
+    #[test]
+    fn names_differ_unless_both_are_skipped() {
+        use super::distinct;
+
+        assert!(distinct(&layout_of!(
+            Key::Text("a"),
+            Key::Int(1),
+            Key::Skipped,
+            Key::Skipped
+        )));
+        assert!(!distinct(&layout_of!(
+            Key::Text("a"),
+            Key::Skipped,
+            Key::Text("a")
+        )));
+        assert!(!distinct(&layout_of!(Key::Int(24), Key::Int(24))));
+        assert!(distinct(&layout_of!(
+            Key::Int(24),
+            Key::Int(-25),
+            Key::Text("\x18")
+        )));
     }
 }
