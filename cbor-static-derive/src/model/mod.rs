@@ -74,7 +74,7 @@ pub enum Key {
         label: Path,
         variant: Ident,
     },
-    /// A tuple struct's field, identified by its position alone.
+    /// A tuple or `array` struct's field, identified by its position alone.
     Position,
 }
 

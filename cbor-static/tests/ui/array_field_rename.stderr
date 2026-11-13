@@ -1,0 +1,5 @@
+error: cbor-static: `array` fields are positional and take no `key` or `rename`
+ --> tests/ui/array_field_rename.rs:4:5
+  |
+4 |     #[serde(rename = "x")]
+  |     ^

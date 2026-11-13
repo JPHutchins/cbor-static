@@ -75,10 +75,11 @@ pub fn fields_of<'a>(
                 .clone()
                 .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?;
             let key = match (form, keys, attrs.key, attrs.rename) {
-                (StructForm::Array, _, Some(_), _) => {
+                (StructForm::Array, _, None, None) => Key::Position,
+                (StructForm::Array, ..) => {
                     return Err(syn::Error::new(
                         field.span(),
-                        "cbor-static: `array` fields are positional and take no `key`",
+                        "cbor-static: `array` fields are positional and take no `key` or `rename`",
                     ));
                 }
                 (_, Some(label), None, None) => Key::Label {
