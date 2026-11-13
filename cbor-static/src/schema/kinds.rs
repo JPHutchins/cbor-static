@@ -2,9 +2,8 @@
 //! The descriptors themselves: one variant per form a type's values take on the wire.
 
 use crate::engine::{
-    AbsentFn, AppendFn, AtFn, BeginFn, DECODE_DEFAULTED, DecOps, DecodeFn, EncOps, EncodeFn,
-    EntryFn, FieldPtrFn, FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
-    dec_skipped, nothing,
+    AbsentFn, AppendFn, AtFn, BeginFn, DecOps, DecodeFn, EncOps, EncodeFn, EntryFn, FieldPtrFn,
+    FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
 };
 use crate::schema::Layout;
 
@@ -290,6 +289,8 @@ impl DecKind {
     /// ops decode every item as `inner`.
     #[must_use]
     pub const fn defaulted(inner: &'static Self, default: WriteFn) -> Self {
+        use crate::engine::{DECODE_DEFAULTED, nothing};
+
         Self::Option {
             ops: &DECODE_DEFAULTED,
             default: Some(default),
@@ -303,6 +304,8 @@ impl DecKind {
     /// place.
     #[must_use]
     pub const fn skipped(default: WriteFn, drop: Option<WriteFn>) -> Self {
+        use crate::engine::dec_skipped;
+
         Self::Leaf {
             decode: dec_skipped,
             default: Some(default),

@@ -9,15 +9,20 @@ pub enum Case {
     Pascal,
 }
 
+/// The rules cbor-static accepts, by the name `rename_all = "…"` gives each.
+pub const RULES: [(&str, Case); 3] = [
+    ("snake_case", Case::Snake),
+    ("camelCase", Case::Camel),
+    ("PascalCase", Case::Pascal),
+];
+
 impl Case {
-    /// The rule `rename_all = "…"` names, if it is one cbor-static accepts.
+    /// The rule `rename_all = "…"` names, if it is one of [`RULES`].
     pub fn named(rule: &str) -> Option<Self> {
-        match rule {
-            "snake_case" => Some(Self::Snake),
-            "camelCase" => Some(Self::Camel),
-            "PascalCase" => Some(Self::Pascal),
-            _ => None,
-        }
+        RULES
+            .iter()
+            .find(|(name, _)| *name == rule)
+            .map(|&(_, case)| case)
     }
 
     /// A field's name, written in `snake_case`, under this rule; `Snake` keeps any name as written.
@@ -66,7 +71,7 @@ fn lower_first(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::Case;
+    use super::{Case, RULES};
 
     #[test]
     fn variants_follow_serde() {
@@ -105,11 +110,10 @@ mod tests {
     }
 
     #[test]
-    fn only_three_rules_are_accepted() {
-        assert_eq!(
-            ["snake_case", "camelCase", "PascalCase"].map(Case::named),
-            [Some(Case::Snake), Some(Case::Camel), Some(Case::Pascal)]
-        );
+    fn only_the_listed_rules_are_accepted() {
+        for (name, case) in RULES {
+            assert_eq!(Case::named(name), Some(case), "{name}");
+        }
         for rejected in [
             "lowercase",
             "UPPERCASE",

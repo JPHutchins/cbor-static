@@ -1,4 +1,4 @@
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use proc_macro2::{TokenStream, TokenTree};
 use syn::{DeriveInput, parse_quote};
 
 use super::item;
@@ -30,9 +30,14 @@ fn after_unsafe(input: &DeriveInput) -> Vec<String> {
         .collect()
 }
 
-/// Every `__p::` call to a const fn that asserts (`field`, `names`) or sizes a blob (`names_len`),
-/// and whether an enclosing `const { }` block holds it.
+/// The descriptor const fns that assert (`field`, `names`) or size a blob (`names_len`).
+const DESCRIPTOR_FNS: [&str; 3] = ["field", "names", "names_len"];
+
+/// Every `__p::` call to one of [`DESCRIPTOR_FNS`], and whether an enclosing `const { }` block
+/// holds it.
 fn descriptor_calls(tokens: TokenStream, in_const: bool) -> Vec<(String, bool)> {
+    use proc_macro2::Delimiter;
+
     let trees: Vec<TokenTree> = tokens.into_iter().collect();
     trees
         .iter()
@@ -48,7 +53,7 @@ fn descriptor_calls(tokens: TokenStream, in_const: bool) -> Vec<(String, bool)> 
                         )),
             ),
             TokenTree::Ident(name)
-                if ["field", "names", "names_len"].contains(&name.to_string().as_str())
+                if DESCRIPTOR_FNS.contains(&name.to_string().as_str())
                     && at.checked_sub(3).and_then(|path| trees.get(path)).is_some_and(
                         |path| matches!(path, TokenTree::Ident(module) if module == "__p"),
                     ) =>
@@ -174,7 +179,7 @@ fn every_descriptor_const_fn_call_is_in_an_inline_const_block() {
         .flat_map(|input| descriptor_calls(expanded(input), false))
         .collect();
     assert!(
-        ["field", "names", "names_len"]
+        DESCRIPTOR_FNS
             .iter()
             .all(|name| calls.iter().any(|(call, _)| call == name)),
         "{calls:?}"

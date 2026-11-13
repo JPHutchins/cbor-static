@@ -5,7 +5,7 @@ use proc_macro2::Span;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, LitInt, LitStr, Path, UnOp};
 
 use super::Fallback;
-use super::case::Case;
+use super::case::{Case, RULES};
 
 /// One attribute and where it was written.
 pub struct Spanned<T> {
@@ -228,8 +228,10 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                         Attr::RenameAll(Case::named(&rule.value()).ok_or_else(|| {
                             syn::Error::new(
                                 rule.span(),
-                                "cbor-static: `rename_all` is \"snake_case\", \"camelCase\" \
-                                 or \"PascalCase\"",
+                                format!(
+                                    "cbor-static: `rename_all` is one of {rules}",
+                                    rules = RULES.map(|(name, _)| format!("\"{name}\"")).join(", ")
+                                ),
                             )
                         })?)
                     }

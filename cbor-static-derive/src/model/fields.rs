@@ -1,11 +1,8 @@
-use proc_macro2::{Span, TokenStream, TokenTree};
-use quote::{ToTokens as _, format_ident};
+use proc_macro2::{Span, TokenStream};
+use quote::format_ident;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
-use syn::{
-    Attribute, Fields, FieldsUnnamed, GenericArgument, Ident, Index, Member, Path, PathArguments,
-    Type,
-};
+use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::case::Case;
@@ -224,6 +221,8 @@ pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
 /// `borrow` is a no-op, since a borrowing field decodes zero-copy anyway, but as in serde it needs a
 /// lifetime of the field's type to borrow, and each lifetime it names must be one.
 fn borrowed(field: &syn::Field, borrow: Option<&[String]>) -> syn::Result<()> {
+    use quote::ToTokens as _;
+
     let has = lifetimes(field.ty.to_token_stream());
     match borrow {
         None => Ok(()),
@@ -243,6 +242,8 @@ fn borrowed(field: &syn::Field, borrow: Option<&[String]>) -> syn::Result<()> {
 /// array, a tuple or a container of the vocabulary that holds one. A type the derive does not know,
 /// such as `Id<Node>` or `PhantomData<Self>`, may name the type without holding it.
 pub fn holds(ty: &Type, ident: &Ident) -> bool {
+    use syn::{GenericArgument, PathArguments};
+
     const HOLDERS: [&str; 8] = [
         "Option",
         "Tagged",
@@ -273,6 +274,8 @@ pub fn holds(ty: &Type, ident: &Ident) -> bool {
 
 /// The lifetimes in `tokens` other than `'static`, as written: `'a`.
 fn lifetimes(tokens: TokenStream) -> Vec<String> {
+    use proc_macro2::TokenTree;
+
     let trees: Vec<TokenTree> = tokens.into_iter().collect();
     trees
         .iter()
@@ -368,7 +371,7 @@ mod tests {
             parse_quote!(heapless::Vec<Option<Node>, 4>),
         ];
         for ty in holding {
-            assert!(holds(&ty, &node), "{}", quote::quote!(#ty));
+            assert!(holds(&ty, &node), "{ty}", ty = quote::quote!(#ty));
         }
         let naming: [Type; 4] = [
             parse_quote!(Id<Node>),
@@ -377,7 +380,7 @@ mod tests {
             parse_quote!(u32),
         ];
         for ty in naming {
-            assert!(!holds(&ty, &node), "{}", quote::quote!(#ty));
+            assert!(!holds(&ty, &node), "{ty}", ty = quote::quote!(#ty));
         }
     }
 }

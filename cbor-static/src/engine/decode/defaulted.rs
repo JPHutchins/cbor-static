@@ -6,9 +6,8 @@ use core::mem::MaybeUninit;
 
 use super::option::{done, holds_nothing, payload_only};
 use super::owned::never_a_parent;
-use super::{Begin, DecOps, Flow, State, expect, unnamed};
+use super::{Begin, DecOps, Flow, State, unnamed};
 use crate::error::ErrorKind;
-use crate::schema::DecKind;
 use crate::stack::Frame;
 
 pub static DEFAULTED: DecOps = DecOps {
@@ -21,6 +20,9 @@ pub static DEFAULTED: DecOps = DecOps {
 };
 
 fn value(state: &mut State, _: &mut [MaybeUninit<Frame>], _: u8) -> Result<Flow, ErrorKind> {
+    use super::expect;
+    use crate::schema::DecKind;
+
     let DecKind::Option { some, .. } = state.target.kind else {
         return Err(ErrorKind::Unsupported);
     };

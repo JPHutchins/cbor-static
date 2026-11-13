@@ -6,10 +6,9 @@ use core::mem::MaybeUninit;
 
 use super::array::{Element, element};
 use super::enums::{child_done, close, drop};
-use super::map::item_index;
 use super::{
-    Begin, DecOps, Entry, Flow, State, at, complete, desc, end, entries, expect, next_entry, open,
-    top, unnamed,
+    Begin, DecOps, Entry, Flow, State, at, desc, end, entries, expect, next_entry, open, top,
+    unnamed,
 };
 use crate::engine::input::Input;
 use crate::error::ErrorKind;
@@ -45,6 +44,8 @@ fn unit(
     frames: &mut [MaybeUninit<Frame>],
     header: Header,
 ) -> Result<Flow, ErrorKind> {
+    use super::complete;
+
     let DecKind::Enum {
         layout, variants, ..
     } = state.target.kind
@@ -131,6 +132,8 @@ fn variant(
     variants: &'static [DecVariant],
     header: Header,
 ) -> Result<(u8, &'static DecVariant), ErrorKind> {
+    use super::map::item_index;
+
     item_index(layout, header)
         .and_then(|index| Some((index, variants.get(usize::from(index))?)))
         .ok_or(ErrorKind::UnknownVariant)

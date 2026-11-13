@@ -85,20 +85,22 @@ fn defaulted_fields_encode_as_any_other() {
     );
 }
 
+/// `{"id": 1}` decoded: every other field its default or path.
+const ONLY_ID: Config = Config {
+    id: 1,
+    retries: 0,
+    timeout: 5,
+    nested: Inner { x: 0 },
+    limit: Some(7),
+    flag: None,
+};
+
 #[test]
 fn a_missing_field_takes_its_default_or_its_path() {
     let only_id = b"\xa1\x62id\x01";
-    let defaults = Config {
-        id: 1,
-        retries: 0,
-        timeout: 5,
-        nested: Inner::default(),
-        limit: Some(7),
-        flag: None,
-    };
-    assert_eq!(decode::<Config>(only_id), Ok(defaults));
+    assert_eq!(decode::<Config>(only_id), Ok(ONLY_ID));
     for chunk in 1..=only_id.len() {
-        assert_eq!(chunked_decode::<Config>(only_id, chunk), Ok(defaults));
+        assert_eq!(chunked_decode::<Config>(only_id, chunk), Ok(ONLY_ID));
     }
     assert_eq!(decode::<Config>(b"\xa0"), Err(ErrorKind::MissingField));
     assert_eq!(decode::<Point>(b"\x81\x01"), Ok(Point { x: 1, y: 5 }));
@@ -121,14 +123,7 @@ fn a_present_field_decodes_as_its_type_does() {
         decode::<Config>(b"\xa2\x62id\x01\x66nested\xa1\x61x\x09"),
         Ok(Config {
             nested: Inner { x: 9 },
-            ..Config {
-                id: 1,
-                retries: 0,
-                timeout: 5,
-                nested: Inner::default(),
-                limit: Some(7),
-                flag: None,
-            }
+            ..ONLY_ID
         })
     );
     assert_eq!(
@@ -138,12 +133,8 @@ fn a_present_field_decodes_as_its_type_does() {
     assert_eq!(
         decode::<Config>(b"\xa2\x62id\x01\x65limit\xf6"),
         Ok(Config {
-            id: 1,
-            retries: 0,
-            timeout: 5,
-            nested: Inner::default(),
             limit: None,
-            flag: None,
+            ..ONLY_ID
         })
     );
 }
@@ -175,6 +166,8 @@ struct Keyed {
     cache: Cache,
     #[cbor(key = 1)]
     alg: i32,
+    #[serde(skip, default = "five")]
+    hits: u32,
 }
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
@@ -236,6 +229,7 @@ fn a_skipped_field_is_never_written_and_decodes_to_its_default() {
         &Keyed {
             cache: Cache(0),
             alg: -7,
+            hits: 5,
         },
         b"\xa1\x01\x26",
     );

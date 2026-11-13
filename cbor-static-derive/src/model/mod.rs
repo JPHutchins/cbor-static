@@ -183,7 +183,7 @@ impl Item {
 /// derive names the field, where rustc would report E0072 or E0275, or, through a raw view such as
 /// `ArrayRef`, compile a decoder whose nested decoders recurse as deep as the input.
 fn holds_not_itself(ident: &Ident, shape: &Shape) -> syn::Result<()> {
-    let fields: Vec<&Field> = match shape {
+    match shape {
         Shape::Struct { fields, .. } => fields.iter().collect(),
         Shape::Unit => Vec::new(),
         Shape::Newtype(field) => vec![field.as_ref()],
@@ -194,17 +194,16 @@ fn holds_not_itself(ident: &Ident, shape: &Shape) -> syn::Result<()> {
                 Payload::Newtype(field) => vec![field.as_ref()],
                 Payload::Struct(fields) => fields.iter().collect(),
             })
-            .collect(),
-    };
-    fields
-        .into_iter()
-        .find(|field| holds(&field.ty, ident))
-        .map_or(Ok(()), |field| {
-            Err(syn::Error::new(
-                field.ty.span(),
-                format!("cbor-static: `{ident}` holds itself; recursive types are unsupported"),
-            ))
-        })
+            .collect::<Vec<&Field>>(),
+    }
+    .into_iter()
+    .find(|field| holds(&field.ty, ident))
+    .map_or(Ok(()), |field| {
+        Err(syn::Error::new(
+            field.ty.span(),
+            format!("cbor-static: `{ident}` holds itself; recursive types are unsupported"),
+        ))
+    })
 }
 
 fn structure<'a>(

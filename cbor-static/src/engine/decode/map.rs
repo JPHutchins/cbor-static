@@ -5,7 +5,6 @@
 
 use core::mem::MaybeUninit;
 
-use super::tagged::admit;
 use super::{
     After, Begin, DecOps, Entry, Flow, Scratch, State, at, desc, end, entries, expect, name,
     next_entry, open, skip_unknown, start_name, top,
@@ -124,6 +123,8 @@ fn unknown<const DENY: bool>(
     items: u64,
     header: Option<Header>,
 ) -> Result<Flow, ErrorKind> {
+    use super::tagged::admit;
+
     if DENY {
         admit(state, frames, header)
     } else {

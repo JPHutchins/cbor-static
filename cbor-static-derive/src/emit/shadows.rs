@@ -5,7 +5,6 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Ident, Member};
 
-use super::makers;
 use crate::model::{Field, Offsets, Payload, Repr, Variant};
 
 /// Per variant: the shadow (or mirror) type the payload is decoded through, if any, and the types
@@ -43,6 +42,8 @@ pub fn shadow(
             quote!(#attrs pub struct #name #generics { #tag pub f0: #ty, #marker })
         }
         Payload::Struct(fields) => {
+            use super::makers;
+
             let makers = makers(&owner(ident, variant), fields, generics, marker);
             let fields = fields
                 .iter()
@@ -123,5 +124,5 @@ impl Placement<'_> {
 
 /// The prefix of the types the derive defines for `variant` of the enum `item`.
 pub fn owner(item: &Ident, variant: &Variant) -> Ident {
-    format_ident!("{}{}", item, variant.ident)
+    format_ident!("{item}{variant}", item = item, variant = variant.ident)
 }

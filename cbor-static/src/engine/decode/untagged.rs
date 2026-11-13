@@ -5,7 +5,6 @@
 
 use core::mem::MaybeUninit;
 
-use super::described::give_back;
 use super::enums::assembled;
 use super::option::{done, holds_nothing, payload_only};
 use super::{Begin, DecOps, Flow, State, at, expect, open, top, unnamed};
@@ -15,7 +14,7 @@ use crate::error::ErrorKind;
 use crate::lead::Lead;
 use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
-use crate::wire::{Header, Major};
+use crate::wire::Header;
 
 pub static UNTAGGED: DecOps = DecOps {
     value: Begin::Header(value),
@@ -32,6 +31,9 @@ fn value(
     input: &mut Input,
     header: Header,
 ) -> Result<Flow, ErrorKind> {
+    use super::described::give_back;
+    use crate::wire::Major;
+
     let DecKind::Enum {
         layout, variants, ..
     } = state.target.kind

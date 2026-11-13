@@ -1,4 +1,4 @@
-error: cbor-static: `rename_all` is "snake_case", "camelCase" or "PascalCase"
+error: cbor-static: `rename_all` is one of "snake_case", "camelCase", "PascalCase"
  --> tests/ui/rename_all_rule.rs:2:22
   |
 2 | #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

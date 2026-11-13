@@ -156,8 +156,9 @@ fn cbor_tags(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
         return Err(syn::Error::new(
             again.ident.span(),
             format!(
-                "cbor-static: variants `{}` and `{}` share a `cbor_tag`",
-                first.ident, again.ident
+                "cbor-static: variants `{first}` and `{again}` share a `cbor_tag`",
+                first = first.ident,
+                again = again.ident
             ),
         ));
     }

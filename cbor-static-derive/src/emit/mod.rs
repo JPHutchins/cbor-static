@@ -270,7 +270,7 @@ fn makers(
 }
 
 fn maker(owner: &Ident, index: usize) -> Ident {
-    format_ident!("__{}Default{}", owner, index)
+    format_ident!("__{owner}Default{index}", owner = owner, index = index)
 }
 
 fn static_type(item: &Item) -> TokenStream {

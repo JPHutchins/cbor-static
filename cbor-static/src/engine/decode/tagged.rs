@@ -10,8 +10,8 @@ use super::enums::{assembled, child_done, drop};
 use super::map::MAP;
 use super::option::{done, holds_nothing, payload_only};
 use super::{
-    Begin, DecOps, Entry, Flow, Scratch, State, Target, at, desc, end, entries, expect, next_entry,
-    open, ops, skip_unknown, start_name, start_skip, top, unnamed,
+    Begin, DecOps, Entry, Flow, State, Target, at, desc, end, entries, expect, next_entry, open,
+    skip_unknown, start_name, start_skip, top, unnamed,
 };
 use crate::engine::StrictOps;
 use crate::engine::input::Input;
@@ -252,6 +252,8 @@ pub(super) fn admit(
     frames: &mut [MaybeUninit<Frame>],
     header: Option<Header>,
 ) -> Result<Flow, ErrorKind> {
+    use super::Scratch;
+
     let key_left = match header {
         None => 0,
         Some(key) if key.major == Major::Text && !key.indefinite() => {
@@ -275,6 +277,8 @@ fn tag_value(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
+    use super::ops;
+
     input
         .take_exact(usize::from(unsafe {
             state.scratch.assume_init_ref().tag_key_left
