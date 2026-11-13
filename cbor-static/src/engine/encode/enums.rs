@@ -19,6 +19,19 @@ fn open(
     kind: &'static EncKind,
     at: *const u8,
 ) -> Result<Option<Child>, ErrorKind> {
+    named(state, frames, kind, at, Major::Map, 1)
+}
+
+/// A unit variant as its layout identifier alone; any other as a `container` of `len` items that
+/// starts with that identifier and continues with the payload.
+pub(super) fn named(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    kind: &'static EncKind,
+    at: *const u8,
+    container: Major,
+    len: u64,
+) -> Result<Option<Child>, ErrorKind> {
     let EncKind::Enum {
         layout,
         payloads,
@@ -35,7 +48,7 @@ fn open(
             Ok(None)
         }
         Some(Some(_)) => {
-            state.pending.head(Major::Map, 1);
+            state.pending.head(container, len);
             state.pending.tail(layout.name_item(variant));
             push(
                 frames,

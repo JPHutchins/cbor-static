@@ -25,15 +25,45 @@ pub fn ops(form: &EnumForm) -> Ops {
     Ops { encode, decode }
 }
 
-/// How the layout identifies `variant`. An untagged variant's classes depend on its payload type,
-/// so the layout holds a placeholder that only the decoder's own layout fills in.
-pub fn variant_key(form: &EnumForm, variant: &Variant) -> TokenStream {
-    match (form, variant.cbor_tag) {
-        (EnumForm::Index, _) => quote!(__p::Key::None),
-        (EnumForm::CborTag, Some(tag)) => quote!(__p::Key::Tag(#tag)),
-        (EnumForm::Untagged, _) => quote!(__p::Key::Lead(__p::Lead::NONE)),
-        _ => text_key(&variant.name),
+/// How the layout identifies each variant. An untagged variant's classes depend on its payload
+/// type, so the layout holds a placeholder that only the decoder's own layout fills in.
+pub fn variant_keys(form: &EnumForm, variants: &[Variant]) -> Vec<TokenStream> {
+    match form {
+        EnumForm::Index => discriminants(variants)
+            .into_iter()
+            .map(|discriminant| quote!(__p::Key::Int(#discriminant)))
+            .collect(),
+        EnumForm::CborTag => variants
+            .iter()
+            .filter_map(|variant| variant.cbor_tag)
+            .map(|tag| quote!(__p::Key::Tag(#tag)))
+            .collect(),
+        EnumForm::Untagged => variants
+            .iter()
+            .map(|_| quote!(__p::Key::Lead(__p::Lead::NONE)))
+            .collect(),
+        EnumForm::External | EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => variants
+            .iter()
+            .map(|variant| text_key(&variant.name))
+            .collect(),
     }
+}
+
+/// Each variant's discriminant as Rust assigns it: the one written, or one more than the one
+/// before, starting from 0 (D-10a).
+fn discriminants(variants: &[Variant]) -> Vec<TokenStream> {
+    variants.iter().fold(
+        Vec::new(),
+        |mut discriminants: Vec<TokenStream>, variant| {
+            let discriminant = match (&variant.discriminant, discriminants.last()) {
+                (Some(written), _) => quote!((#written) as i64),
+                (None, Some(before)) => quote!(#before + 1),
+                (None, None) => quote!(0),
+            };
+            discriminants.push(discriminant);
+            discriminants
+        },
+    )
 }
 
 /// Entries after the variants: the tag and content keys of internally and adjacently tagged enums.
@@ -52,7 +82,10 @@ pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenS
             Payload::Unit => quote!(__p::Lead::TEXT),
             Payload::Newtype(_) | Payload::Struct(_) => quote!(__p::Lead::MAP),
         })),
-        EnumForm::Index => quote!(__p::Lead::ARRAY),
+        EnumForm::Index => union(variants.iter().map(|variant| match variant.payload {
+            Payload::Unit => quote!(__p::Lead::UINT.union(__p::Lead::NINT)),
+            Payload::Newtype(_) | Payload::Struct(_) => quote!(__p::Lead::ARRAY),
+        })),
         EnumForm::CborTag => quote!(__p::Lead::TAG),
         EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => quote!(__p::Lead::MAP),
         EnumForm::Untagged => union(variants.iter().map(|variant| variant_lead(variant, path))),

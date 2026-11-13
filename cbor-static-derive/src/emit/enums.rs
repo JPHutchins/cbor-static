@@ -57,14 +57,15 @@ pub fn enumeration(
         variants
             .iter()
             .zip(&shadows)
-            .map(|(variant, shadow)| {
+            .zip(forms::variant_keys(form, variants))
+            .map(|((variant, shadow), key)| {
                 let offset = shadow
                     .as_ref()
                     .filter(|_| {
                         matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust
                     })
                     .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
-                (forms::variant_key(form, variant), offset, false)
+                (key, offset, false)
             })
             .chain(
                 forms::extras(form)

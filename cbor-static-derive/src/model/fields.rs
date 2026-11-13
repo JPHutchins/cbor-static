@@ -8,12 +8,6 @@ use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::{Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
 
 pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
-    if let Some((_, discriminant)) = &variant.discriminant {
-        return Err(syn::Error::new(
-            discriminant.span(),
-            "cbor-static: explicit discriminants are unsupported",
-        ));
-    }
     let attrs = attrs::parse(&variant.attrs)?
         .into_iter()
         .try_fold(VariantAttrs::default(), VariantAttrs::with)?;
@@ -48,6 +42,10 @@ pub fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
         ident: variant.ident.clone(),
         name,
         cbor_tag: attrs.cbor_tag,
+        discriminant: variant
+            .discriminant
+            .as_ref()
+            .map(|(_, discriminant)| discriminant.clone()),
         payload,
     })
 }

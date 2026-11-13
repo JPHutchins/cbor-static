@@ -3,7 +3,7 @@
 mod common;
 
 use cbor_static::{Cbor, ErrorKind};
-use common::{decode, golden, golden_contiguous};
+use common::{decode, decode_strict, golden, golden_contiguous};
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 struct Coord {
@@ -79,6 +79,29 @@ enum Op {
     Load(u64),
 }
 
+/// Gaps, a negative discriminant, and implicit discriminants after explicit ones.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(index)]
+enum Access {
+    Read = 0,
+    Write = 2,
+    Erase,
+    Reset = -3,
+    Halt,
+}
+
+/// Explicit discriminants on variants with payloads, which Rust allows only under a primitive
+/// `repr`.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+#[cbor(index)]
+enum Frame {
+    Ping = 1,
+    Data(u32) = 5,
+    Ack,
+    Close { code: u16 } = 200,
+}
+
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 #[cbor(array)]
 struct Sign1 {
@@ -97,19 +120,27 @@ enum Cose {
 }
 
 #[test]
-fn indexed_variants_are_their_index_then_their_payload() {
-    golden(&Command::Ping, b"\x81\x00");
+fn indexed_variants_are_their_discriminant_then_their_payload() {
+    golden(&Command::Ping, b"\x00");
     golden(&Command::Set(5), b"\x82\x01\x05");
     golden(
         &Command::Move { x: 1, y: -1 },
         b"\x82\x02\xa2\x61x\x01\x61y\x20",
     );
-    golden(&Op::Nop, b"\x81\x00");
+    golden(&Op::Nop, b"\x00");
     golden(&Op::Load(7), b"\x82\x01\x07");
     assert_eq!(decode::<Command>(b"\x9f\x01\x05\xff"), Ok(Command::Set(5)));
-    let errors: [(&[u8], ErrorKind); 6] = [
-        (b"\x81\x03", ErrorKind::UnknownVariant),
+    assert_eq!(decode::<Command>(b"\x18\x00"), Ok(Command::Ping));
+    assert_eq!(
+        decode_strict::<Command>(b"\x18\x00"),
+        Err(ErrorKind::NotDeterministic)
+    );
+    let errors: [(&[u8], ErrorKind); 9] = [
+        (b"\x03", ErrorKind::UnknownVariant),
+        (b"\x20", ErrorKind::UnknownVariant),
         (b"\x82\x19\x01\x00\x00", ErrorKind::UnknownVariant),
+        (b"\x81\x00", ErrorKind::TypeMismatch),
+        (b"\x01", ErrorKind::TypeMismatch),
         (b"\x81\x01", ErrorKind::TypeMismatch),
         (b"\x82\x00\x05", ErrorKind::TypeMismatch),
         (b"\x83\x01\x05\x06", ErrorKind::TypeMismatch),
@@ -118,6 +149,29 @@ fn indexed_variants_are_their_index_then_their_payload() {
     for (bytes, error) in errors {
         assert_eq!(decode::<Command>(bytes), Err(error), "{bytes:x?}");
     }
+}
+
+#[test]
+fn indexed_variants_carry_their_rust_discriminants() {
+    for (access, bytes) in [
+        (Access::Read, b"\x00"),
+        (Access::Write, b"\x02"),
+        (Access::Erase, b"\x03"),
+        (Access::Reset, b"\x22"),
+        (Access::Halt, b"\x21"),
+    ] {
+        golden(&access, bytes);
+    }
+    assert_eq!(decode::<Access>(b"\x38\x02"), Ok(Access::Reset));
+    assert_eq!(decode::<Access>(b"\x01"), Err(ErrorKind::UnknownVariant));
+    golden(&Frame::Ping, b"\x01");
+    golden(&Frame::Data(7), b"\x82\x05\x07");
+    golden(&Frame::Ack, b"\x06");
+    golden(&Frame::Close { code: 1 }, b"\x82\x18\xc8\xa1\x64code\x01");
+    assert_eq!(
+        decode::<Frame>(b"\x82\x01\x07"),
+        Err(ErrorKind::TypeMismatch)
+    );
 }
 
 #[test]

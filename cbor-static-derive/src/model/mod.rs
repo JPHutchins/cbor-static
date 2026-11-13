@@ -4,7 +4,7 @@ mod fields;
 use proc_macro2::Span;
 use syn::spanned::Spanned as _;
 use syn::{
-    Attribute, Data, DeriveInput, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
+    Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
 };
 
 use attrs::{EnumAttrs, StructAttrs};
@@ -91,6 +91,8 @@ pub struct Variant {
     pub ident: Ident,
     pub name: String,
     pub cbor_tag: Option<u64>,
+    /// The discriminant written as `= expr`; others follow the one before, as in Rust.
+    pub discriminant: Option<Expr>,
     pub payload: Payload,
 }
 
@@ -258,10 +260,23 @@ fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Result<Sh
         ));
     }
     Ok(Shape::Enum {
+        repr: tables_or_glue(repr(item_attrs)?, &variants),
         variants,
-        repr: repr(item_attrs)?,
         form,
     })
+}
+
+/// A primitive-`repr` enum's tables write and read each variant's position as its tag byte, which
+/// holds only while every discriminant is implicit; any other enum takes the glue.
+fn tables_or_glue(repr: Repr, variants: &[Variant]) -> Repr {
+    if variants
+        .iter()
+        .any(|variant| variant.discriminant.is_some())
+    {
+        Repr::Rust
+    } else {
+        repr
+    }
 }
 
 fn lifetime(ast: &DeriveInput) -> syn::Result<Option<Lifetime>> {
