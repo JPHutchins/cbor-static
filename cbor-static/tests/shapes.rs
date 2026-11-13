@@ -140,3 +140,84 @@ fn a_decoded_newtype_drops_as_itself() {
     drop(decoder);
     assert_eq!(DROPPED.load(Ordering::SeqCst), 2);
 }
+
+/// The most fields a struct takes: its stack type nests by the log of their number.
+#[derive(Cbor, Clone, Copy, Debug, PartialEq, Default)]
+struct Widest {
+    f0: u8,
+    f1: u8,
+    f2: u8,
+    f3: u8,
+    f4: u8,
+    f5: u8,
+    f6: u8,
+    f7: u8,
+    f8: u8,
+    f9: u8,
+    f10: u8,
+    f11: u8,
+    f12: u8,
+    f13: u8,
+    f14: u8,
+    f15: u8,
+    f16: u8,
+    f17: u8,
+    f18: u8,
+    f19: u8,
+    f20: u8,
+    f21: u8,
+    f22: u8,
+    f23: u8,
+    f24: u8,
+    f25: u8,
+    f26: u8,
+    f27: u8,
+    f28: u8,
+    f29: u8,
+    f30: u8,
+    f31: u8,
+    f32: u8,
+    f33: u8,
+    f34: u8,
+    f35: u8,
+    f36: u8,
+    f37: u8,
+    f38: u8,
+    f39: u8,
+    f40: u8,
+    f41: u8,
+    f42: u8,
+    f43: u8,
+    f44: u8,
+    f45: u8,
+    f46: u8,
+    f47: u8,
+    f48: u8,
+    f49: u8,
+    f50: u8,
+    f51: u8,
+    f52: u8,
+    f53: u8,
+    f54: u8,
+    f55: u8,
+    f56: u8,
+    f57: u8,
+    f58: u8,
+    f59: u8,
+    f60: u8,
+    f61: u8,
+    f62: u8,
+    f63: u8,
+}
+
+#[test]
+fn a_struct_of_64_fields_derives_and_round_trips() {
+    let widest = Widest {
+        f63: 9,
+        ..Widest::default()
+    };
+    let bytes = encode(&widest);
+    assert_eq!(bytes[..2], *b"\xb8\x40");
+    assert_eq!(bytes[bytes.len() - 5..], *b"\x63f63\x09");
+    assert_eq!(decode::<Widest>(&bytes), Ok(widest));
+}

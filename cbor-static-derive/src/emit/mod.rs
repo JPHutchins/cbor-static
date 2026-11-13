@@ -274,20 +274,28 @@ fn key(key: &Key) -> TokenStream {
     }
 }
 
-/// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`.
-fn level(
-    children: impl DoubleEndedIterator<Item = (TokenStream, TokenStream)>,
-) -> (TokenStream, TokenStream) {
-    let (widest, deepest) = children.rev().fold(
-        (quote!(()), quote!(0)),
-        |(widest, deepest), (stack, depth)| {
-            (
-                quote!(__p::Widest<#stack, #widest>),
-                quote!(__p::deeper(#depth, #deepest)),
-            )
-        },
-    );
+/// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`, the children's stacks
+/// in a balanced tree of unions, so that a type's nesting grows with the log of its fields, not
+/// with their number, which overflows rustc's query depth at 64 fields.
+fn level(children: impl Iterator<Item = (TokenStream, TokenStream)>) -> (TokenStream, TokenStream) {
+    let (widest, deepest) = widest(&children.collect::<Vec<_>>());
     (quote!(__p::Level<#widest>), quote!(1 + #deepest))
+}
+
+/// The union of `children`'s stacks and the deepest of their depths, halved until one remains.
+fn widest(children: &[(TokenStream, TokenStream)]) -> (TokenStream, TokenStream) {
+    match children {
+        [] => (quote!(()), quote!(0)),
+        [(stack, depth)] => (quote!(__p::Widest<#stack, ()>), depth.clone()),
+        _ => {
+            let (left, right) = children.split_at(children.len() / 2);
+            let ((left, left_depth), (right, right_depth)) = (widest(left), widest(right));
+            (
+                quote!(__p::Widest<#left, #right>),
+                quote!(__p::deeper(#left_depth, #right_depth)),
+            )
+        }
+    }
 }
 
 fn child(ty: &impl ToTokens, path: &TokenStream) -> (TokenStream, TokenStream) {
