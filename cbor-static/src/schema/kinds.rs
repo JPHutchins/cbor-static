@@ -2,8 +2,9 @@
 //! The descriptors themselves: one variant per form a type's values take on the wire.
 
 use crate::engine::{
-    AbsentFn, AppendFn, AtFn, BeginFn, DecOps, DecodeFn, EncOps, EncodeFn, EntryFn, FieldPtrFn,
-    FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
+    AbsentFn, AppendFn, AtFn, BeginFn, DECODE_DEFAULTED, DecOps, DecodeFn, EncOps, EncodeFn,
+    EntryFn, FieldPtrFn, FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
+    nothing,
 };
 use crate::schema::Layout;
 
@@ -266,6 +267,19 @@ impl DecKind {
                 value,
                 glue,
             },
+        }
+    }
+
+    /// `inner`, which also writes `default` where its container lacks it: an `Option` kind whose
+    /// ops decode every item as `inner`.
+    #[must_use]
+    pub const fn defaulted(inner: &'static Self, default: WriteFn) -> Self {
+        Self::Option {
+            ops: &DECODE_DEFAULTED,
+            default: Some(default),
+            drop: inner.drop_fn(),
+            some: inner,
+            assemble: nothing,
         }
     }
 

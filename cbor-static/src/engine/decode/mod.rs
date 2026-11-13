@@ -3,6 +3,7 @@
 
 mod array;
 mod cbor_tag;
+mod defaulted;
 mod described;
 mod elements;
 mod entries;
@@ -25,6 +26,7 @@ use core::ptr;
 
 pub use array::ARRAY;
 pub use cbor_tag::CBOR_TAG;
+pub use defaulted::DEFAULTED;
 pub use described::SELF_DESCRIBED;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;

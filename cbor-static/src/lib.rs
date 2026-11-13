@@ -328,12 +328,13 @@ pub mod __private {
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
         ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
         ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
-        wraps, write_tag,
+        wraps, write_default, write_made, write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::lead::Lead;
     pub use crate::schema::{
-        Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout, MapForm, map_form,
+        Assemble, DecKind, DecVariant, EncKind, EnumGlue, FieldLayout, Layout, MakeDefault,
+        MapForm, map_form,
     };
     pub use crate::stack::{Level, Widest, deeper};
 }

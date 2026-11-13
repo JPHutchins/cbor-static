@@ -6,7 +6,7 @@ use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
 use super::case::Case;
-use super::{Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
+use super::{Fallback, Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
 
 /// A variant, named by its `rename`, else by its identifier under the enum's `rename_all`, which
 /// by default keeps it as written.
@@ -67,10 +67,10 @@ pub fn fields_of<'a>(
                 .into_iter()
                 .try_fold(FieldAttrs::default(), FieldAttrs::with)?;
             let is_option = is_option(&field.ty);
-            if (attrs.default || attrs.skip_if_none) && !is_option {
+            if attrs.skip_if_none && !is_option {
                 return Err(syn::Error::new(
                     field.span(),
-                    "cbor-static: `default` and `skip_serializing_if` need an `Option` field",
+                    "cbor-static: `skip_serializing_if` needs an `Option` field",
                 ));
             }
             let ident = field
@@ -118,6 +118,10 @@ pub fn fields_of<'a>(
                 member: Member::Named(ident),
                 ty: field.ty.clone(),
                 key,
+                fallback: match (attrs.default, is_option) {
+                    (Fallback::Default, true) => Fallback::Type,
+                    (fallback, _) => fallback,
+                },
                 omit_if_absent: match form {
                     StructForm::Map { .. } => attrs.skip_if_none,
                     StructForm::Array => is_option,
@@ -143,7 +147,7 @@ pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
             {
                 FieldAttrs {
                     rename: None,
-                    default: false,
+                    default: Fallback::Type,
                     skip_if_none: false,
                     key: None,
                     bytes,
@@ -151,6 +155,7 @@ pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
                     member: Member::Unnamed(Index::from(index)),
                     ty: field.ty.clone(),
                     key: Key::Position,
+                    fallback: Fallback::Type,
                     omit_if_absent: false,
                     bytes,
                 }),

@@ -4,6 +4,7 @@
 use proc_macro2::Span;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, LitInt, LitStr, Path, UnOp};
 
+use super::Fallback;
 use super::case::Case;
 
 /// One attribute and where it was written.
@@ -15,7 +16,8 @@ pub struct Spanned<T> {
 pub enum Attr {
     Rename(String),
     RenameAll(Case),
-    Default,
+    /// `default`, or with a path, `default = "path"`.
+    Default(Option<Path>),
     SkipIfNone,
     Key(KeyLit),
     Keys(Path),
@@ -60,7 +62,7 @@ pub struct FormAttrs {
 #[derive(Default)]
 pub struct FieldAttrs {
     pub rename: Option<String>,
-    pub default: bool,
+    pub default: Fallback,
     pub skip_if_none: bool,
     pub key: Option<KeyLit>,
     pub bytes: bool,
@@ -143,8 +145,8 @@ impl FieldAttrs {
                 rename: Some(rename),
                 ..self
             }),
-            Attr::Default => Ok(Self {
-                default: true,
+            Attr::Default(path) => Ok(Self {
+                default: path.map_or(Fallback::Default, Fallback::Path),
                 ..self
             }),
             Attr::SkipIfNone => Ok(Self {
@@ -208,7 +210,10 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                             )
                         })?)
                     }
-                    ("default", _) => Attr::Default,
+                    ("default", _) if meta.input.peek(syn::Token![=]) => {
+                        Attr::Default(Some(meta.value()?.parse::<LitStr>()?.parse::<Path>()?))
+                    }
+                    ("default", _) => Attr::Default(None),
                     ("skip_serializing_if", _) => {
                         if meta.value()?.parse::<LitStr>()?.value() != "Option::is_none" {
                             return Err(meta.error(

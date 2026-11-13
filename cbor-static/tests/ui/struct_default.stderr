@@ -1,0 +1,5 @@
+error: cbor-static: this attribute does not apply to a struct
+ --> tests/ui/struct_default.rs:2:9
+  |
+2 | #[serde(default)]
+  |         ^^^^^^^

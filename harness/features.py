@@ -120,6 +120,12 @@ FEATURES: Final = (
 		),
 	),
 	Feature(
+		'`default`, `default = "path"`',
+		"default",
+		"struct",
+		(f"{DECODE}::defaulted::DEFAULTED",),
+	),
+	Feature(
 		"`Strict` profile",
 		"strict",
 		"struct",

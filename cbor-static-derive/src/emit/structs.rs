@@ -3,7 +3,10 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
-use super::{Body, Trait, field_child, field_kind, impls, key, layout, level, static_type};
+use super::{
+    Body, Trait, field_child, field_decode, field_kind, impls, key, layout, level, makers,
+    static_type,
+};
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
 
@@ -49,6 +52,7 @@ pub fn structure(
             lead: lead.clone(),
         }
     });
+    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let decode = impls(item, directions, Trait::Decode, |path| {
         let (stack, depth) = level(
             fields
@@ -57,7 +61,8 @@ pub fn structure(
         );
         let kinds = fields
             .iter()
-            .map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
+            .enumerate()
+            .map(|(index, field)| field_decode(field, index, &item.ident, generics.as_ref(), path));
         Body {
             kind: quote!(&__p::DecKind::Struct { ops: &#decode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], drop: __p::drop_fn::<Self>() }),
             stack,
@@ -68,13 +73,22 @@ pub fn structure(
     let labels = labels(fields);
     let map_form = matches!(form, StructForm::Map { .. }).then(|| {
         let ident = &item.ident;
-        let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
         quote!(impl #generics __p::MapForm for #ident #generics {})
     });
+    let makers = makers(
+        &item.ident,
+        fields,
+        generics.as_ref(),
+        item.lifetime
+            .as_ref()
+            .map(|lifetime| quote!(pub __marker: ::core::marker::PhantomData<&#lifetime ()>,))
+            .as_ref(),
+    );
     quote! {
         #layout
         #labels
         #map_form
+        #makers
         #encode
         #decode
     }

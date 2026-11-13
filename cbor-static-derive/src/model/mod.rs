@@ -81,10 +81,24 @@ pub enum Key {
     Position,
 }
 
+/// What decoding writes into a field that its container lacks (D-08, #13 Q31).
+#[derive(Clone, Default)]
+pub enum Fallback {
+    /// What the field's type writes: `None` for an `Option`; for any other type, nothing, so the
+    /// field is required.
+    #[default]
+    Type,
+    /// `default`: `T::default()`.
+    Default,
+    /// `default = "path"`: what `path()` returns.
+    Path(Path),
+}
+
 pub struct Field {
     pub member: Member,
     pub ty: Type,
     pub key: Key,
+    pub fallback: Fallback,
     pub omit_if_absent: bool,
     /// `#[cbor(bytes)]`: the type's byte-string encoding, not its own (#12 Q21).
     pub bytes: bool,

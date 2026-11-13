@@ -159,6 +159,13 @@ pub trait MapForm {}
 /// Compiles only for a [`MapForm`] type.
 pub const fn map_form<T: MapForm>() {}
 
+/// A field's `default = "path"`: the derive implements it on a type of its own per field, whose
+/// `make` calls the path.
+pub trait MakeDefault {
+    type Value;
+    fn make() -> Self::Value;
+}
+
 /// The types whose byte-string kinds cbor-static describes, so the engine may trust them.
 pub(crate) mod sealed {
     pub trait ByteString {}

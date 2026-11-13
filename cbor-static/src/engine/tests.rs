@@ -14,6 +14,7 @@ std::thread_local! {
     static DROPS: Cell<usize> = const { Cell::new(0) };
 }
 
+#[derive(Default)]
 struct Tracked;
 
 impl Drop for Tracked {
@@ -393,6 +394,33 @@ fn an_encode_error_reports_its_field_and_its_offset_across_buffers() {
                 .chunks_mut(chunk)
                 .find_map(|piece| encoder.resume(piece).err()),
             Some(Error::new(ErrorKind::UnknownVariant, 1, 6))
+        );
+    }
+}
+
+#[derive(crate::Decode)]
+struct Defaulted {
+    #[serde(default)]
+    early: Tracked,
+    required: Tracked,
+    #[serde(default)]
+    late: Tracked,
+}
+
+#[test]
+fn a_default_written_before_a_missing_field_is_dropped() {
+    for chunk in [1, 64] {
+        assert_eq!(
+            drops_after::<Defaulted>(b"\xa0", chunk),
+            (Some(ErrorKind::MissingField), 1)
+        );
+        assert_eq!(
+            drops_after::<Defaulted>(b"\xa1\x68required\x01", chunk),
+            (None, 3)
+        );
+        assert_eq!(
+            drops_after::<Defaulted>(b"\xa2\x68required\x01\x64late\xf5", chunk),
+            (Some(ErrorKind::TypeMismatch), 1)
         );
     }
 }

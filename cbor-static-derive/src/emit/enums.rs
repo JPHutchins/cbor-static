@@ -3,11 +3,14 @@ use quote::{format_ident, quote};
 use syn::Ident;
 
 use super::structs::decode_map_ops;
-use super::{Body, Trait, field_child, field_kind, forms, impls, key, layout, level};
+use super::{
+    Body, Trait, field_child, field_decode, field_kind, forms, impls, key, layout, level, makers,
+};
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
 
-/// Per variant: the shadow (or mirror) type the payload is decoded through, if any.
+/// Per variant: the shadow (or mirror) type the payload is decoded through, if any, and the types
+/// its fields' `default = "path"` need.
 struct Shadow {
     ident: Ident,
     definition: TokenStream,
@@ -97,12 +100,12 @@ pub fn enumeration(
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         decode_kind(
+            ident,
             variants,
             &shadows,
             repr,
             generics.as_ref(),
             form,
-            &ops.decode,
             path,
         )
     });
@@ -145,10 +148,14 @@ fn shadow(
             quote!(#attrs pub struct #name #generics { #tag pub f0: #ty, #marker })
         }
         Payload::Struct(fields) => {
+            let makers = makers(&owner(ident, variant), fields, generics, marker);
             let fields = fields
                 .iter()
                 .map(|Field { member, ty, .. }| quote!(pub #member: #ty,));
-            quote!(#attrs pub struct #name #generics { #tag #(#fields)* #marker })
+            quote! {
+                #attrs pub struct #name #generics { #tag #(#fields)* #marker }
+                #makers
+            }
         }
     };
     Some(Shadow {
@@ -260,14 +267,15 @@ fn encode_kind(
 }
 
 fn decode_kind(
+    ident: &Ident,
     variants: &[Variant],
     shadows: &[Option<Shadow>],
     repr: Repr,
     generics: Option<&TokenStream>,
     form: &EnumForm,
-    ops: &TokenStream,
     path: &TokenStream,
 ) -> Body {
+    let ops = forms::ops(form).decode;
     let entries = variants.iter().enumerate().map(|(index, variant)| {
 		let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
 		let assemble = match repr {
@@ -283,7 +291,8 @@ fn decode_kind(
 			}
 			Payload::Struct(fields) => {
 				let name = layout_ident(&variant.ident);
-				let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Decode, path));
+				let owner = owner(ident, variant);
+				let kinds = fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, generics, path));
 				let ops = decode_map_ops(fields, Unknown::Skip);
 				quote!(Some(&__p::DecKind::Struct { ops: &#ops, layout: #name, kinds: &[#(#kinds),*], drop: None }))
 			}
@@ -341,6 +350,11 @@ fn stack(
 
 const fn unit_payload_frames(form: &EnumForm) -> bool {
     matches!(form, EnumForm::Internal { .. })
+}
+
+/// The prefix of the types the derive defines for `variant` of the enum `item`.
+fn owner(item: &Ident, variant: &Variant) -> Ident {
+    format_ident!("{}{}", item, variant.ident)
 }
 
 fn layout_ident(variant: &Ident) -> Ident {

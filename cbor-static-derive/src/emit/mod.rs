@@ -6,7 +6,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 
 use crate::Directions;
-use crate::model::{Item, Key, Shape};
+use crate::model::{Fallback, Field, Item, Key, Shape};
 
 #[derive(Clone, Copy)]
 enum Trait {
@@ -175,6 +175,59 @@ fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream)
         (Trait::Encode, true) => quote!(<#ty as ::cbor_static::ByteString>::ENCODE_BYTES),
         (Trait::Decode, true) => quote!(<#ty as ::cbor_static::ByteString>::DECODE_BYTES),
     }
+}
+
+/// A field's descriptor for decoding: [`field_kind`]'s, behind the default the field is given.
+/// `owner` names the field's `MakeDefault` type for `default = "path"`, as [`makers`] defines it.
+fn field_decode(
+    field: &Field,
+    index: usize,
+    owner: &Ident,
+    generics: Option<&TokenStream>,
+    path: &TokenStream,
+) -> TokenStream {
+    let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
+    let ty = &field.ty;
+    match &field.fallback {
+        Fallback::Type => kind,
+        Fallback::Default => {
+            quote!(&const { __p::DecKind::defaulted(#kind, __p::write_default::<#ty>) })
+        }
+        Fallback::Path(_) => {
+            let maker = maker(owner, index);
+            quote!(&const { __p::DecKind::defaulted(#kind, __p::write_made::<#maker #generics>) })
+        }
+    }
+}
+
+/// For each of `owner`'s fields with `default = "path"`, a type whose `MakeDefault` calls the path.
+fn makers(
+    owner: &Ident,
+    fields: &[Field],
+    generics: Option<&TokenStream>,
+    marker: Option<&TokenStream>,
+) -> TokenStream {
+    fields
+        .iter()
+        .enumerate()
+        .filter_map(|(index, field)| match &field.fallback {
+            Fallback::Path(made) => {
+                let (name, ty) = (maker(owner, index), &field.ty);
+                Some(quote! {
+                    pub struct #name #generics { #marker }
+                    impl #generics __p::MakeDefault for #name #generics {
+                        type Value = #ty;
+                        fn make() -> #ty { #made() }
+                    }
+                })
+            }
+            Fallback::Type | Fallback::Default => None,
+        })
+        .collect()
+}
+
+fn maker(owner: &Ident, index: usize) -> Ident {
+    format_ident!("__{}Default{}", owner, index)
 }
 
 fn static_type(item: &Item) -> TokenStream {
