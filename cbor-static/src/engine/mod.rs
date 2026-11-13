@@ -50,10 +50,11 @@ pub use glue::{
     write_tag,
 };
 pub(crate) use input::Input;
+pub use leaf::ENC_SKIPPED as ENCODE_SKIPPED;
 pub(crate) use leaf::{
     AbsentFn, DEC_BYTES, DEC_STR, DecodeFn, ENC_BYTES, ENC_STR, EncodeFn, NULL_ITEM, absent_option,
-    dec_i128, dec_option, dec_scalar, dec_tagged, dec_u128, enc_i128, enc_option, enc_scalar,
-    enc_u128, none,
+    dec_i128, dec_option, dec_scalar, dec_skipped, dec_tagged, dec_u128, enc_i128, enc_option,
+    enc_scalar, enc_u128, none,
 };
 pub use pending::Pending;
 pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor};

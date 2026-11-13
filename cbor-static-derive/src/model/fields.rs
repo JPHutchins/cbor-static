@@ -54,6 +54,8 @@ pub fn variant(variant: &syn::Variant, rename_all: Option<Case>) -> syn::Result<
     })
 }
 
+/// A named struct's or struct variant's fields, in their wire order: as declared, with the `skip`ped
+/// ones last, which an `array` struct needs and a map does not mind.
 pub fn fields_of<'a>(
     fields: impl ExactSizeIterator<Item = &'a syn::Field>,
     form: StructForm,
@@ -61,7 +63,7 @@ pub fn fields_of<'a>(
     rename_all: Option<Case>,
 ) -> syn::Result<Vec<Field>> {
     within_limit(fields.len())?;
-    fields
+    let (kept, skipped): (Vec<Field>, Vec<Field>) = fields
         .map(|field| {
             let attrs = attrs::parse(&field.attrs)?
                 .into_iter()
@@ -77,40 +79,11 @@ pub fn fields_of<'a>(
                 .ident
                 .clone()
                 .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?;
-            let key = match (form, keys, attrs.key, attrs.rename) {
-                (StructForm::Array, _, None, None) => Key::Position,
-                (StructForm::Array, ..) => {
-                    return Err(syn::Error::new(
-                        field.span(),
-                        "cbor-static: `array` fields are positional and take no `key` or `rename`",
-                    ));
-                }
-                (_, Some(label), None, None) => Key::Label {
-                    label: label.clone(),
-                    variant: camel(&ident),
-                },
-                (_, Some(_), ..) => {
-                    return Err(syn::Error::new(
-                        field.span(),
-                        "cbor-static: `keys` names every key; drop this field's `key` or `rename`",
-                    ));
-                }
-                (_, None, Some(_), Some(_)) => {
-                    return Err(syn::Error::new(
-                        field.span(),
-                        "cbor-static: a field takes `key` or `rename`, not both",
-                    ));
-                }
-                (_, None, Some(KeyLit::Int(int)), None) => Key::Int(int),
-                (_, None, Some(KeyLit::Text(text)), None) | (_, None, None, Some(text)) => {
-                    Key::Text(text)
-                }
-                (_, None, None, None) => Key::Text(
-                    rename_all
-                        .unwrap_or(Case::Snake)
-                        .field(&ident.unraw().to_string()),
-                ),
-            };
+            if attrs.skip {
+                return skip(field, ident, attrs);
+            }
+            let key = key(form, keys, rename_all, &ident, attrs.key, attrs.rename)
+                .map_err(|message| syn::Error::new(field.span(), message))?;
             if let Key::Text(text) = &key {
                 check_name(text, field.span())?;
             }
@@ -129,7 +102,76 @@ pub fn fields_of<'a>(
                 bytes: attrs.bytes,
             })
         })
-        .collect()
+        .collect::<syn::Result<Vec<_>>>()?
+        .into_iter()
+        .partition(|field| !matches!(field.key, Key::Skipped));
+    Ok(kept.into_iter().chain(skipped).collect())
+}
+
+/// A field's key: `keys`' variant, its own `key` or `rename`, or its identifier under `rename_all`;
+/// else what is wrong with its attributes.
+fn key(
+    form: StructForm,
+    keys: Option<&Path>,
+    rename_all: Option<Case>,
+    ident: &Ident,
+    key: Option<KeyLit>,
+    rename: Option<String>,
+) -> Result<Key, &'static str> {
+    match (form, keys, key, rename) {
+        (StructForm::Array, _, None, None) => Ok(Key::Position),
+        (StructForm::Array, ..) => {
+            Err("cbor-static: `array` fields are positional and take no `key` or `rename`")
+        }
+        (_, Some(label), None, None) => Ok(Key::Label {
+            label: label.clone(),
+            variant: camel(ident),
+        }),
+        (_, Some(_), ..) => {
+            Err("cbor-static: `keys` names every key; drop this field's `key` or `rename`")
+        }
+        (_, None, Some(_), Some(_)) => {
+            Err("cbor-static: a field takes `key` or `rename`, not both")
+        }
+        (_, None, Some(KeyLit::Int(int)), None) => Ok(Key::Int(int)),
+        (_, None, Some(KeyLit::Text(text)), None) | (_, None, None, Some(text)) => {
+            Ok(Key::Text(text))
+        }
+        (_, None, None, None) => Ok(Key::Text(
+            rename_all
+                .unwrap_or(Case::Snake)
+                .field(&ident.unraw().to_string()),
+        )),
+    }
+}
+
+/// A `skip`ped field (#13 Q31): never written, never matched, and given `T::default()` or its
+/// `default = "path"` on decode, so it takes nothing else.
+fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Field> {
+    match attrs {
+        FieldAttrs {
+            rename: None,
+            key: None,
+            skip_if_none: false,
+            bytes: false,
+            skip: _,
+            default,
+        } => Ok(Field {
+            member: Member::Named(ident),
+            ty: field.ty.clone(),
+            key: Key::Skipped,
+            fallback: match default {
+                Fallback::Type => Fallback::Default,
+                written => written,
+            },
+            omit_if_absent: true,
+            bytes: false,
+        }),
+        _ => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: a skipped field takes only `default`",
+        )),
+    }
 }
 
 /// A tuple or newtype struct's fields, in order: never omitted, so every one is written, as serde
@@ -149,6 +191,7 @@ pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
                     rename: None,
                     default: Fallback::Type,
                     skip_if_none: false,
+                    skip: false,
                     key: None,
                     bytes,
                 } => Ok(Field {

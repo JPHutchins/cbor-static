@@ -327,8 +327,8 @@ pub mod __private {
         DECODE_INTERNAL, DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY,
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, ENCODE_ADJACENT, ENCODE_ARRAY,
         ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX, ENCODE_INTERNAL, ENCODE_MAP,
-        ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of, index_tag, offset,
-        wraps, write_default, write_made, write_tag,
+        ENCODE_SKIPPED, ENCODE_UNTAGGED, Pending, assemble, drop_fn, field_ptr_of, index_of,
+        index_tag, offset, wraps, write_default, write_made, write_tag,
     };
     pub use crate::keys::{Key, field, names, names_len};
     pub use crate::lead::Lead;

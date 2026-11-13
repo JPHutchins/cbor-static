@@ -19,6 +19,7 @@ pub enum Attr {
     /// `default`, or with a path, `default = "path"`.
     Default(Option<Path>),
     SkipIfNone,
+    Skip,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -64,6 +65,7 @@ pub struct FieldAttrs {
     pub rename: Option<String>,
     pub default: Fallback,
     pub skip_if_none: bool,
+    pub skip: bool,
     pub key: Option<KeyLit>,
     pub bytes: bool,
 }
@@ -153,6 +155,7 @@ impl FieldAttrs {
                 skip_if_none: true,
                 ..self
             }),
+            Attr::Skip => Ok(Self { skip: true, ..self }),
             Attr::Key(key) => Ok(Self {
                 key: Some(key),
                 ..self
@@ -221,6 +224,13 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                             ));
                         }
                         Attr::SkipIfNone
+                    }
+                    ("skip", _) => Attr::Skip,
+                    ("skip_serializing" | "skip_deserializing", _) => {
+                        return Err(meta.error(
+                            "cbor-static: a field is skipped in both directions or not at all; \
+                             use `skip`",
+                        ));
                     }
                     ("deny_unknown_fields", _) => Attr::DenyUnknownFields,
                     ("tag", _) => Attr::Tag(meta.value()?.parse::<LitStr>()?.value()),

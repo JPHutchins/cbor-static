@@ -33,6 +33,24 @@ pub static DEC_BYTES: DecKind = DecKind::Leaf {
     default: None,
     drop: None,
 };
+/// A `skip`ped field (#13 Q31), which is never written: its encoding is always absent.
+pub static ENC_SKIPPED: EncKind = EncKind::Leaf {
+    encode: enc_nothing,
+    absent: Some(always),
+};
+
+fn enc_nothing(_: *const u8, _: &mut Pending) {}
+
+const fn always(_: *const u8) -> bool {
+    true
+}
+
+/// A `skip`ped field's decoding: no key names it, so only an array with an element too many reaches
+/// it; its container writes its default instead.
+pub fn dec_skipped(_: *mut u8, _: &Item<'_>) -> Result<Next, ErrorKind> {
+    Err(ErrorKind::TypeMismatch)
+}
+
 /// Only null: what an `Option`'s `None` decodes through.
 pub static NULL_ITEM: DecKind = DecKind::Leaf {
     decode: dec_null,

@@ -1,0 +1,5 @@
+error: cbor-static: a field is skipped in both directions or not at all; use `skip`
+ --> tests/ui/skip_one_sided.rs:4:13
+  |
+4 |     #[serde(skip_serializing)]
+  |             ^^^^^^^^^^^^^^^^

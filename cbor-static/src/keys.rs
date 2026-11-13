@@ -20,6 +20,8 @@ pub enum Key {
     Lead(Lead),
     /// Positional: no identifier.
     None,
+    /// A `skip`ped field's: one byte of text that is not UTF-8, which no key can match.
+    Skipped,
 }
 
 /// The total length of `keys`' pre-encoded identifiers.
@@ -73,6 +75,7 @@ const fn head(key: &Key) -> Option<Head> {
         Key::Int(int) if int < 0 => Some(Head::new(Major::Nint, !int.cast_unsigned())),
         Key::Int(int) => Some(Head::new(Major::Uint, int.cast_unsigned())),
         Key::Tag(tag) => Some(Head::new(Major::Tag, tag)),
+        Key::Skipped => Some(Head::new(Major::Text, 1)),
         Key::Lead(_) | Key::None => None,
     }
 }
@@ -82,6 +85,7 @@ const fn payload(key: &Key) -> &[u8] {
         Key::Text(text) => text.as_bytes(),
         Key::Int(_) | Key::Tag(_) | Key::None => &[],
         Key::Lead(_) => &[0; Lead::ENCODED_LEN],
+        Key::Skipped => &[0xff],
     }
 }
 
@@ -99,7 +103,7 @@ const fn item_len(key: &Key) -> usize {
 /// Bytes of the item before `name_at`.
 const fn prefix(key: &Key) -> usize {
     match key {
-        Key::Text(_) => head_len(key),
+        Key::Text(_) | Key::Skipped => head_len(key),
         Key::Int(_) | Key::Tag(_) => 1,
         Key::Lead(_) | Key::None => 0,
     }

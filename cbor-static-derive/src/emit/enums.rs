@@ -4,7 +4,8 @@ use syn::Ident;
 
 use super::structs::decode_map_ops;
 use super::{
-    Body, Trait, field_child, field_decode, field_kind, forms, impls, key, layout, level, makers,
+    Body, Trait, field_child, field_decode, field_encode, field_kind, field_stack, forms, impls,
+    key, layout, level, makers,
 };
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
@@ -253,7 +254,7 @@ fn encode_kind(
 		}
 		Payload::Struct(fields) => {
 			let name = layout_ident(&variant.ident);
-			let kinds = fields.iter().map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
+			let kinds = fields.iter().map(|field| field_encode(field, path));
 			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: &[#(#kinds),*], field_ptr: #field_ptr }))
 		}
 	});
@@ -334,17 +335,11 @@ fn stack(
     path: &TokenStream,
     unit_frames: bool,
 ) -> (TokenStream, TokenStream) {
-    level(variants.iter().map(|variant| {
-        match &variant.payload {
-            Payload::Unit if unit_frames => level(core::iter::empty()),
-            Payload::Unit => (quote!(()), quote!(0)),
-            Payload::Newtype(field) => field_child(&field.ty, field.bytes, path),
-            Payload::Struct(fields) => level(
-                fields
-                    .iter()
-                    .map(|field| field_child(&field.ty, field.bytes, path)),
-            ),
-        }
+    level(variants.iter().map(|variant| match &variant.payload {
+        Payload::Unit if unit_frames => level(core::iter::empty()),
+        Payload::Unit => (quote!(()), quote!(0)),
+        Payload::Newtype(field) => field_child(&field.ty, field.bytes, path),
+        Payload::Struct(fields) => level(fields.iter().map(|field| field_stack(field, path))),
     }))
 }
 

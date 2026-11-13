@@ -4,7 +4,7 @@
 use crate::engine::{
     AbsentFn, AppendFn, AtFn, BeginFn, DECODE_DEFAULTED, DecOps, DecodeFn, EncOps, EncodeFn,
     EntryFn, FieldPtrFn, FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
-    nothing,
+    dec_skipped, nothing,
 };
 use crate::schema::Layout;
 
@@ -280,6 +280,17 @@ impl DecKind {
             drop: inner.drop_fn(),
             some: inner,
             assemble: nothing,
+        }
+    }
+
+    /// A `skip`ped field's kind: it decodes no item, and its container writes `default` in its
+    /// place.
+    #[must_use]
+    pub const fn skipped(default: WriteFn, drop: Option<WriteFn>) -> Self {
+        Self::Leaf {
+            decode: dec_skipped,
+            default: Some(default),
+            drop,
         }
     }
 

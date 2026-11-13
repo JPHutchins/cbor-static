@@ -4,8 +4,8 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
 use super::{
-    Body, Trait, field_child, field_decode, field_kind, impls, key, layout, level, makers,
-    static_type,
+    Body, Trait, field_child, field_decode, field_encode, field_kind, field_stack, impls, key,
+    layout, level, makers, static_type,
 };
 use crate::Directions;
 use crate::model::{Field, Item, Key, StructForm, Unknown};
@@ -37,14 +37,8 @@ pub fn structure(
         StructForm::Array => quote!(__p::Lead::ARRAY),
     };
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = level(
-            fields
-                .iter()
-                .map(|field| field_child(&field.ty, field.bytes, path)),
-        );
-        let kinds = fields
-            .iter()
-            .map(|field| field_kind(&field.ty, field.bytes, Trait::Encode, path));
+        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
+        let kinds = fields.iter().map(|field| field_encode(field, path));
         Body {
             kind: quote!(&__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: &[#(#kinds),*], field_ptr: None }),
             stack,
@@ -54,11 +48,7 @@ pub fn structure(
     });
     let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = level(
-            fields
-                .iter()
-                .map(|field| field_child(&field.ty, field.bytes, path)),
-        );
+        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
         let kinds = fields
             .iter()
             .enumerate()
@@ -154,7 +144,7 @@ pub fn transparent(item: &Item, field: Option<&Field>, directions: Directions) -
 pub fn decode_map_ops(fields: &[Field], unknown: Unknown) -> TokenStream {
     let int = fields
         .iter()
-        .any(|field| !matches!(field.key, Key::Text(_)));
+        .any(|field| matches!(field.key, Key::Int(_) | Key::Label { .. }));
     let text = fields.iter().any(|field| matches!(field.key, Key::Text(_)));
     match (int, text, unknown) {
         (false, _, Unknown::Skip) => quote!(__p::DECODE_MAP),
@@ -173,7 +163,7 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| match &field.key {
             Key::Label { label, variant } => Some((label, variant)),
-            Key::Text(_) | Key::Int(_) | Key::Position => None,
+            Key::Text(_) | Key::Int(_) | Key::Position | Key::Skipped => None,
         })
         .unzip();
     labels.first().map(|label| {

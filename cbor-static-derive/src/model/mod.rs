@@ -79,6 +79,8 @@ pub enum Key {
     },
     /// A tuple or `array` struct's field, identified by its position alone.
     Position,
+    /// A `skip`ped field, which no key names: never written, and given its default on decode.
+    Skipped,
 }
 
 /// What decoding writes into a field that its container lacks (D-08, #13 Q31).

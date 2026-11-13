@@ -147,3 +147,132 @@ fn a_present_field_decodes_as_its_type_does() {
         })
     );
 }
+
+/// Neither encodes nor decodes: only a `skip`ped field may have it.
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+struct Cache(u32);
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Texted {
+    #[serde(skip)]
+    cache: Cache,
+    id: u32,
+    #[serde(skip, default = "five")]
+    hits: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(deny_unknown_fields)]
+struct Denied {
+    #[serde(skip)]
+    cache: Cache,
+    id: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Keyed {
+    #[serde(skip)]
+    cache: Cache,
+    #[cbor(key = 1)]
+    alg: i32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Mixed {
+    #[serde(skip)]
+    cache: Cache,
+    #[cbor(key = 1)]
+    alg: i32,
+    name: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[cbor(array)]
+struct Row {
+    #[serde(skip)]
+    cache: Cache,
+    x: u32,
+    y: Option<u32>,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+enum Event {
+    Hit {
+        #[serde(skip)]
+        cache: Cache,
+        at: u32,
+    },
+}
+
+#[test]
+fn a_skipped_field_is_never_written_and_decodes_to_its_default() {
+    golden(
+        &Texted {
+            cache: Cache(0),
+            id: 1,
+            hits: 5,
+        },
+        b"\xa1\x62id\x01",
+    );
+    assert_eq!(
+        decode::<Texted>(b"\xa2\x65cache\x09\x62id\x01"),
+        Ok(Texted {
+            cache: Cache(0),
+            id: 1,
+            hits: 5,
+        }),
+        "an entry named like a skipped field is unknown"
+    );
+    assert_eq!(
+        decode::<Texted>(b"\xa2\x61\xff\x00\x62id\x01"),
+        Err(ErrorKind::InvalidUtf8),
+        "the skipped field's sentinel name is no key"
+    );
+    assert_eq!(
+        decode::<Denied>(b"\xa2\x65cache\x09\x62id\x01"),
+        Err(ErrorKind::UnknownField)
+    );
+    golden(
+        &Keyed {
+            cache: Cache(0),
+            alg: -7,
+        },
+        b"\xa1\x01\x26",
+    );
+    golden(
+        &Mixed {
+            cache: Cache(0),
+            alg: -7,
+            name: 3,
+        },
+        b"\xa2\x01\x26\x64name\x03",
+    );
+    golden(
+        &Row {
+            cache: Cache(0),
+            x: 1,
+            y: Some(2),
+        },
+        b"\x82\x01\x02",
+    );
+    golden(
+        &Row {
+            cache: Cache(0),
+            x: 1,
+            y: None,
+        },
+        b"\x81\x01",
+    );
+    assert_eq!(
+        decode::<Row>(b"\x83\x01\x02\x03"),
+        Err(ErrorKind::TypeMismatch),
+        "no element reaches a skipped field"
+    );
+    golden(
+        &Event::Hit {
+            cache: Cache(0),
+            at: 4,
+        },
+        b"\xa1\x63Hit\xa1\x62at\x04",
+    );
+}

@@ -131,6 +131,7 @@ fn key(key: &Key) -> TokenStream {
         Key::Int(int) => quote!(__p::Key::Int(#int)),
         Key::Label { label, variant } => quote!(__p::Key::Int(#label::#variant as i64)),
         Key::Position => quote!(__p::Key::None),
+        Key::Skipped => quote!(__p::Key::Skipped),
     }
 }
 
@@ -177,8 +178,30 @@ fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream)
     }
 }
 
-/// A field's descriptor for decoding: [`field_kind`]'s, behind the default the field is given.
-/// `owner` names the field's `MakeDefault` type for `default = "path"`, as [`makers`] defines it.
+/// A named field's stack and depth: a `skip`ped field's take none.
+fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) {
+    match field.key {
+        Key::Skipped => (quote!(()), quote!(0)),
+        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
+            field_child(&field.ty, field.bytes, path)
+        }
+    }
+}
+
+/// A named field's descriptor for encoding: [`field_kind`]'s, or for a `skip`ped field one that is
+/// always absent.
+fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
+    match field.key {
+        Key::Skipped => quote!(&__p::ENCODE_SKIPPED),
+        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
+            field_kind(&field.ty, field.bytes, Trait::Encode, path)
+        }
+    }
+}
+
+/// A named field's descriptor for decoding: [`field_kind`]'s behind the default the field is given,
+/// or for a `skip`ped field, the default alone. `owner` names the field's `MakeDefault` type for
+/// `default = "path"`, as [`makers`] defines it.
 fn field_decode(
     field: &Field,
     index: usize,
@@ -186,16 +209,23 @@ fn field_decode(
     generics: Option<&TokenStream>,
     path: &TokenStream,
 ) -> TokenStream {
-    let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
     let ty = &field.ty;
-    match &field.fallback {
-        Fallback::Type => kind,
-        Fallback::Default => {
-            quote!(&const { __p::DecKind::defaulted(#kind, __p::write_default::<#ty>) })
-        }
+    let write = match &field.fallback {
+        Fallback::Type => None,
+        Fallback::Default => Some(quote!(__p::write_default::<#ty>)),
         Fallback::Path(_) => {
             let maker = maker(owner, index);
-            quote!(&const { __p::DecKind::defaulted(#kind, __p::write_made::<#maker #generics>) })
+            Some(quote!(__p::write_made::<#maker #generics>))
+        }
+    };
+    match (&field.key, write) {
+        (Key::Skipped, Some(write)) => {
+            quote!(&const { __p::DecKind::skipped(#write, __p::drop_fn::<#ty>()) })
+        }
+        (_, None) => field_kind(ty, field.bytes, Trait::Decode, path),
+        (_, Some(write)) => {
+            let kind = field_kind(ty, field.bytes, Trait::Decode, path);
+            quote!(&const { __p::DecKind::defaulted(#kind, #write) })
         }
     }
 }

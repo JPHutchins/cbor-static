@@ -424,3 +424,31 @@ fn a_default_written_before_a_missing_field_is_dropped() {
         );
     }
 }
+
+#[derive(crate::Decode)]
+struct Skipping {
+    #[serde(skip)]
+    cached: Tracked,
+    a: Tracked,
+}
+
+#[derive(crate::Decode)]
+struct Holder {
+    inner: Skipping,
+    after: u32,
+}
+
+#[test]
+fn a_skipped_default_is_dropped_with_its_struct() {
+    for chunk in [1, 64] {
+        assert_eq!(
+            drops_after::<Holder>(b"\xa2\x65inner\xa1\x61a\x01\x65after\xf5", chunk),
+            (Some(ErrorKind::TypeMismatch), 2)
+        );
+        assert_eq!(
+            drops_after::<Holder>(b"\xa1\x65inner\xa0", chunk),
+            (Some(ErrorKind::MissingField), 0),
+            "the skipped field comes last, so a missing field fails before its default"
+        );
+    }
+}

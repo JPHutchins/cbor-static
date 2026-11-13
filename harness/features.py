@@ -126,6 +126,12 @@ FEATURES: Final = (
 		(f"{DECODE}::defaulted::DEFAULTED",),
 	),
 	Feature(
+		"`skip`",
+		"skip",
+		"struct",
+		(f"{LEAF}::ENC_SKIPPED", f"{LEAF}::dec_skipped"),
+	),
+	Feature(
 		"`Strict` profile",
 		"strict",
 		"struct",
