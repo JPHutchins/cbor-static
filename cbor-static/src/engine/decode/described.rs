@@ -33,11 +33,22 @@ fn value(
         return Err(ErrorKind::Unsupported);
     };
     if (header.major, header.arg) != (Major::Tag, SELF_DESCRIBE) {
-        let len = header.head_len()?;
-        match input.at.checked_sub(len) {
-            Some(start) => input.at = start,
-            None => state.carry.restore(len),
-        }
+        give_back(state, input, header)?;
     }
     Ok(expect(state, inner, state.target.dst))
+}
+
+/// Gives back the head just read, so the next read returns it again: from this chunk when it lies
+/// whole in it, else from the carry, which a chunk boundary left holding it.
+pub(super) fn give_back(
+    state: &mut State,
+    input: &mut Input,
+    header: Header,
+) -> Result<(), ErrorKind> {
+    let len = header.head_len()?;
+    match input.at.checked_sub(len) {
+        Some(start) => input.at = start,
+        None => state.carry.restore(len),
+    }
+    Ok(())
 }

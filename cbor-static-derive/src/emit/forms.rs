@@ -86,7 +86,12 @@ pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenS
             Payload::Unit => quote!(__p::Lead::UINT.union(__p::Lead::NINT)),
             Payload::Newtype(_) | Payload::Struct(_) => quote!(__p::Lead::ARRAY),
         })),
-        EnumForm::CborTag => quote!(__p::Lead::TAG),
+        EnumForm::CborTag => union(
+            variants
+                .iter()
+                .filter_map(|variant| variant.cbor_tag)
+                .map(|tag| quote!(__p::Lead::tagged(#tag))),
+        ),
         EnumForm::Internal { .. } | EnumForm::Adjacent { .. } => quote!(__p::Lead::MAP),
         EnumForm::Untagged => union(variants.iter().map(|variant| variant_lead(variant, path))),
     }
@@ -116,10 +121,10 @@ pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) 
             quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
         })
             });
-    let len = Literal::usize_unsuffixed(2 * variants.len());
+    let count = Literal::usize_unsuffixed(variants.len());
     quote!({
         #(#disjoint)*
-        &__p::Layout { names: &const { __p::names::<#len>(&[#(__p::Key::Lead(#leads)),*]) }, fields: LAYOUT.fields }
+        &__p::Layout { names: &const { __p::names::<{ __p::Lead::ENCODED_LEN * #count }>(&[#(__p::Key::Lead(#leads)),*]) }, fields: LAYOUT.fields }
     })
 }
 

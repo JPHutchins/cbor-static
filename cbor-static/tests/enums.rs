@@ -2,7 +2,7 @@
 
 mod common;
 
-use cbor_static::{Cbor, ErrorKind};
+use cbor_static::{Cbor, Epoch, ErrorKind, Tagged};
 use common::{decode, decode_strict, golden, golden_contiguous};
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
@@ -38,6 +38,18 @@ enum Small {
     Flag(bool),
 }
 
+/// Variants that start with a tag, told apart by its number, long heads included.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(untagged)]
+enum Stamp {
+    Clock(Tagged<0, u32>),
+    Epoch(Epoch<u64>),
+    Mac(Tagged<97, u32>),
+    Sign(Tagged<98, u32>),
+    Wide(Tagged<{ u64::MAX }, u32>),
+    Bare(u64),
+}
+
 #[test]
 fn untagged_variants_are_told_apart_by_their_initial_byte() {
     golden(&Value::Missing, b"\xf6");
@@ -54,6 +66,34 @@ fn untagged_variants_are_told_apart_by_their_initial_byte() {
     golden(&Small::Nothing, b"\xf6");
     golden(&Small::Num(24), b"\x18\x18");
     golden(&Small::Flag(false), b"\xf4");
+}
+
+#[test]
+fn untagged_variants_starting_with_tags_are_told_apart_by_tag_number() {
+    golden(&Stamp::Clock(Tagged(5)), b"\xc0\x05");
+    golden(&Stamp::Epoch(Tagged(7)), b"\xc1\x07");
+    golden(&Stamp::Mac(Tagged(1)), b"\xd8\x61\x01");
+    golden(&Stamp::Sign(Tagged(2)), b"\xd8\x62\x02");
+    golden(
+        &Stamp::Wide(Tagged(3)),
+        b"\xdb\xff\xff\xff\xff\xff\xff\xff\xff\x03",
+    );
+    golden(&Stamp::Bare(9), b"\x09");
+    assert_eq!(
+        decode::<Stamp>(b"\xd8\x01\x07"),
+        Ok(Stamp::Epoch(Tagged(7)))
+    );
+    assert_eq!(
+        decode_strict::<Stamp>(b"\xd8\x01\x07"),
+        Err(ErrorKind::NotDeterministic)
+    );
+    for unclaimed in [b"\xc2\x41\x01".as_slice(), b"\xd8\x63\x01", b"\x61a"] {
+        assert_eq!(
+            decode::<Stamp>(unclaimed),
+            Err(ErrorKind::TypeMismatch),
+            "{unclaimed:x?}"
+        );
+    }
 }
 
 #[test]

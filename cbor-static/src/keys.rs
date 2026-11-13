@@ -16,7 +16,7 @@ pub enum Key {
     Text(&'static str),
     Int(i64),
     Tag(u64),
-    /// The first-item classes an untagged variant accepts, two bytes little-endian; never written.
+    /// The first-item classes an untagged variant accepts, as [`Lead::to_le_bytes`]; never written.
     Lead(Lead),
     /// Positional: no identifier.
     None,
@@ -81,7 +81,7 @@ const fn payload(key: &Key) -> &[u8] {
     match key {
         Key::Text(text) => text.as_bytes(),
         Key::Int(_) | Key::Tag(_) | Key::None => &[],
-        Key::Lead(_) => &[0; 2],
+        Key::Lead(_) => &[0; Lead::ENCODED_LEN],
     }
 }
 
@@ -151,7 +151,9 @@ mod tests {
         Key::Int(1000),
         Key::Tag(18),
         Key::Text("a twenty-four byte name!"),
-        Key::Lead(Lead::from_le_bytes([0x23, 0x01])),
+        Key::Lead(Lead::from_le_bytes([
+            0x23, 0x01, 1, 18, 0, 0, 0, 0, 0, 0, 0,
+        ])),
         Key::None,
     ];
     const NAMES: [u8; names_len(KEYS)] = names(KEYS);
@@ -173,7 +175,7 @@ mod tests {
             [
                 b"\x62id\x20\x19\x03\xe8\xd2\x78\x18".as_slice(),
                 b"a twenty-four byte name!",
-                b"\x23\x01",
+                b"\x23\x01\x01\x12\0\0\0\0\0\0\0",
             ]
             .concat()
         );
