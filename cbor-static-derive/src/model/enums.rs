@@ -8,7 +8,7 @@ use syn::spanned::Spanned as _;
 use super::attrs::{self, EnumAttrs, FormAttrs};
 use super::case::Case;
 use super::fields::{check_name, variant};
-use super::{EnumForm, Key, Payload, Repr, Shape, Variant};
+use super::{EnumForm, Key, Offsets, Payload, Repr, Shape, Variant};
 
 pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Result<Shape> {
     let attrs = attrs::parse(item_attrs)?
@@ -29,8 +29,10 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
     }
     cbor_tags(&form, &variants)?;
     tag_keys(&form, &variants)?;
+    let repr = tables_or_glue(repr(item_attrs)?, &variants);
     Ok(Shape::Enum {
-        repr: tables_or_glue(repr(item_attrs)?, &variants),
+        offsets: offsets(attrs.offset_of_enum, repr)?,
+        repr,
         variants,
         form,
     })
@@ -198,6 +200,20 @@ fn tag_keys(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
         | EnumForm::CborTag
         | EnumForm::Adjacent { .. }
         | EnumForm::Untagged => Ok(()),
+    }
+}
+
+/// `#[cbor(offset_of_enum)]` (R-129) takes the tables' payload offsets from the enum itself, so it
+/// needs tables: a primitive `repr` and implicit discriminants.
+fn offsets(offset_of_enum: bool, repr: Repr) -> syn::Result<Offsets> {
+    match (offset_of_enum, repr) {
+        (false, _) => Ok(Offsets::Shadows),
+        (true, Repr::U8 | Repr::CU8) => Ok(Offsets::Enum),
+        (true, Repr::Rust) => Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: `offset_of_enum` needs repr(u8) or repr(C, u8) and implicit \
+             discriminants",
+        )),
     }
 }
 

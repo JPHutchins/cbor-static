@@ -35,7 +35,18 @@ pub enum Shape {
         variants: Vec<Variant>,
         repr: Repr,
         form: EnumForm,
+        offsets: Offsets,
     },
+}
+
+/// Where a primitive-`repr` enum's payload offsets come from (D-21, R-129).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Offsets {
+    /// `offset_of!` on `#[repr(C)]` shadow structs laid out as RFC 2195 lays out the variants.
+    Shadows,
+    /// `offset_of!` on the enum's variants themselves (`#[cbor(offset_of_enum)]`), which needs
+    /// `#![feature(offset_of_enum)]` in the deriving crate.
+    Enum,
 }
 
 /// How a struct is laid out on the wire (D-09).

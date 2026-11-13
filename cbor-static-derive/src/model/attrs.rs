@@ -23,6 +23,7 @@ pub enum Attr {
     /// `borrow`, or `borrow = "'a + 'b"` with the lifetimes it names.
     Borrow(Vec<String>),
     Transparent,
+    OffsetOfEnum,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -53,6 +54,7 @@ pub struct StructAttrs {
 pub struct EnumAttrs {
     pub form: FormAttrs,
     pub rename_all: Option<Case>,
+    pub offset_of_enum: bool,
 }
 
 /// The attributes that choose an enum's representation.
@@ -143,6 +145,10 @@ impl EnumAttrs {
             }),
             Attr::RenameAll(case) => Ok(Self {
                 rename_all: Some(case),
+                ..self
+            }),
+            Attr::OffsetOfEnum => Ok(Self {
+                offset_of_enum: true,
                 ..self
             }),
             _ => Err(misplaced(attr.span, "an enum")),
@@ -265,6 +271,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("array", true) => Attr::Array,
                     ("bytes", true) => Attr::Bytes,
                     ("index", true) => Attr::Index,
+                    ("offset_of_enum", true) => Attr::OffsetOfEnum,
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }

@@ -1,5 +1,6 @@
 mod enums;
 mod forms;
+mod shadows;
 mod structs;
 
 use proc_macro2::{Ident, TokenStream};
@@ -23,7 +24,8 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
             variants,
             repr,
             form,
-        } => enums::enumeration(item, variants, *repr, form, directions),
+            offsets,
+        } => enums::enumeration(item, variants, (*repr, *offsets), form, directions),
     };
     quote! {
         #[allow(non_camel_case_types, non_upper_case_globals, dead_code, clippy::all, clippy::pedantic)]

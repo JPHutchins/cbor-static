@@ -199,6 +199,20 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! A `repr(u8)` or `repr(C, u8)` enum with implicit discriminants decodes in place through tables
+//! (D-21), whose payload offsets come from shadow structs laid out as RFC 2195 lays out the
+//! variants. With `#[cbor(offset_of_enum)]` they come from `offset_of!` on the enum itself, which
+//! needs nightly and `#![feature(offset_of_enum)]` in the deriving crate (R-129); without it:
+//!
+//! ```compile_fail,E0658
+//! #[derive(cbor_static::Cbor)]
+//! #[repr(u8)]
+//! #[cbor(offset_of_enum)]
+//! enum Frame {
+//!     Data(u32),
+//! }
+//! ```
+//!
 //! Internally and adjacently tagged enums, whose decoding needs contiguous input (D-10, D-16):
 //!
 //! ```

@@ -1,0 +1,7 @@
+error[E0658]: using enums in offset_of is experimental
+ --> tests/ui/offset_of_enum_stable.rs:5:5
+  |
+5 |     One(u32),
+  |     ^^^
+  |
+  = note: see issue #120141 <https://github.com/rust-lang/rust/issues/120141> for more information

@@ -2,25 +2,19 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::Ident;
 
+use super::shadows::{Placement, Shadow, mirror, owner, shadow};
 use super::structs::decode_map_ops;
 use super::{
     Body, Trait, field_child, field_decode, field_encode, field_kind, field_stack, forms, impls,
-    key, layout, level, makers,
+    key, layout, level,
 };
 use crate::Directions;
-use crate::model::{EnumForm, Field, Item, Payload, Repr, Unknown, Variant};
-
-/// Per variant: the shadow (or mirror) type the payload is decoded through, if any, and the types
-/// its fields' `default = "path"` need.
-struct Shadow {
-    ident: Ident,
-    definition: TokenStream,
-}
+use crate::model::{EnumForm, Field, Item, Offsets, Payload, Repr, Unknown, Variant};
 
 pub fn enumeration(
     item: &Item,
     variants: &[Variant],
-    repr: Repr,
+    (repr, offsets): (Repr, Offsets),
     form: &EnumForm,
     directions: Directions,
 ) -> TokenStream {
@@ -36,25 +30,13 @@ pub fn enumeration(
         .iter()
         .map(|variant| shadow(ident, variant, repr, generics.as_ref(), marker.as_ref()))
         .collect();
-    let mirror = format_ident!("__{}Mirror", ident);
-    let payload_union = format_ident!("__{}Payload", ident);
-    let mirror_definition = (repr == Repr::CU8).then(|| {
-		let arms = shadows.iter().flatten().map(|s| {
-			let shadow = &s.ident;
-			let field = format_ident!("{}", shadow.to_string().to_lowercase());
-			quote!(pub #field: ::core::mem::ManuallyDrop<#shadow #generics>,)
-		});
-		quote! {
-			#[repr(C)] pub union #payload_union #generics { #(#arms)* pub __unit: () }
-			#[repr(C)] pub struct #mirror #generics { pub tag: u8, pub payload: #payload_union #generics }
-			const _: () = assert!(::core::mem::size_of::<#mirror #statics>() == ::core::mem::size_of::<#ident #statics>());
-		}
-	});
-    let offset_in = |shadow: &Ident, member: &TokenStream| match repr {
-        Repr::CU8 => quote! {
-            ::core::mem::offset_of!(#mirror #statics, payload) + ::core::mem::offset_of!(#shadow #statics, #member)
-        },
-        Repr::Rust | Repr::U8 => quote!(::core::mem::offset_of!(#shadow #statics, #member)),
+    let mirror_definition =
+        (repr == Repr::CU8).then(|| mirror(ident, &shadows, generics.as_ref(), statics.as_ref()));
+    let placement = Placement {
+        ident,
+        statics: statics.as_ref(),
+        repr,
+        offsets,
     };
     let variant_layout = layout(
         &format_ident!("LAYOUT"),
@@ -68,7 +50,10 @@ pub fn enumeration(
                     .filter(|_| {
                         matches!(variant.payload, Payload::Newtype(_)) && repr != Repr::Rust
                     })
-                    .map_or_else(|| quote!(0), |s| offset_in(&s.ident, &quote!(f0)));
+                    .map_or_else(
+                        || quote!(0),
+                        |s| placement.offset(&variant.ident, &s.ident, None),
+                    );
                 (key, offset, false)
             })
             .chain(
@@ -84,10 +69,9 @@ pub fn enumeration(
             (Payload::Struct(fields), Some(s)) => Some(layout(
                 &layout_ident(&variant.ident),
                 fields.iter().map(|field| {
-                    let member = &field.member;
                     (
                         key(&field.key),
-                        offset_in(&s.ident, &quote!(#member)),
+                        placement.offset(&variant.ident, &s.ident, Some(&field.member)),
                         field.omit_if_absent,
                     )
                 }),
@@ -119,50 +103,6 @@ pub fn enumeration(
         #encode
         #decode
     }
-}
-
-fn shadow(
-    ident: &Ident,
-    variant: &Variant,
-    repr: Repr,
-    generics: Option<&TokenStream>,
-    marker: Option<&TokenStream>,
-) -> Option<Shadow> {
-    let name = format_ident!("__{}{}", ident, variant.ident);
-    let (attrs, tag) = match repr {
-        Repr::Rust => (quote!(), quote!()),
-        Repr::U8 => (quote!(#[repr(C)]), quote!(pub tag: u8,)),
-        Repr::CU8 => (quote!(#[repr(C)]), quote!()),
-    };
-    let definition = match &variant.payload {
-        Payload::Unit => return None,
-        Payload::Newtype(field) if repr == Repr::Rust => {
-            let ty = &field.ty;
-            let definition = quote!(pub type #name #generics = #ty;);
-            return Some(Shadow {
-                ident: name,
-                definition,
-            });
-        }
-        Payload::Newtype(field) => {
-            let ty = &field.ty;
-            quote!(#attrs pub struct #name #generics { #tag pub f0: #ty, #marker })
-        }
-        Payload::Struct(fields) => {
-            let makers = makers(&owner(ident, variant), fields, generics, marker);
-            let fields = fields
-                .iter()
-                .map(|Field { member, ty, .. }| quote!(pub #member: #ty,));
-            quote! {
-                #attrs pub struct #name #generics { #tag #(#fields)* #marker }
-                #makers
-            }
-        }
-    };
-    Some(Shadow {
-        ident: name,
-        definition,
-    })
 }
 
 fn glue(item: &Item, variants: &[Variant], shadows: &[Option<Shadow>]) -> TokenStream {
@@ -345,11 +285,6 @@ fn stack(
 
 const fn unit_payload_frames(form: &EnumForm) -> bool {
     matches!(form, EnumForm::Internal { .. })
-}
-
-/// The prefix of the types the derive defines for `variant` of the enum `item`.
-fn owner(item: &Ident, variant: &Variant) -> Ident {
-    format_ident!("{}{}", item, variant.ident)
 }
 
 fn layout_ident(variant: &Ident) -> Ident {
