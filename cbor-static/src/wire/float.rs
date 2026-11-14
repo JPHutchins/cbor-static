@@ -61,6 +61,11 @@ pub fn deterministic(info: u8, arg: u64) -> bool {
     })
 }
 
+/// Whether a float head, as [`shortest`] gives it, is a NaN.
+pub fn nan_head((info, arg): (u8, u64)) -> bool {
+    value(info, arg).is_some_and(nan)
+}
+
 const fn nan(bits: u64) -> bool {
     bits >> BINARY64_MANTISSA & BINARY64_SPECIAL == BINARY64_SPECIAL
         && bits & BINARY64_FRACTION != 0

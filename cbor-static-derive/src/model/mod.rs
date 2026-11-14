@@ -6,7 +6,8 @@ mod fields;
 use proc_macro2::Span;
 use syn::spanned::Spanned as _;
 use syn::{
-    Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
+    Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Generics, Ident, Lifetime, Member,
+    Path, Type,
 };
 
 use attrs::StructAttrs;
@@ -17,7 +18,10 @@ const MAX_FIELDS: usize = 64;
 
 pub struct Item {
     pub ident: Ident,
+    /// The one lifetime the item may borrow input for.
     pub lifetime: Option<Lifetime>,
+    /// Every parameter, the lifetime included (R-127).
+    pub generics: Generics,
     pub shape: Shape,
 }
 
@@ -27,15 +31,34 @@ pub enum Shape {
     Struct {
         fields: Vec<Field>,
         form: StructForm,
+        order: Mode,
     },
     Unit,
-    Newtype(Box<Field>),
+    /// A newtype or `transparent` struct, which a key order makes a deterministic root of its
+    /// field.
+    Newtype {
+        field: Box<Field>,
+        order: Mode,
+    },
     Enum {
         variants: Vec<Variant>,
         repr: Repr,
         form: EnumForm,
         offsets: Offsets,
+        order: Mode,
     },
+}
+
+/// The key order a type writes its own maps in (D-01, D-11b).
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Declaration order.
+    #[default]
+    Declared,
+    /// `deterministic`: RFC 8949 §4.2.1, bytewise by the keys' encodings, sorted at compile time.
+    Bytewise,
+    /// `length_first`: RFC 8949 §4.2.3, shorter encodings first.
+    LengthFirst,
 }
 
 /// Where a primitive-`repr` enum's payload offsets come from (D-21, R-129).
@@ -92,6 +115,11 @@ pub enum Key {
     Position,
     /// A `skip`ped field, which no key names: never written, and given its default on decode.
     Skipped,
+    /// A `flatten`ed field, which has no key of its own: its type's entries join its struct's map
+    /// in its place (#14 Q34).
+    Flattened,
+    /// An `other` field, which no key names: its struct's unknown entries go to it (R-128).
+    Other,
 }
 
 /// What decoding writes into a field that its container lacks (D-08, #13 Q31).
@@ -141,14 +169,22 @@ impl Item {
             Data::Struct(data) => match &data.fields {
                 Fields::Named(named) => structure(&ast.attrs, named.named.iter())?,
                 Fields::Unnamed(unnamed) => {
-                    let transparent = tuple_attrs(&ast.attrs)?;
-                    match (<[Field; 1]>::try_from(positional(unnamed)?), transparent) {
-                        (Ok([field]), _) => Shape::Newtype(Box::new(field)),
-                        (Err(fields), false) => Shape::Struct {
+                    let (transparent, order) = tuple_attrs(&ast.attrs)?;
+                    match (
+                        <[Field; 1]>::try_from(positional(unnamed)?),
+                        transparent,
+                        order,
+                    ) {
+                        (Ok([field]), _, order) => Shape::Newtype {
+                            field: Box::new(field),
+                            order: order.unwrap_or_default(),
+                        },
+                        (Err(fields), false, order) => Shape::Struct {
                             fields,
                             form: StructForm::Array,
+                            order: order.unwrap_or_default(),
                         },
-                        (Err(_), true) => return Err(not_one_field()),
+                        (Err(_), true, _) => return Err(not_one_field()),
                     }
                 }
                 Fields::Unit => {
@@ -171,9 +207,11 @@ impl Item {
             }
         };
         holds_not_itself(&ast.ident, &shape)?;
+        flattens_no_parameter(&ast.generics, &shape)?;
         Ok(Self {
             ident: ast.ident.clone(),
             lifetime: lifetime(ast)?,
+            generics: ast.generics.clone(),
             shape,
         })
     }
@@ -186,7 +224,7 @@ fn holds_not_itself(ident: &Ident, shape: &Shape) -> syn::Result<()> {
     match shape {
         Shape::Struct { fields, .. } => fields.iter().collect(),
         Shape::Unit => Vec::new(),
-        Shape::Newtype(field) => vec![field.as_ref()],
+        Shape::Newtype { field, .. } => vec![field.as_ref()],
         Shape::Enum { variants, .. } => variants
             .iter()
             .flat_map(|variant| match &variant.payload {
@@ -240,10 +278,34 @@ fn structure<'a>(
             unknown: if deny { Unknown::Deny } else { Unknown::Skip },
         },
     };
-    Ok(Shape::Struct {
-        fields: fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?,
+    let fields = fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?;
+    match (
         form,
-    })
+        fields
+            .iter()
+            .filter(|field| matches!(field.key, Key::Other))
+            .collect::<Vec<_>>()
+            .as_slice(),
+    ) {
+        (
+            StructForm::Map {
+                unknown: Unknown::Deny,
+            },
+            [field, ..],
+        ) => Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: an `other` field takes the unknown entries `deny_unknown_fields` rejects",
+        )),
+        (_, [_, field, ..]) => Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: a struct takes one `other` field",
+        )),
+        _ => Ok(Shape::Struct {
+            fields,
+            form,
+            order: attrs.order.unwrap_or_default(),
+        }),
+    }
 }
 
 /// A named struct with `transparent` (Q8): exactly one field, which it is on the wire, and no other
@@ -260,6 +322,7 @@ fn transparent<'a>(
                 deny_unknown_fields: false,
                 rename_all: None,
                 transparent: true,
+                order,
             },
             1,
             Some(field),
@@ -270,7 +333,10 @@ fn transparent<'a>(
                     .clone()
                     .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?,
             );
-            lone(field, member).map(|field| Shape::Newtype(Box::new(field)))
+            lone(field, member).map(|field| Shape::Newtype {
+                field: Box::new(field),
+                order: order.unwrap_or_default(),
+            })
         }
         (_, 1, _) => Err(syn::Error::new(
             Span::call_site(),
@@ -280,8 +346,8 @@ fn transparent<'a>(
     }
 }
 
-/// A tuple struct takes `transparent` alone, which it already is when it has one field.
-fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<bool> {
+/// A tuple struct takes `transparent`, which it already is when it has one field, or a key order.
+fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<(bool, Option<Mode>)> {
     match attrs::parse(attrs)?
         .into_iter()
         .try_fold(StructAttrs::default(), StructAttrs::with)?
@@ -292,10 +358,12 @@ fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<bool> {
             deny_unknown_fields: false,
             rename_all: None,
             transparent,
-        } => Ok(transparent),
+            order,
+        } => Ok((transparent, order)),
         _ => Err(syn::Error::new(
             Span::call_site(),
-            "cbor-static: a tuple struct takes only `transparent`",
+            "cbor-static: a tuple struct takes only `transparent`, `deterministic` or \
+             `length_first`",
         )),
     }
 }
@@ -307,17 +375,43 @@ fn not_one_field() -> syn::Error {
     )
 }
 
+/// The item's one lifetime, if any: type and const parameters may join it (R-127).
 fn lifetime(ast: &DeriveInput) -> syn::Result<Option<Lifetime>> {
     ast.generics
         .params
         .iter()
         .try_fold(None, |found, param| match (found, param) {
+            (found, GenericParam::Type(_) | GenericParam::Const(_)) => Ok(found),
             (None, GenericParam::Lifetime(def)) if def.bounds.is_empty() => {
                 Ok(Some(def.lifetime.clone()))
             }
-            (_, other) => Err(syn::Error::new(
+            (_, GenericParam::Lifetime(other)) => Err(syn::Error::new(
                 other.span(),
                 "cbor-static: at most one unbounded lifetime parameter is supported",
             )),
+        })
+}
+
+/// A flattened field's entries are copied into its struct's at compile time, into arrays whose
+/// shapes the field's type names; when that type is one of the item's own parameters, stable Rust
+/// cannot borrow them for `'static` (#25).
+fn flattens_no_parameter(generics: &Generics, shape: &Shape) -> syn::Result<()> {
+    let Shape::Struct { fields, .. } = shape else {
+        return Ok(());
+    };
+    fields
+        .iter()
+        .filter(|field| matches!(field.key, Key::Flattened))
+        .find(|field| {
+            generics
+                .type_params()
+                .any(|param| matches!(&field.ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident(&param.ident)))
+        })
+        .map_or(Ok(()), |field| {
+            Err(syn::Error::new(
+                field.ty.span(),
+                "cbor-static: a type parameter cannot be flattened yet; see \
+                 https://github.com/JPHutchins/cbor-static/issues/25",
+            ))
         })
 }

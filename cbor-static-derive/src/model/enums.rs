@@ -8,7 +8,7 @@ use syn::spanned::Spanned as _;
 use super::attrs::{self, EnumAttrs, FormAttrs};
 use super::case::Case;
 use super::fields::{check_name, variant};
-use super::{EnumForm, Key, Offsets, Payload, Repr, Shape, Variant};
+use super::{EnumForm, Key, Mode, Offsets, Payload, Repr, Shape, Variant};
 
 pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Result<Shape> {
     let attrs = attrs::parse(item_attrs)?
@@ -32,6 +32,7 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
     let repr = tables_or_glue(repr(item_attrs)?, &variants);
     Ok(Shape::Enum {
         offsets: offsets(attrs.offset_of_enum, repr)?,
+        order: order(&form, attrs.order)?,
         repr,
         variants,
         form,
@@ -259,4 +260,16 @@ fn repr(attrs: &[Attribute]) -> syn::Result<Repr> {
                 )),
             }
         })
+}
+
+/// An internally or adjacently tagged enum writes its tag entry apart from the payload's entries, so
+/// a compile-time key order cannot place it (#14, a 1e limitation).
+fn order(form: &EnumForm, order: Option<Mode>) -> syn::Result<Mode> {
+    match (form, order) {
+        (EnumForm::Internal { .. } | EnumForm::Adjacent { .. }, Some(_)) => Err(syn::Error::new(
+            Span::call_site(),
+            "cbor-static: an internally or adjacently tagged enum takes no key order",
+        )),
+        (_, order) => Ok(order.unwrap_or_default()),
+    }
 }

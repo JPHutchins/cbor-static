@@ -1,0 +1,35 @@
+error[E0080]: evaluation panicked: cbor-static: `part` does not sort its map keys the same way
+  --> tests/ui/order_parts.rs:18:10
+   |
+18 | #[derive(cbor_static::Encode)]
+   |          ^^^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Encode for HoldsDeclared>::ENCODE` failed here
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |                 None => encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+  |                                            ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |                     encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
+  |                                                  ^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Encoder::<'_, HoldsDeclared>::new`
+ --> src/lib.rs
+  |
+  |     match Encoder::new(value).resume(out)? {
+  |           ^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: cbor-static: `pair` does not sort its map keys the same way
+  --> tests/ui/order_parts.rs:24:10
+   |
+24 | #[derive(cbor_static::Encode)]
+   |          ^^^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Encode for HoldsConflict>::ENCODE` failed here
+
+note: the above error was encountered while instantiating `fn Encoder::<'_, HoldsConflict>::new`
+ --> src/lib.rs
+  |
+  |     match Encoder::new(value).resume(out)? {
+  |           ^^^^^^^^^^^^^^^^^^^

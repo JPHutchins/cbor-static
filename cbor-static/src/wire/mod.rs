@@ -41,7 +41,7 @@ pub struct Head {
 }
 
 impl Major {
-    const fn of(initial: u8) -> Self {
+    pub(crate) const fn of(initial: u8) -> Self {
         match initial >> 5 {
             0 => Self::Uint,
             1 => Self::Nint,

@@ -1,5 +1,8 @@
 mod enums;
+mod flatten;
 mod forms;
+mod order;
+mod params;
 mod shadows;
 mod structs;
 
@@ -7,7 +10,9 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 
 use crate::Directions;
-use crate::model::{Fallback, Field, Item, Key, Shape};
+use crate::model::{Fallback, Field, Item, Key, Mode, Shape, StructForm};
+use order::{Order, admitted, joined, ordered, part_order};
+use params::{Params, codec_generics, generic, params};
 
 #[derive(Clone, Copy)]
 enum Trait {
@@ -17,15 +22,29 @@ enum Trait {
 
 pub fn item(item: &Item, directions: Directions) -> TokenStream {
     let body = match &item.shape {
-        Shape::Struct { fields, form } => structs::structure(item, fields, *form, directions),
-        Shape::Unit => structs::transparent(item, None, directions),
-        Shape::Newtype(field) => structs::transparent(item, Some(field.as_ref()), directions),
+        Shape::Struct {
+            fields,
+            form: StructForm::Map { unknown },
+            order,
+        } if fields.iter().any(flatten::flattened) => {
+            flatten::flattening(item, fields, (*unknown, *order), directions)
+        }
+        Shape::Struct {
+            fields,
+            form,
+            order,
+        } => structs::structure(item, fields, (*form, *order), directions),
+        Shape::Unit => structs::transparent(item, None, Mode::Declared, directions),
+        Shape::Newtype { field, order } => {
+            structs::transparent(item, Some(field.as_ref()), *order, directions)
+        }
         Shape::Enum {
             variants,
             repr,
             form,
             offsets,
-        } => enums::enumeration(item, variants, (*repr, *offsets), form, directions),
+            order,
+        } => enums::enumeration(item, variants, (*repr, *offsets, *order), form, directions),
     };
     quote! {
         #[allow(non_camel_case_types, non_upper_case_globals, dead_code, clippy::all, clippy::pedantic)]
@@ -36,13 +55,14 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
     }
 }
 
-/// A codec trait impl's items: `kind` is the descriptor's `&'static` expression, and `lead` is
-/// `Decode`'s alone.
+/// A codec trait impl's items: `kind` is the descriptor's `&'static` expression, `lead` is
+/// `Decode`'s alone, and `order` is `Encode`'s alone.
 struct Body {
     kind: TokenStream,
     stack: TokenStream,
     depth: TokenStream,
     lead: TokenStream,
+    order: Order,
 }
 
 /// Whether `directions` derives `which`. Each derive expands alone, so an impl of a trait other than
@@ -65,39 +85,45 @@ fn impls(
     body: impl FnOnce(&TokenStream) -> Body,
 ) -> TokenStream {
     let ident = &item.ident;
-    let ty = item
-        .lifetime
-        .as_ref()
-        .map_or_else(|| quote!(#ident), |lifetime| quote!(#ident<#lifetime>));
+    let Params { named, .. } = params(item);
+    let ty = quote!(#ident #named);
+    let codec = codec_generics(item, which);
+    let (generics, _, bounds) = codec.split_for_impl();
     match (which, directions) {
         (Trait::Encode, Directions::Encode | Directions::Both) => {
-            let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
             let Body {
-                kind, stack, depth, ..
+                kind,
+                stack,
+                depth,
+                order: Order { order, selects },
+                ..
             } = body(&quote!(::cbor_static::Encode));
+            let order = order.map(|order| quote!(const ORDER: __p::Order = #order;));
+            let selects = selects.map(|ops| {
+                quote!(const DETERMINISTIC: ::core::option::Option<&'static __p::DeterministicOps> = ::core::option::Option::Some(&#ops);)
+            });
             quote! {
                 #[automatically_derived]
-                unsafe impl #generics ::cbor_static::Encode for #ty {
+                unsafe impl #generics ::cbor_static::Encode for #ty #bounds {
                     const ENCODE: &'static __p::EncKind = #kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
+                    #order
+                    #selects
                 }
             }
         }
         (Trait::Decode, Directions::Decode | Directions::Both) => {
-            let generics = item.lifetime.as_ref().map_or_else(
-                || quote!(<'de>),
-                |lifetime| quote!(<'de: #lifetime, #lifetime>),
-            );
             let Body {
                 kind,
                 stack,
                 depth,
                 lead,
+                ..
             } = body(&quote!(::cbor_static::Decode<'de>));
             quote! {
                 #[automatically_derived]
-                unsafe impl #generics ::cbor_static::Decode<'de> for #ty {
+                unsafe impl #generics ::cbor_static::Decode<'de> for #ty #bounds {
                     const DECODE: &'static __p::DecKind = #kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
@@ -110,27 +136,89 @@ fn impls(
     }
 }
 
-/// The `name: &Layout` const, with its keys and their pre-encoded names, from (key, byte offset,
-/// omit-if-absent) per entry.
+/// A layout's consts, and how an impl refers to it: by name, or written out where its offsets
+/// depend on the item's parameters (R-127).
+struct Placed {
+    consts: TokenStream,
+    reference: TokenStream,
+    fields: TokenStream,
+}
+
+/// The layout `name`, with its keys and their pre-encoded names, from (key, byte offset,
+/// omit-if-absent) per entry. In a key order other than declaration order, the entries are sorted
+/// by their pre-encoded names at compile time, in the order [`sorted`] names, which needs no
+/// offset; `inline` writes the layout where it is used, since its offsets name `Self`.
 fn layout(
     name: &Ident,
     entries: impl Iterator<Item = (TokenStream, TokenStream, bool)>,
-) -> TokenStream {
-    let keys = format_ident!("{}_KEYS", name);
-    let names = format_ident!("{}_NAMES", name);
-    let (entry_keys, fields): (Vec<_>, Vec<_>) = entries
+    mode: Mode,
+    inline: bool,
+) -> Placed {
+    let keys = format_ident!("{name}_KEYS", name = name);
+    let names = format_ident!("{name}_NAMES", name = name);
+    let (entry_keys, (fields, unplaced)): (Vec<_>, (Vec<_>, Vec<_>)) = entries
         .enumerate()
         .map(|(index, (key, offset, omit))| {
             (
                 key,
-                quote!(const { __p::field(#keys, #index, #offset, #omit) }),
+                (
+                    quote!(const { __p::field(#keys, #index, #offset, #omit) }),
+                    quote!(const { __p::field(#keys, #index, 0, #omit) }),
+                ),
             )
         })
         .unzip();
-    quote! {
+    let blob = quote! {
         const #keys: &[__p::Key] = &[#(#entry_keys),*];
         const #names: [u8; const { __p::names_len(#keys) }] = const { __p::names(#keys) };
-        const #name: &__p::Layout = &__p::Layout { names: &#names, fields: &[#(#fields),*] };
+    };
+    let order = sorted(name);
+    let count = fields.len();
+    let length_first = mode == Mode::LengthFirst;
+    let declared = quote!([#(#fields),*]);
+    let (consts, placed) = match mode {
+        Mode::Declared => (blob, quote!(&#declared)),
+        Mode::Bytewise | Mode::LengthFirst => (
+            quote! {
+                #blob
+                const #order: [u8; #count] = __p::sorted(&#names, &[#(#unplaced),*], #length_first);
+            },
+            quote!(&__p::permuted(#declared, &#order)),
+        ),
+    };
+    let layout = quote!(&__p::Layout { names: &#names, fields: #placed });
+    if inline {
+        Placed {
+            consts,
+            reference: quote!(&const { __p::Layout { names: &#names, fields: #placed } }),
+            fields: quote!(const { #placed }),
+        }
+    } else {
+        Placed {
+            consts: quote! {
+                #consts
+                const #name: &__p::Layout = #layout;
+            },
+            reference: quote!(#name),
+            fields: quote!(#name.fields),
+        }
+    }
+}
+
+/// The const holding the order [`layout`] sorted layout `name`'s entries into, by their indices in
+/// declaration order.
+fn sorted(name: &Ident) -> Ident {
+    format_ident!("{name}_SORTED", name = name)
+}
+
+/// The kinds of layout `name`'s entries, given in declaration order, in the layout's order.
+fn arranged(name: &Ident, mode: Mode, kinds: impl Iterator<Item = TokenStream>) -> TokenStream {
+    match mode {
+        Mode::Declared => quote!(&[#(#kinds),*]),
+        Mode::Bytewise | Mode::LengthFirst => {
+            let order = sorted(name);
+            quote!(&const { __p::permuted([#(#kinds),*], &#order) })
+        }
     }
 }
 
@@ -143,25 +231,34 @@ fn key(key: &Key) -> TokenStream {
         Key::Text(text) => text_key(text),
         Key::Int(int) => quote!(__p::Key::Int(#int)),
         Key::Label { label, variant } => quote!(__p::Key::Int(#label::#variant as i64)),
-        Key::Position => quote!(__p::Key::None),
+        Key::Position | Key::Flattened => quote!(__p::Key::None),
+        Key::Other => quote!(__p::Key::Other),
         Key::Skipped => quote!(__p::Key::Skipped),
     }
 }
 
-/// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`.
-fn level(
-    children: impl DoubleEndedIterator<Item = (TokenStream, TokenStream)>,
-) -> (TokenStream, TokenStream) {
-    let (widest, deepest) = children.rev().fold(
-        (quote!(()), quote!(0)),
-        |(widest, deepest), (stack, depth)| {
-            (
-                quote!(__p::Widest<#stack, #widest>),
-                quote!(__p::deeper(#depth, #deepest)),
-            )
-        },
-    );
+/// One stack level over `children`: `(Level<Widest<…>>, 1 + deeper(…))`, the children's stacks
+/// in a balanced tree of unions, so that a type's nesting grows with the log of its fields, not
+/// with their number, which overflows rustc's query depth at 64 fields.
+fn level(children: impl Iterator<Item = (TokenStream, TokenStream)>) -> (TokenStream, TokenStream) {
+    let (widest, deepest) = widest(&children.collect::<Vec<_>>());
     (quote!(__p::Level<#widest>), quote!(1 + #deepest))
+}
+
+/// The union of `children`'s stacks and the deepest of their depths, halved until one remains.
+fn widest(children: &[(TokenStream, TokenStream)]) -> (TokenStream, TokenStream) {
+    match children {
+        [] => (quote!(()), quote!(0)),
+        [(stack, depth)] => (quote!(__p::Widest<#stack, ()>), depth.clone()),
+        _ => {
+            let (left, right) = children.split_at(children.len() / 2);
+            let ((left, left_depth), (right, right_depth)) = (widest(left), widest(right));
+            (
+                quote!(__p::Widest<#left, #right>),
+                quote!(__p::deeper(#left_depth, #right_depth)),
+            )
+        }
+    }
 }
 
 fn child(ty: &impl ToTokens, path: &TokenStream) -> (TokenStream, TokenStream) {
@@ -191,12 +288,23 @@ fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream)
     }
 }
 
-/// A named field's stack and depth: a `skip`ped field's take none.
-fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) {
-    match field.key {
-        Key::Skipped => (quote!(()), quote!(0)),
-        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
-            field_child(&field.ty, field.bytes, path)
+/// A named field's stack and depth under `which` trait: a `skip`ped field's take none, a flattened
+/// field's are its type's below its own frame, whose place its struct's frame takes, and an `other`
+/// field takes a frame only to write its entries back.
+fn field_stack(field: &Field, which: Trait, path: &TokenStream) -> (TokenStream, TokenStream) {
+    let ty = &field.ty;
+    match (&field.key, which) {
+        (Key::Skipped, _) | (Key::Other, Trait::Decode) => (quote!(()), quote!(0)),
+        (Key::Other, Trait::Encode) => (
+            quote!(<#ty as __p::Other>::Stack),
+            quote!(<#ty as __p::Other>::MAX_DEPTH),
+        ),
+        (Key::Flattened, _) => (
+            quote!(<<#ty as #path>::Stack as __p::Unlevel>::Children),
+            quote!(<#ty as #path>::MAX_DEPTH - 1),
+        ),
+        (Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position, _) => {
+            field_child(ty, field.bytes, path)
         }
     }
 }
@@ -206,7 +314,11 @@ fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) 
 fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
     match field.key {
         Key::Skipped => quote!(&__p::ENCODE_SKIPPED),
-        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
+        Key::Other => {
+            let ty = &field.ty;
+            quote!(<#ty as __p::Other>::ENCODE_OTHER)
+        }
+        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
             field_kind(&field.ty, field.bytes, Trait::Encode, path)
         }
     }
@@ -219,7 +331,7 @@ fn field_decode(
     field: &Field,
     index: usize,
     owner: &Ident,
-    generics: Option<&TokenStream>,
+    named: &TokenStream,
     path: &TokenStream,
 ) -> TokenStream {
     let ty = &field.ty;
@@ -228,13 +340,14 @@ fn field_decode(
         Fallback::Default => Some(quote!(__p::write_default::<#ty>)),
         Fallback::Path(_) => {
             let maker = maker(owner, index);
-            Some(quote!(__p::write_made::<#maker #generics>))
+            Some(quote!(__p::write_made::<#maker #named>))
         }
     };
     match (&field.key, write) {
         (Key::Skipped, Some(write)) => {
             quote!(&const { __p::DecKind::skipped(#write, __p::drop_fn::<#ty>()) })
         }
+        (Key::Other, _) => quote!(<#ty as __p::Other>::DECODE_OTHER),
         (_, None) => field_kind(ty, field.bytes, Trait::Decode, path),
         (_, Some(write)) => {
             let kind = field_kind(ty, field.bytes, Trait::Decode, path);
@@ -244,12 +357,13 @@ fn field_decode(
 }
 
 /// For each of `owner`'s fields with `default = "path"`, a type whose `MakeDefault` calls the path.
-fn makers(
-    owner: &Ident,
-    fields: &[Field],
-    generics: Option<&TokenStream>,
-    marker: Option<&TokenStream>,
-) -> TokenStream {
+fn makers(owner: &Ident, fields: &[Field], params: &Params) -> TokenStream {
+    let Params {
+        declared,
+        named,
+        bounds,
+        marker,
+    } = params;
     fields
         .iter()
         .enumerate()
@@ -257,8 +371,8 @@ fn makers(
             Fallback::Path(made) => {
                 let (name, ty) = (maker(owner, index), &field.ty);
                 Some(quote! {
-                    pub struct #name #generics { #marker }
-                    impl #generics __p::MakeDefault for #name #generics {
+                    pub struct #name #declared #bounds { #marker }
+                    impl #declared __p::MakeDefault for #name #named #bounds {
                         type Value = #ty;
                         fn make() -> #ty { #made() }
                     }

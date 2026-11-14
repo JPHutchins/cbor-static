@@ -115,7 +115,7 @@ proptest! {
     fn index_enums_round_trip_and_write_units_bare(value in indexed(), chunk in 1usize..16) {
         let bytes = round_trips(value, chunk);
         let unit = matches!(value, Indexed::Ping | Indexed::Ack);
-        prop_assert_eq!(bytes[0] >> 5 == 4, !unit, "{:x?}", bytes);
+        prop_assert_eq!(bytes[0] >> 5 == 4, !unit, "{bytes:x?}", bytes = bytes);
     }
 
     #[test]

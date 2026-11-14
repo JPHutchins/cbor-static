@@ -1,0 +1,5 @@
+error: cbor-static: a type parameter cannot be flattened yet; see https://github.com/JPHutchins/cbor-static/issues/25
+ --> tests/ui/flatten_type_parameter.rs:5:11
+  |
+5 |     body: T,
+  |           ^

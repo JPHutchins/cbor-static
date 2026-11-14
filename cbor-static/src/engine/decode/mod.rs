@@ -13,6 +13,7 @@ mod index;
 mod linear_map;
 mod map;
 mod option;
+mod other;
 mod owned;
 mod raw;
 #[cfg(feature = "heapless")]
@@ -33,7 +34,10 @@ pub use enums::EXTERNAL;
 pub use index::INDEX;
 #[cfg(feature = "heapless")]
 pub use linear_map::LINEAR_MAP;
-pub use map::{MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_MIXED, MAP_MIXED_DENY};
+pub use map::{
+    MAP, MAP_DENY, MAP_INT, MAP_INT_DENY, MAP_INT_OTHER, MAP_MIXED, MAP_MIXED_DENY,
+    MAP_MIXED_OTHER, MAP_OTHER,
+};
 pub use option::OPTION;
 pub use owned::{AppendFn, BYTES as BYTES_OWNED, BeginFn, FinishFn, TEXT as TEXT_OWNED};
 pub use raw::{RAW, StoreFn};

@@ -17,18 +17,21 @@ use crate::schema::{DecKind, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major, parse};
 
-pub static MAP: DecOps = ops::<true, false, false>();
-pub static MAP_INT: DecOps = ops::<false, true, false>();
-pub static MAP_MIXED: DecOps = ops::<true, true, false>();
-pub static MAP_DENY: DecOps = ops::<true, false, true>();
-pub static MAP_INT_DENY: DecOps = ops::<false, true, true>();
-pub static MAP_MIXED_DENY: DecOps = ops::<true, true, true>();
+pub static MAP: DecOps = ops::<true, false, false, false>();
+pub static MAP_INT: DecOps = ops::<false, true, false, false>();
+pub static MAP_MIXED: DecOps = ops::<true, true, false, false>();
+pub static MAP_DENY: DecOps = ops::<true, false, true, false>();
+pub static MAP_INT_DENY: DecOps = ops::<false, true, true, false>();
+pub static MAP_MIXED_DENY: DecOps = ops::<true, true, true, false>();
+pub static MAP_OTHER: DecOps = ops::<true, false, false, true>();
+pub static MAP_INT_OTHER: DecOps = ops::<false, true, false, true>();
+pub static MAP_MIXED_OTHER: DecOps = ops::<true, true, false, true>();
 
-const fn ops<const TEXT: bool, const INT: bool, const DENY: bool>() -> DecOps {
+const fn ops<const TEXT: bool, const INT: bool, const DENY: bool, const OTHER: bool>() -> DecOps {
     DecOps {
         value: Begin::Header(value),
-        entry: entry::<TEXT, INT, DENY>,
-        named: named::<DENY>,
+        entry: entry::<TEXT, INT, DENY, OTHER>,
+        named: named::<DENY, OTHER>,
         child_done,
         close,
         drop,
@@ -47,15 +50,19 @@ fn value(
     }
 }
 
-fn entry<const TEXT: bool, const INT: bool, const DENY: bool>(
+/// With an `other` field, unknown entries go to it (R-128).
+fn entry<const TEXT: bool, const INT: bool, const DENY: bool, const OTHER: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
+    use super::other::{text_key, unclaimed};
+
     match next_entry(state, frames, input)? {
         Entry::Wait => Ok(Flow::NeedInput),
         Entry::End => end(state, frames),
         Entry::Item(header) => match (header.major, header.indefinite()) {
+            (Major::Text, false) if TEXT && OTHER => text_key::<INT>(state, frames, input, header),
             (Major::Text, false) if TEXT => Ok(start_text_key::<INT>(
                 state,
                 desc(top(state.depth, frames)?)
@@ -71,26 +78,31 @@ fn entry<const TEXT: bool, const INT: bool, const DENY: bool>(
                 header,
             ) {
                 Some(field) => select(state, frames, field),
+                None if OTHER => unclaimed(state, frames, input, header, (1, None)),
                 None => unknown::<DENY>(state, frames, 1, None),
             },
+            _ if OTHER => unclaimed(state, frames, input, header, (2, Some(header))),
             _ => unknown::<DENY>(state, frames, 2, Some(header)),
         },
     }
 }
 
-fn named<const DENY: bool>(
+fn named<const DENY: bool, const OTHER: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     matched: Option<u8>,
 ) -> Result<Flow, ErrorKind> {
+    use super::other::unclaimed_name;
+
     match matched {
+        None if OTHER => unclaimed_name(state, frames),
         None => unknown::<DENY>(state, frames, 1, None),
         Some(field) => select(state, frames, field),
     }
 }
 
 /// Decodes the value of `field` next, unless the map already had it.
-fn select(
+pub(super) fn select(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     field: u8,
@@ -133,7 +145,11 @@ fn unknown<const DENY: bool>(
 }
 
 /// Matches a text key; in a mixed map, only against the text-keyed entries.
-fn start_text_key<const INT: bool>(state: &mut State, layout: &'static Layout, len: u64) -> Flow {
+pub(super) fn start_text_key<const INT: bool>(
+    state: &mut State,
+    layout: &'static Layout,
+    len: u64,
+) -> Flow {
     if INT {
         state.scratch.write(Scratch {
             key: KeyMatch::start(layout, len).excluding(heads(layout)),
@@ -146,7 +162,7 @@ fn start_text_key<const INT: bool>(state: &mut State, layout: &'static Layout, l
 }
 
 /// The entries identified by a pre-encoded head (an integer key or a tag) rather than a text.
-fn heads(layout: &Layout) -> u64 {
+pub(super) fn heads(layout: &Layout) -> u64 {
     (0..layout.fields.len())
         .filter_map(|index| u8::try_from(index).ok())
         .filter(|&index| head(layout, index).is_some())

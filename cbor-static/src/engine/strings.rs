@@ -5,7 +5,7 @@
     reason = "every field pointer is a descriptor offset taken with offset_of!, so it is aligned"
 )]
 
-use super::{Pending, TEXT_OWNED};
+use super::{Pending, StrictOps, TEXT_OWNED};
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, EncKind};
 use crate::wire::Major;
@@ -61,7 +61,11 @@ pub unsafe fn within<const N: usize>(
     }
 }
 
-pub const fn exactly<const N: usize>(_: *mut u8, total: usize) -> Result<(), ErrorKind> {
+pub const fn exactly<const N: usize>(
+    _: *mut u8,
+    total: usize,
+    _: Option<&'static StrictOps>,
+) -> Result<(), ErrorKind> {
     if total == N {
         Ok(())
     } else {
@@ -70,7 +74,11 @@ pub const fn exactly<const N: usize>(_: *mut u8, total: usize) -> Result<(), Err
 }
 
 /// The text's one character, which the copy form has already validated as UTF-8.
-unsafe fn one_char(dst: *mut u8, total: usize) -> Result<(), ErrorKind> {
+unsafe fn one_char(
+    dst: *mut u8,
+    total: usize,
+    _: Option<&'static StrictOps>,
+) -> Result<(), ErrorKind> {
     let mut chars =
         unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(dst, total)) }.chars();
     match (chars.next(), chars.next()) {
@@ -89,7 +97,7 @@ pub use bounded::{any_length, append_string, append_vec, empty, enc_string};
 mod bounded {
     use heapless::{LenType, String, Vec};
 
-    use super::{Major, Pending, write};
+    use super::{Major, Pending, StrictOps, write};
     use crate::error::ErrorKind;
 
     pub unsafe fn enc_string<const N: usize, L: LenType>(src: *const u8, out: &mut Pending) {
@@ -127,7 +135,11 @@ mod bounded {
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "a FinishFn can fail")]
-    pub const fn any_length(_: *mut u8, _: usize) -> Result<(), ErrorKind> {
+    pub const fn any_length(
+        _: *mut u8,
+        _: usize,
+        _: Option<&'static StrictOps>,
+    ) -> Result<(), ErrorKind> {
         Ok(())
     }
 }
@@ -152,8 +164,8 @@ mod tests {
             Err(ErrorKind::TypeMismatch)
         );
         assert_eq!(&buffer, b"abcd");
-        assert_eq!(exactly::<4>(dst, 4), Ok(()));
-        assert_eq!(exactly::<4>(dst, 3), Err(ErrorKind::TypeMismatch));
+        assert_eq!(exactly::<4>(dst, 4, None), Ok(()));
+        assert_eq!(exactly::<4>(dst, 3, None), Err(ErrorKind::TypeMismatch));
     }
 
     #[test]
@@ -167,7 +179,8 @@ mod tests {
             let dst = slot.as_mut_ptr().cast::<u8>();
             assert_eq!(unsafe { within::<4>(dst, 0, utf8) }, Ok(()));
             assert_eq!(
-                unsafe { one_char(dst, utf8.len()) }.map(|()| unsafe { dst.cast::<char>().read() }),
+                unsafe { one_char(dst, utf8.len(), None) }
+                    .map(|()| unsafe { dst.cast::<char>().read() }),
                 expected,
                 "{utf8:x?}"
             );

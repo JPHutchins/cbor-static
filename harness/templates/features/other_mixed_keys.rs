@@ -1,0 +1,10 @@
+#[derive(cbor_static::Cbor)]
+pub struct T${i} {
+    #[cbor(key = 1${i})]
+    pub a${i}: u32,
+    pub b${i}: u32,
+    #[cbor(key = -3${i})]
+    pub c${i}: Option<u32>,
+    #[cbor(other)]
+    pub d${i}: cbor_static::Skipped,
+}

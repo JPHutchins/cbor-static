@@ -234,9 +234,7 @@ unsafe fn decode<T: ?Sized + Chunk>(dst: *mut u8, item: &Item<'_>) -> Result<Nex
 /// # Errors
 /// [`ErrorKind::TypeMismatch`] for another item; [`ErrorKind::InvalidUtf8`] for text that is not;
 /// for chunks, any error skipping the string would.
-pub(super) fn of<'a, T: ?Sized + Chunk>(
-    item: &Item<'a>,
-) -> Result<(Chunks<'a, T>, Next), ErrorKind> {
+fn of<'a, T: ?Sized + Chunk>(item: &Item<'a>) -> Result<(Chunks<'a, T>, Next), ErrorKind> {
     use super::skip::rest_len;
     use super::text::validate;
 

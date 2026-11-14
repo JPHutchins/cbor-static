@@ -1,4 +1,5 @@
-//! Structs as maps whose keys are pre-encoded in the layout.
+//! Structs as maps whose keys are pre-encoded in the layout. With an `other` field (D-05b), its
+//! captured entries take its place, each written as it arrived, under no key of its own.
 
 use core::mem::MaybeUninit;
 
@@ -7,13 +8,22 @@ use crate::engine::FieldPtrFn;
 use crate::engine::pending::Pending;
 use crate::engine::push;
 use crate::error::ErrorKind;
+use crate::keys::other_field;
 use crate::schema::{EncKind, Layout};
 use crate::stack::{Frame, Phase};
 use crate::wire::Major;
 
-pub static MAP: EncOps = EncOps { open, next };
+pub static MAP: EncOps = ops::<false>();
+pub static MAP_OTHER: EncOps = ops::<true>();
 
-fn open(
+const fn ops<const OTHER: bool>() -> EncOps {
+    EncOps {
+        open: open::<OTHER>,
+        next: next::<OTHER>,
+    }
+}
+
+fn open<const OTHER: bool>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     kind: &'static EncKind,
@@ -28,9 +38,14 @@ fn open(
     else {
         return Err(ErrorKind::Unsupported);
     };
-    state
-        .pending
-        .head(Major::Map, present_count(layout, kinds, *field_ptr, at));
+    state.pending.head(
+        Major::Map,
+        if OTHER {
+            with_captured(layout, kinds, *field_ptr, at)
+        } else {
+            present_count(layout, kinds, *field_ptr, at)
+        },
+    );
     push(
         frames,
         &mut state.depth,
@@ -39,7 +54,7 @@ fn open(
     .map(|()| None)
 }
 
-fn next(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
+fn next<const OTHER: bool>(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
     let EncKind::Struct {
         layout,
         kinds,
@@ -64,6 +79,15 @@ fn next(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
             .take_while(|&f| usize::from(f) < kinds.len())
             .find(|&f| present(layout, kinds, *field_ptr, base, f))
         {
+            Some(field) if OTHER && other_field(layout) == Some(field) => {
+                frame.field = field;
+                Part::Child(Child {
+                    kind: kinds
+                        .get(usize::from(field))
+                        .ok_or(ErrorKind::Unsupported)?,
+                    at: field_addr(layout, *field_ptr, base, field),
+                })
+            }
             Some(field) => {
                 frame.field = field;
                 frame.phase = Phase::Value;
@@ -73,6 +97,29 @@ fn next(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
             None => Part::Finished,
         },
     )
+}
+
+/// How many entries the struct at `at` writes, its `other` field's captured ones counted in its
+/// place.
+fn with_captured(
+    layout: &Layout,
+    kinds: &[&EncKind],
+    field_ptr: Option<FieldPtrFn>,
+    at: *const u8,
+) -> u64 {
+    let count = present_count(layout, kinds, field_ptr, at);
+    match other_field(layout) {
+        Some(other) if present(layout, kinds, field_ptr, at, other) => {
+            match kinds.get(usize::from(other)) {
+                Some(EncKind::Seq { view, .. }) => (count - 1).saturating_add(
+                    u64::try_from(unsafe { view(field_addr(layout, field_ptr, at, other)) }.1)
+                        .unwrap_or(u64::MAX),
+                ),
+                _ => count,
+            }
+        }
+        _ => count,
+    }
 }
 
 /// How many of the struct at `at`'s fields are written.

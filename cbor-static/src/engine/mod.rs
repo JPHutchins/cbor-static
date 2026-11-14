@@ -13,6 +13,7 @@ mod leaf;
 mod pending;
 mod raw;
 mod skip;
+mod storage;
 mod strict;
 mod strings;
 mod text;
@@ -29,16 +30,21 @@ pub use decode::{
     CBOR_TAG as DECODE_CBOR_TAG, DEFAULTED as DECODE_DEFAULTED, DecOps,
     ELEMENTS as DECODE_ELEMENTS, EXTERNAL as DECODE_EXTERNAL, FinishFn, INDEX as DECODE_INDEX,
     INTERNAL as DECODE_INTERNAL, Item, MAP as DECODE_MAP, MAP_DENY as DECODE_MAP_DENY,
-    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY, MAP_MIXED as DECODE_MAP_MIXED,
-    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, Next, OPTION as DECODE_OPTION, RAW as DECODE_RAW,
+    MAP_INT as DECODE_MAP_INT, MAP_INT_DENY as DECODE_MAP_INT_DENY,
+    MAP_INT_OTHER as DECODE_MAP_INT_OTHER, MAP_MIXED as DECODE_MAP_MIXED,
+    MAP_MIXED_DENY as DECODE_MAP_MIXED_DENY, MAP_MIXED_OTHER as DECODE_MAP_MIXED_OTHER,
+    MAP_OTHER as DECODE_MAP_OTHER, Next, OPTION as DECODE_OPTION, RAW as DECODE_RAW,
     SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{LINEAR_MAP as DECODE_LINEAR_MAP, SEQ as DECODE_SEQ};
+#[cfg(feature = "heapless")]
+pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
 pub use encode::{
-    ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, CBOR_TAG as ENCODE_CBOR_TAG,
-    ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps, INDEX as ENCODE_INDEX,
-    INTERNAL as ENCODE_INTERNAL, MAP as ENCODE_MAP, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
+    ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, BYTEWISE, CBOR_TAG as ENCODE_CBOR_TAG,
+    DeterministicOps, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
+    INDEX as ENCODE_INDEX, INTERNAL as ENCODE_INTERNAL, LENGTH_FIRST, MAP as ENCODE_MAP,
+    MAP_OTHER as ENCODE_MAP_OTHER, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
     UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
@@ -57,10 +63,11 @@ pub(crate) use leaf::{
     enc_scalar, enc_u128, none,
 };
 pub use pending::Pending;
-pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor};
+pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped};
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;
+pub use storage::{as_slice, filled, gathered, get, set};
 use strict::STRICT;
 pub(crate) use strict::StrictOps;
 pub(crate) use strings::{DEC_CHAR, ENC_CHAR, enc_view, exactly, nothing, within};
@@ -123,7 +130,12 @@ pub struct Decoder<'de, 's, T: Decode<'de>> {
 impl<'v, T: Encode> Encoder<'v, T> {
     pub fn new(value: &'v T) -> Self {
         Self {
-            state: encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+            state: match T::DETERMINISTIC {
+                None => encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+                Some(ops) => {
+                    encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
+                }
+            },
             stack: MaybeUninit::uninit(),
             value: PhantomData,
         }

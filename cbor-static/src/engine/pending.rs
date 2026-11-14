@@ -1,5 +1,6 @@
 use core::mem::MaybeUninit;
 
+use super::encode::DeterministicOps;
 use crate::wire::{Head, Major};
 
 /// Bytes produced for one item and not yet written: up to two heads plus a borrowed tail.
@@ -9,17 +10,25 @@ pub struct Pending {
     len: u8,
     tail: *const u8,
     tail_len: usize,
+    deterministic: Option<&'static DeterministicOps>,
 }
 
 impl Pending {
-    pub(crate) const fn new() -> Self {
+    pub(crate) const fn new(deterministic: Option<&'static DeterministicOps>) -> Self {
         Self {
             buf: [MaybeUninit::uninit(); 18],
             at: 0,
             len: 0,
             tail: core::ptr::NonNull::dangling().as_ptr(),
             tail_len: 0,
+            deterministic,
         }
+    }
+
+    /// The deterministic encoding the root selects, if any (D-11b).
+    #[cfg(feature = "heapless")]
+    pub(crate) const fn deterministic(&self) -> Option<&'static DeterministicOps> {
+        self.deterministic
     }
 
     pub fn head(&mut self, major: Major, arg: u64) {
@@ -27,7 +36,10 @@ impl Pending {
     }
 
     pub fn float(&mut self, shortest: (u8, u64)) {
-        self.bytes(Head::float(shortest).as_bytes());
+        match self.deterministic {
+            Some(deterministic) => (deterministic.float)(self, shortest),
+            None => self.bytes(Head::float(shortest).as_bytes()),
+        }
     }
 
     pub fn bytes(&mut self, src: &[u8]) {

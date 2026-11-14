@@ -5,7 +5,7 @@ mod common;
 use core::fmt::Debug;
 
 use cbor_static::{Decode, Encode, ErrorKind};
-use common::{chunked_decode, decode, decode_strict, encode};
+use common::{chunked_decode, chunked_decode_strict, decode, decode_strict, encode};
 
 #[test]
 fn integer_fields_reject_floats_and_float_fields_reject_integers() {
@@ -225,24 +225,98 @@ fn an_empty_bignum_is_zero_or_minus_one() {
     assert_eq!(decode::<i128>(b"\xc3\x40"), Ok(-1));
 }
 
+/// #20: a `u128` or `i128` bignum's digits are copied into it as they arrive, so they decode in
+/// any chunks, definite or indefinite; #11 Q2's contiguous-only digits are superseded for these
+/// owned targets.
 #[test]
-fn bignum_digits_may_come_in_chunks_from_contiguous_input() {
-    let chunked = b"\xc2\x5f\x41\x01\x40\x48\0\0\0\0\0\0\0\0\xff";
-    assert_eq!(decode::<u128>(chunked), Ok(1 << 64));
+fn bignum_digits_decode_in_any_chunks_definite_or_indefinite() {
+    let indefinite = b"\xc2\x5f\x41\x01\x40\x48\0\0\0\0\0\0\0\0\xff";
+    for chunk in 1..=indefinite.len() {
+        assert_eq!(
+            chunked_decode::<u128>(indefinite, chunk),
+            Ok(1 << 64),
+            "chunks of {chunk}"
+        );
+    }
     assert_eq!(decode::<i128>(b"\xc3\x5f\x41\x01\xff"), Ok(-2));
     assert_eq!(decode::<u128>(b"\xc2\x5f\xff"), Ok(0));
-    assert_eq!(
-        chunked_decode::<u128>(chunked, 4),
-        Err(ErrorKind::NeedContiguous)
-    );
-    assert_eq!(
-        decode_strict::<u128>(chunked),
-        Err(ErrorKind::NotDeterministic)
-    );
+    for value in [1 << 64, (1 << 120) + 5, u128::MAX] {
+        every_chunk(value);
+    }
+    for value in [i128::MIN, -(1 << 64) - 1, 1 << 64, i128::MAX] {
+        every_chunk(value);
+    }
     assert_eq!(
         decode::<u128>(b"\xc2\x5f\x61a\xff"),
         Err(ErrorKind::NotWellFormed)
     );
+}
+
+/// `value` encodes as a bignum and decodes back in every chunk size.
+fn every_chunk<T>(value: T)
+where
+    T: for<'de> Decode<'de> + Encode + Copy + PartialEq + Debug,
+{
+    let bytes = encode(&value);
+    assert_eq!(bytes.first().map(|tag| tag & 0xfe), Some(0xc2), "{value:?}");
+    for chunk in 1..=bytes.len() {
+        assert_eq!(
+            chunked_decode::<T>(&bytes, chunk),
+            Ok(value),
+            "{value:?} in chunks of {chunk}"
+        );
+    }
+}
+
+#[test]
+fn seventeen_significant_digits_are_out_of_range_in_any_chunks() {
+    let past = b"\xc2\x51\x01\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+    for chunk in 1..=past.len() {
+        assert_eq!(
+            chunked_decode::<u128>(past, chunk),
+            Err(ErrorKind::OutOfRange),
+            "chunks of {chunk}"
+        );
+        assert_eq!(
+            chunked_decode::<i128>(past, chunk),
+            Err(ErrorKind::OutOfRange),
+            "chunks of {chunk}"
+        );
+    }
+}
+
+/// `Strict` takes a bignum of more digits than a `u64` holds, the first not zero, definite, in any
+/// chunks, and nothing else.
+#[test]
+fn strict_bignums_are_checked_in_any_chunks() {
+    let cases: [(&[u8], Result<u128, ErrorKind>); 5] = [
+        (b"\xc2\x49\x01\0\0\0\0\0\0\0\0", Ok(1 << 64)),
+        (
+            b"\xc2\x4a\0\x01\0\0\0\0\0\0\0\0",
+            Err(ErrorKind::NotDeterministic),
+        ),
+        (
+            b"\xc2\x49\0\xff\xff\xff\xff\xff\xff\xff\xff",
+            Err(ErrorKind::NotDeterministic),
+        ),
+        (
+            b"\xc2\x48\xff\xff\xff\xff\xff\xff\xff\xff",
+            Err(ErrorKind::NotDeterministic),
+        ),
+        (
+            b"\xc2\x5f\x49\x01\0\0\0\0\0\0\0\0\xff",
+            Err(ErrorKind::NotDeterministic),
+        ),
+    ];
+    for (bytes, expected) in cases {
+        for chunk in 1..=bytes.len() {
+            assert_eq!(
+                chunked_decode_strict::<u128>(bytes, chunk),
+                expected,
+                "{bytes:x?} in chunks of {chunk}"
+            );
+        }
+    }
 }
 
 #[test]

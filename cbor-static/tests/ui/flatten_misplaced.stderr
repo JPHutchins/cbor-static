@@ -1,0 +1,23 @@
+error: cbor-static: `flatten` joins a map, so an `array` struct takes none
+ --> tests/ui/flatten_misplaced.rs:9:5
+  |
+9 |     #[serde(flatten)]
+  |     ^
+
+error: cbor-static: `flatten` and `other` go on a struct's fields, not a variant's
+  --> tests/ui/flatten_misplaced.rs:17:16
+   |
+17 |         child: Child,
+   |                ^^^^^
+
+error: cbor-static: a `flatten` field takes no other field attribute
+  --> tests/ui/flatten_misplaced.rs:23:5
+   |
+23 |     #[serde(flatten, rename = "c")]
+   |     ^
+
+error: cbor-static: a positional field takes only `#[cbor(bytes)]` and `borrow`
+  --> tests/ui/flatten_misplaced.rs:28:16
+   |
+28 | struct InTuple(#[serde(flatten)] Child, u8);
+   |                ^
