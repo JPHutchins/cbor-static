@@ -389,5 +389,5 @@ const fn unit_payload_frames(form: &EnumForm) -> bool {
 }
 
 fn layout_ident(variant: &Ident) -> Ident {
-    format_ident!("LAYOUT_{}", variant)
+    format_ident!("LAYOUT_{variant}", variant = variant)
 }

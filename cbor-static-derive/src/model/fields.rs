@@ -412,8 +412,8 @@ pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
 /// rules, which change case for any letter, where serde's `rename_all` (`Case`) changes only ASCII.
 fn camel(field: &Ident) -> Ident {
     format_ident!(
-        "{}",
-        field
+        "{camel}",
+        camel = field
             .unraw()
             .to_string()
             .split('_')

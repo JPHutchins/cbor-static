@@ -24,7 +24,7 @@ pub fn shadow(ident: &Ident, variant: &Variant, repr: Repr, params: &Params) -> 
         bounds,
         marker,
     } = params;
-    let name = format_ident!("__{}{}", ident, variant.ident);
+    let name = format_ident!("__{ident}{variant}", ident = ident, variant = variant.ident);
     let (attrs, tag) = match repr {
         Repr::Rust => (quote!(), quote!()),
         Repr::U8 => (quote!(#[repr(C)]), quote!(pub tag: u8,)),

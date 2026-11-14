@@ -154,8 +154,8 @@ fn layout(
     mode: Mode,
     inline: bool,
 ) -> Placed {
-    let keys = format_ident!("{}_KEYS", name);
-    let names = format_ident!("{}_NAMES", name);
+    let keys = format_ident!("{name}_KEYS", name = name);
+    let names = format_ident!("{name}_NAMES", name = name);
     let (entry_keys, (fields, unplaced)): (Vec<_>, (Vec<_>, Vec<_>)) = entries
         .enumerate()
         .map(|(index, (key, offset, omit))| {

@@ -149,20 +149,20 @@ pub fn decode_layout(
         .iter()
         .map(|variant| variant_lead(variant, path))
         .collect();
-    let disjoint =
-        variants
-            .iter()
-            .zip(&leads)
-            .enumerate()
-            .flat_map(|(at, (a, a_lead))| {
-                variants.iter().zip(&leads).skip(at + 1).map(move |(b, b_lead)| {
-            let message = format!(
-                "cbor-static: untagged variants `{}` and `{}` can start with the same item",
-                a.ident, b.ident
-            );
-            quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
-        })
-            });
+    let disjoint = variants
+        .iter()
+        .zip(&leads)
+        .enumerate()
+        .flat_map(|(at, (a, a_lead))| {
+            variants.iter().zip(&leads).skip(at + 1).map(move |(b, b_lead)| {
+                let message = format!(
+                    "cbor-static: untagged variants `{a}` and `{b}` can start with the same item",
+                    a = a.ident,
+                    b = b.ident
+                );
+                quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
+            })
+        });
     let count = Literal::usize_unsuffixed(variants.len());
     quote!({
         #(#disjoint)*
