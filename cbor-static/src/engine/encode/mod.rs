@@ -6,6 +6,8 @@ mod cbor_tag;
 mod chunks;
 mod deterministic;
 mod elements;
+#[cfg(feature = "heapless")]
+mod entries;
 mod enums;
 mod index;
 #[cfg(feature = "heapless")]
@@ -26,11 +28,13 @@ pub use cbor_tag::CBOR_TAG;
 pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use deterministic::{BYTEWISE, DeterministicOps, LENGTH_FIRST};
 pub use elements::ELEMENTS;
+#[cfg(feature = "heapless")]
+pub use entries::ENTRIES;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
 #[cfg(feature = "heapless")]
 pub use linear_map::LINEAR_MAP;
-pub use map::MAP;
+pub use map::{MAP, MAP_OTHER};
 pub use option::OPTION;
 #[cfg(feature = "heapless")]
 pub use seq::SEQ;

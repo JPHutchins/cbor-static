@@ -7,8 +7,9 @@
 //! 24. A text item's payload is exactly `name_at .. name_at + name_len`.
 
 use crate::engine::{
-    DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_MIXED,
-    DECODE_MAP_MIXED_DENY, DecOps, filled, get, offset, set,
+    DECODE_MAP, DECODE_MAP_DENY, DECODE_MAP_INT, DECODE_MAP_INT_DENY, DECODE_MAP_INT_OTHER,
+    DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_MAP_MIXED_OTHER, DECODE_MAP_OTHER, DecOps,
+    ENCODE_MAP, ENCODE_MAP_OTHER, EncOps, filled, get, offset, set,
 };
 use crate::lead::Lead;
 use crate::schema::{FieldLayout, Layout, Storage, head_before};
@@ -25,6 +26,8 @@ pub enum Key {
     None,
     /// A `skip`ped field's: one byte of text that is not UTF-8, which no key can match.
     Skipped,
+    /// An `other` field's, another such byte: the entries no key matches go to it (R-128).
+    Other,
 }
 
 /// The total length of `keys`' pre-encoded identifiers.
@@ -114,8 +117,8 @@ pub const fn permuted<X: Copy, S: Storage<X>>(items: S, order: &[u8]) -> S {
     out
 }
 
-/// Whether no two of `layout`'s entries are named alike, `skip`ped fields aside, whose name no key
-/// can match; a struct and the structs it flattens share one map (#14 Q34).
+/// Whether no two of `layout`'s entries are named alike, `skip`ped and `other` fields aside, whose
+/// names no key can match; a struct and the structs it flattens share one map (#14 Q34).
 #[must_use]
 pub const fn distinct(layout: &Layout) -> bool {
     let mut a = 0;
@@ -124,7 +127,7 @@ pub const fn distinct(layout: &Layout) -> bool {
         let mut b = a + 1;
         while b < layout.fields.len() {
             let other = identifier(layout.names, layout.fields[b]);
-            if !skipped(name) && name.len() == other.len() && holds(other, 0, name) {
+            if !reserved(name) && name.len() == other.len() && holds(other, 0, name) {
                 return false;
             }
             b += 1;
@@ -161,8 +164,11 @@ const fn bytewise_less(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// The decode ops for a map of `layout`'s entries: matching only the key kinds they name, an integer
-/// or a text, where a `skip`ped field's name counts as neither; and skipping or, with `deny`,
-/// rejecting unknown entries (D-05a).
+/// or a text, where a `skip`ped or `other` field's name counts as neither; and skipping, with `deny`
+/// rejecting, or with an `other` field taking, unknown entries (D-05a, D-05b).
+///
+/// # Panics
+/// At compile time, for more than one `other` field, or one beside `deny`.
 #[must_use]
 pub const fn map_ops(layout: &Layout, deny: bool) -> &'static DecOps {
     let (mut int, mut text, mut at) = (false, false, 0);
@@ -170,25 +176,76 @@ pub const fn map_ops(layout: &Layout, deny: bool) -> &'static DecOps {
         let name = identifier(layout.names, layout.fields[at]);
         match Major::of(name[0]) {
             Major::Uint | Major::Nint => int = true,
-            Major::Text => text |= !skipped(name),
+            Major::Text => text |= !reserved(name),
             Major::Bytes | Major::Array | Major::Map | Major::Tag | Major::Simple => {}
         }
         at += 1;
     }
-    match (int, text, deny) {
-        (false, _, false) => &DECODE_MAP,
-        (false, _, true) => &DECODE_MAP_DENY,
-        (true, false, false) => &DECODE_MAP_INT,
-        (true, false, true) => &DECODE_MAP_INT_DENY,
-        (true, true, false) => &DECODE_MAP_MIXED,
-        (true, true, true) => &DECODE_MAP_MIXED_DENY,
+    match (int, text, deny, other(layout)) {
+        (_, _, true, true) => panic!(
+            "cbor-static: an `other` field takes the unknown entries `deny_unknown_fields` rejects"
+        ),
+        (false, _, false, false) => &DECODE_MAP,
+        (false, _, true, false) => &DECODE_MAP_DENY,
+        (false, _, false, true) => &DECODE_MAP_OTHER,
+        (true, false, false, false) => &DECODE_MAP_INT,
+        (true, false, true, false) => &DECODE_MAP_INT_DENY,
+        (true, false, false, true) => &DECODE_MAP_INT_OTHER,
+        (true, true, false, false) => &DECODE_MAP_MIXED,
+        (true, true, true, false) => &DECODE_MAP_MIXED_DENY,
+        (true, true, false, true) => &DECODE_MAP_MIXED_OTHER,
     }
 }
 
-/// Whether `name` is a `skip`ped field's, which no key can match.
-const fn skipped(name: &[u8]) -> bool {
-    const SKIPPED: [u8; names_len(&[Key::Skipped])] = names(&[Key::Skipped]);
-    name.len() == SKIPPED.len() && holds(name, 0, &SKIPPED)
+/// The encode ops for a map of `layout`'s entries: writing an `other` field's entries in its place,
+/// with no key of its own, when it has one (D-05b).
+///
+/// # Panics
+/// At compile time, for more than one `other` field.
+#[must_use]
+pub const fn encode_ops(layout: &Layout) -> &'static EncOps {
+    if other(layout) {
+        &ENCODE_MAP_OTHER
+    } else {
+        &ENCODE_MAP
+    }
+}
+
+/// The entry of `layout`'s `other` field, if it has one, found as the engine runs, so without the
+/// const helpers' panics.
+pub(crate) fn other_field(layout: &Layout) -> Option<u8> {
+    const OTHER: [u8; names_len(&[Key::Other])] = names(&[Key::Other]);
+    (0..layout.fields.len())
+        .filter_map(|at| u8::try_from(at).ok())
+        .find(|&at| layout.name_item(at) == OTHER)
+}
+
+/// Whether `layout` has an `other` field: one at most, a flattened struct's included.
+const fn other(layout: &Layout) -> bool {
+    let (mut found, mut at) = (false, 0);
+    while at < layout.fields.len() {
+        let name = identifier(layout.names, layout.fields[at]);
+        if named(name, &Key::Other) {
+            assert!(
+                !found,
+                "cbor-static: a struct takes one `other` field, its flattened fields' included"
+            );
+            found = true;
+        }
+        at += 1;
+    }
+    found
+}
+
+/// Whether `name` is a `skip`ped or an `other` field's, which no key can match.
+const fn reserved(name: &[u8]) -> bool {
+    named(name, &Key::Skipped) || named(name, &Key::Other)
+}
+
+/// Whether `name` is the identifier of `reserved`, a two-byte text no key can match.
+const fn named(name: &[u8], reserved: &Key) -> bool {
+    let keys = core::slice::from_ref(reserved);
+    name.len() == names_len(keys) && holds(name, 0, &names::<2>(keys))
 }
 
 /// Whether an entry of `layout` is named by the text `name`. An internally tagged enum's tag shares
@@ -233,7 +290,7 @@ const fn head(key: &Key) -> Option<Head> {
         Key::Int(int) if int < 0 => Some(Head::new(Major::Nint, !int.cast_unsigned())),
         Key::Int(int) => Some(Head::new(Major::Uint, int.cast_unsigned())),
         Key::Tag(tag) => Some(Head::new(Major::Tag, tag)),
-        Key::Skipped => Some(Head::new(Major::Text, 1)),
+        Key::Skipped | Key::Other => Some(Head::new(Major::Text, 1)),
         Key::Lead(_) | Key::None => None,
     }
 }
@@ -244,6 +301,7 @@ const fn payload(key: &Key) -> &[u8] {
         Key::Int(_) | Key::Tag(_) | Key::None => &[],
         Key::Lead(_) => &[0; Lead::ENCODED_LEN],
         Key::Skipped => &[0xff],
+        Key::Other => &[0xfe],
     }
 }
 
@@ -261,7 +319,7 @@ const fn item_len(key: &Key) -> usize {
 /// Bytes of the item before `name_at`.
 const fn prefix(key: &Key) -> usize {
     match key {
-        Key::Text(_) | Key::Skipped => head_len(key),
+        Key::Text(_) | Key::Skipped | Key::Other => head_len(key),
         Key::Int(_) | Key::Tag(_) => 1,
         Key::Lead(_) | Key::None => 0,
     }

@@ -256,8 +256,8 @@
 //! ```
 //!
 //! The serde attributes beyond names and keys (`rename_all`, `default`, `skip`, `transparent`,
-//! `borrow`, `flatten`) are described in [`attributes`], and deterministic encoding in
-//! [`deterministic`].
+//! `borrow`, `flatten`) and the entries no field claims (`other`) are described in [`attributes`],
+//! and deterministic encoding in [`deterministic`].
 
 extern crate self as cbor_static;
 #[cfg(test)]
@@ -287,11 +287,11 @@ use core::mem::MaybeUninit;
 pub use cbor_static_derive::{Cbor, Decode, Encode};
 pub use engine::{
     ArrayIter, ArrayRef, Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, MapIter, MapRef,
-    Progress, RawCbor,
+    Progress, RawCbor, RawEntry, Skipped,
 };
 pub use error::{Error, ErrorKind};
 pub use half::F16;
-pub use schema::{ByteString, Decode, Encode};
+pub use schema::{ByteString, Decode, Encode, Other};
 pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
@@ -385,12 +385,12 @@ pub mod __private {
         write_default, write_made, write_tag,
     };
     pub use crate::keys::{
-        Key, distinct, field, map_ops, names, names_len, names_text, permuted, sorted,
+        Key, distinct, encode_ops, field, map_ops, names, names_len, names_text, permuted, sorted,
     };
     pub use crate::lead::Lead;
     pub use crate::schema::{
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
-        Flat, Layout, MakeDefault, MapForm, Order, Run, entries, flattened, map_form,
+        Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,
     };
     pub use crate::stack::{Level, Unlevel, Widest, deeper};
 }

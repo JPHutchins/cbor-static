@@ -185,6 +185,31 @@ pub trait ByteString: sealed::ByteString {
     const DECODE_BYTES: &'static DecKind;
 }
 
+/// What a map-form struct's `#[cbor(other)]` field may be (R-128): [`crate::Skipped`], which counts
+/// the entries no field claims, or with feature `heapless`, a `heapless::Vec` of
+/// [`crate::RawEntry`], which captures them. The engine trusts these kinds, so the trait is sealed.
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Cbor)]
+/// struct Header {
+///     #[cbor(other)]
+///     unknown: u32,
+/// }
+/// ```
+pub trait Other: sealed::Other {
+    #[doc(hidden)]
+    const ENCODE_OTHER: &'static EncKind;
+    #[doc(hidden)]
+    const DECODE_OTHER: &'static DecKind;
+    /// Captured entries cannot be sorted, so a deterministic type cannot hold them (D-11b).
+    #[doc(hidden)]
+    const ORDER: Order;
+    #[doc(hidden)]
+    type Stack;
+    #[doc(hidden)]
+    const MAX_DEPTH: usize;
+}
+
 /// A struct encoded as a map, which is what an internally tagged enum's newtype variant must wrap:
 /// the tag entry joins the payload's own entries (D-10). The derive implements it for named structs
 /// that are not `#[cbor(array)]`, in each direction it derives.
@@ -240,6 +265,7 @@ pub trait MakeDefault {
 /// The types whose byte-string kinds cbor-static describes, so the engine may trust them.
 pub(crate) mod sealed {
     pub trait ByteString {}
+    pub trait Other {}
 }
 
 /// Field or variant names (pre-encoded text items, concatenated) and per-entry placement.

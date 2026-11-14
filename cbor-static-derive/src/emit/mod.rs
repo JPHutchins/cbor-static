@@ -260,8 +260,8 @@ fn layout(
     if inline {
         Placed {
             consts,
-            reference: layout,
-            fields: placed,
+            reference: quote!(&const { __p::Layout { names: &#names, fields: #placed } }),
+            fields: quote!(const { #placed }),
         }
     } else {
         Placed {
@@ -353,6 +353,7 @@ fn part_order(field: &Field, path: &TokenStream) -> Option<TokenStream> {
         Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
             Some(quote!(<#ty as #path>::ORDER))
         }
+        Key::Other => Some(quote!(<#ty as __p::Other>::ORDER)),
     }
 }
 
@@ -366,6 +367,7 @@ fn key(key: &Key) -> TokenStream {
         Key::Int(int) => quote!(__p::Key::Int(#int)),
         Key::Label { label, variant } => quote!(__p::Key::Int(#label::#variant as i64)),
         Key::Position | Key::Flattened => quote!(__p::Key::None),
+        Key::Other => quote!(__p::Key::Other),
         Key::Skipped => quote!(__p::Key::Skipped),
     }
 }
@@ -421,17 +423,22 @@ fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream)
     }
 }
 
-/// A named field's stack and depth: a `skip`ped field's take none, and a flattened field's are its
-/// type's below its own frame, whose place its struct's frame takes.
-fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) {
+/// A named field's stack and depth under `which` trait: a `skip`ped field's take none, a flattened
+/// field's are its type's below its own frame, whose place its struct's frame takes, and an `other`
+/// field takes a frame only to write its entries back.
+fn field_stack(field: &Field, which: Trait, path: &TokenStream) -> (TokenStream, TokenStream) {
     let ty = &field.ty;
-    match field.key {
-        Key::Skipped => (quote!(()), quote!(0)),
-        Key::Flattened => (
+    match (&field.key, which) {
+        (Key::Skipped, _) | (Key::Other, Trait::Decode) => (quote!(()), quote!(0)),
+        (Key::Other, Trait::Encode) => (
+            quote!(<#ty as __p::Other>::Stack),
+            quote!(<#ty as __p::Other>::MAX_DEPTH),
+        ),
+        (Key::Flattened, _) => (
             quote!(<<#ty as #path>::Stack as __p::Unlevel>::Children),
             quote!(<#ty as #path>::MAX_DEPTH - 1),
         ),
-        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position => {
+        (Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position, _) => {
             field_child(ty, field.bytes, path)
         }
     }
@@ -442,6 +449,10 @@ fn field_stack(field: &Field, path: &TokenStream) -> (TokenStream, TokenStream) 
 fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
     match field.key {
         Key::Skipped => quote!(&__p::ENCODE_SKIPPED),
+        Key::Other => {
+            let ty = &field.ty;
+            quote!(<#ty as __p::Other>::ENCODE_OTHER)
+        }
         Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
             field_kind(&field.ty, field.bytes, Trait::Encode, path)
         }
@@ -471,6 +482,7 @@ fn field_decode(
         (Key::Skipped, Some(write)) => {
             quote!(&const { __p::DecKind::skipped(#write, __p::drop_fn::<#ty>()) })
         }
+        (Key::Other, _) => quote!(<#ty as __p::Other>::DECODE_OTHER),
         (_, None) => field_kind(ty, field.bytes, Trait::Decode, path),
         (_, Some(write)) => {
             let kind = field_kind(ty, field.bytes, Trait::Decode, path);

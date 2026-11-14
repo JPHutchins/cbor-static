@@ -117,6 +117,13 @@ fn structs() -> Vec<DeriveInput> {
             }
         ),
         parse_quote!(
+            struct Capturing<'a> {
+                a: u32,
+                #[cbor(other)]
+                rest: Vec<RawEntry<'a>, 4>,
+            }
+        ),
+        parse_quote!(
             #[cbor(deterministic)]
             struct Flattening<'a> {
                 a: u32,

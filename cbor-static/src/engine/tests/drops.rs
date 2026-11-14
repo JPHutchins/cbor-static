@@ -310,3 +310,54 @@ fn a_chunked_string_drops_what_came_before_it_or_with_it() {
         );
     }
 }
+
+/// An `other` field's captured entries borrow and need no drop; the fields around them still drop
+/// exactly as decoded, whichever way the decode stops (R-128).
+#[cfg(feature = "heapless")]
+mod captured {
+    use super::{Profile, Tracked, outcome};
+    use crate::engine::RawEntry;
+    use crate::error::ErrorKind;
+
+    #[derive(crate::Decode)]
+    struct Holding<'a> {
+        a: Tracked,
+        #[cbor(other)]
+        _rest: heapless::Vec<RawEntry<'a>, 1>,
+        g: Tracked,
+    }
+
+    #[test]
+    fn a_decode_that_stops_around_captured_entries_drops_what_came_before() {
+        let cases: [(&[u8], usize, Option<ErrorKind>); 5] = [
+            (b"\xa3\x61a\x01\x61z\x02\x61g\x03", usize::MAX, None),
+            (
+                b"\xa3\x61a\x01\x61z\x02\x61g\xf5",
+                usize::MAX,
+                Some(ErrorKind::TypeMismatch),
+            ),
+            (
+                b"\xa3\x61a\x01\x61y\x00\x61z\x00",
+                usize::MAX,
+                Some(ErrorKind::LimitExceeded),
+            ),
+            (
+                b"\xa2\x61a\x01\x61z\x02",
+                usize::MAX,
+                Some(ErrorKind::MissingField),
+            ),
+            (
+                b"\xa3\x61a\x01\x61z\x02\x61g\x03",
+                1,
+                Some(ErrorKind::NeedContiguous),
+            ),
+        ];
+        for (bytes, chunk, error) in cases {
+            assert_eq!(
+                outcome::<Holding>(Profile::Default, bytes, chunk),
+                (error, if error.is_none() { 2 } else { 1 }),
+                "{bytes:x?} in chunks of {chunk}"
+            );
+        }
+    }
+}

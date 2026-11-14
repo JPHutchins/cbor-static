@@ -118,6 +118,8 @@ pub enum Key {
     /// A `flatten`ed field, which has no key of its own: its type's entries join its struct's map
     /// in its place (#14 Q34).
     Flattened,
+    /// An `other` field, which no key names: its struct's unknown entries go to it (R-128).
+    Other,
 }
 
 /// What decoding writes into a field that its container lacks (D-08, #13 Q31).
@@ -276,11 +278,34 @@ fn structure<'a>(
             unknown: if deny { Unknown::Deny } else { Unknown::Skip },
         },
     };
-    Ok(Shape::Struct {
-        fields: fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?,
+    let fields = fields_of(fields, form, attrs.keys.as_ref(), attrs.rename_all)?;
+    match (
         form,
-        order: attrs.order.unwrap_or_default(),
-    })
+        fields
+            .iter()
+            .filter(|field| matches!(field.key, Key::Other))
+            .collect::<Vec<_>>()
+            .as_slice(),
+    ) {
+        (
+            StructForm::Map {
+                unknown: Unknown::Deny,
+            },
+            [field, ..],
+        ) => Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: an `other` field takes the unknown entries `deny_unknown_fields` rejects",
+        )),
+        (_, [_, field, ..]) => Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: a struct takes one `other` field",
+        )),
+        _ => Ok(Shape::Struct {
+            fields,
+            form,
+            order: attrs.order.unwrap_or_default(),
+        }),
+    }
 }
 
 /// A named struct with `transparent` (Q8): exactly one field, which it is on the wire, and no other

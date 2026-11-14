@@ -4,7 +4,7 @@ error: cbor-static: `flatten` joins a map, so an `array` struct takes none
 9 |     #[serde(flatten)]
   |     ^
 
-error: cbor-static: `flatten` goes on a struct's fields, not a variant's
+error: cbor-static: `flatten` and `other` go on a struct's fields, not a variant's
   --> tests/ui/flatten_misplaced.rs:17:16
    |
 17 |         child: Child,

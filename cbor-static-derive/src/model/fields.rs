@@ -44,11 +44,11 @@ pub fn variant(variant: &syn::Variant, rename_all: Option<Case>) -> syn::Result<
     if let Payload::Struct(fields) = &payload
         && let Some(field) = fields
             .iter()
-            .find(|field| matches!(field.key, Key::Flattened))
+            .find(|field| matches!(field.key, Key::Flattened | Key::Other))
     {
         return Err(syn::Error::new(
             field.ty.span(),
-            "cbor-static: `flatten` goes on a struct's fields, not a variant's",
+            "cbor-static: `flatten` and `other` go on a struct's fields, not a variant's",
         ));
     }
     Ok(Variant {
@@ -93,6 +93,7 @@ pub fn fields_of<'a>(
             match attrs.role {
                 Role::Skip => return skip(field, ident, attrs),
                 Role::Flatten => return flattened(field, ident, form, attrs),
+                Role::Other => return other(field, ident, form, attrs),
                 Role::Keyed => {}
             }
             let key = key(form, keys, rename_all, &ident, attrs.key, attrs.rename)
@@ -223,6 +224,45 @@ fn flattened(
         (StructForm::Map { .. }, _) => Err(syn::Error::new(
             field.span(),
             "cbor-static: a `flatten` field takes no other field attribute",
+        )),
+    }
+}
+
+/// An `other` field (R-128): it takes its map's unknown entries, so it has no key of its own and
+/// takes no other attribute.
+fn other(
+    field: &syn::Field,
+    ident: Ident,
+    form: StructForm,
+    attrs: FieldAttrs,
+) -> syn::Result<Field> {
+    match (form, attrs) {
+        (StructForm::Array, _) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: `other` takes a map's unknown entries, so an `array` struct takes none",
+        )),
+        (
+            StructForm::Map { .. },
+            FieldAttrs {
+                rename: None,
+                default: Fallback::Type,
+                skip_if_none: false,
+                role: _,
+                key: None,
+                bytes: false,
+                borrow: None,
+            },
+        ) => Ok(Field {
+            member: Member::Named(ident),
+            ty: field.ty.clone(),
+            key: Key::Other,
+            fallback: Fallback::Type,
+            omit_if_absent: true,
+            bytes: false,
+        }),
+        (StructForm::Map { .. }, _) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: an `other` field takes no other field attribute",
         )),
     }
 }

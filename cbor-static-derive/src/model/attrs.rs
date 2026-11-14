@@ -27,6 +27,7 @@ pub enum Attr {
     /// `deterministic` or `length_first`.
     Order(Mode),
     Flatten,
+    Other,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -83,14 +84,15 @@ pub struct FieldAttrs {
     pub borrow: Option<Vec<String>>,
 }
 
-/// Whether a field is written under a key of its own, `skip`ped, or `flatten`ed into its struct's
-/// map.
+/// Whether a field is written under a key of its own, `skip`ped, `flatten`ed into its struct's
+/// map, or takes the map's `other` entries.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Role {
     #[default]
     Keyed,
     Skip,
     Flatten,
+    Other,
 }
 
 #[derive(Default)]
@@ -214,6 +216,10 @@ impl FieldAttrs {
                 role: role(self.role, Role::Flatten, attr.span)?,
                 ..self
             }),
+            Attr::Other => Ok(Self {
+                role: role(self.role, Role::Other, attr.span)?,
+                ..self
+            }),
             _ => Err(misplaced(attr.span, "a field")),
         }
     }
@@ -305,6 +311,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("bytes", true) => Attr::Bytes,
                     ("index", true) => Attr::Index,
                     ("offset_of_enum", true) => Attr::OffsetOfEnum,
+                    ("other", true) => Attr::Other,
                     ("deterministic", true) => Attr::Order(Mode::Bytewise),
                     ("length_first", true) => Attr::Order(Mode::LengthFirst),
                     ("cbor_tag", true) => {
@@ -350,13 +357,13 @@ fn key(expr: &Expr) -> syn::Result<KeyLit> {
     }
 }
 
-/// A field is `skip`ped or `flatten`ed, not both.
+/// A field takes one of `skip`, `flatten` and `other`.
 fn role(already: Role, role: Role, span: Span) -> syn::Result<Role> {
     match already {
         Role::Keyed => Ok(role),
-        Role::Skip | Role::Flatten => Err(syn::Error::new(
+        Role::Skip | Role::Flatten | Role::Other => Err(syn::Error::new(
             span,
-            "cbor-static: a field is `skip`ped or `flatten`ed, not both",
+            "cbor-static: a field takes one of `skip`, `flatten` and `other`",
         )),
     }
 }

@@ -28,7 +28,11 @@ pub fn flattening(
     let ident = &item.ident;
     let flats = flats(item, fields, directions);
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
+        let (stack, depth) = level(
+            fields
+                .iter()
+                .map(|field| field_stack(field, Trait::Encode, path)),
+        );
         let kinds = fields.iter().map(|field| {
             let ty = &field.ty;
             if flattened(field) {
@@ -56,7 +60,7 @@ pub fn flattening(
             kind: quote!(&{
                 let layout: &'static __p::Layout = #layout;
                 #(#checks)*
-                __p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout, kinds: #kinds, field_ptr: None }
+                __p::EncKind::Struct { ops: __p::encode_ops(layout), layout, kinds: #kinds, field_ptr: None }
             }),
             stack,
             depth,
@@ -65,7 +69,11 @@ pub fn flattening(
         }
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
+        let (stack, depth) = level(
+            fields
+                .iter()
+                .map(|field| field_stack(field, Trait::Decode, path)),
+        );
         let kinds = fields.iter().enumerate().map(|(index, field)| {
             let ty = &field.ty;
             if flattened(field) {

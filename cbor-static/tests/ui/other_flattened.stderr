@@ -1,0 +1,60 @@
+error[E0080]: evaluation panicked: cbor-static: an `other` field takes the unknown entries `deny_unknown_fields` rejects
+  --> tests/ui/other_flattened.rs:10:10
+   |
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Decode<'_> for Denying>::DECODE` failed inside this call
+   |
+note: inside `cbor_static::__private::map_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/keys.rs
+   |
+   |           (_, _, true, true) => panic!(
+   |  _______________________________-
+   | |             "cbor-static: an `other` field takes the unknown entries `deny_unknown_fields` rejects"
+   | |         ),
+   | |_________- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |             state: decode::State::new(T::DECODE, slot.as_mut_ptr().cast()),
+  |                                       ^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Decoder::<'_, '_, Denying>::new`
+ --> src/lib.rs
+  |
+  |     whole(&mut Decoder::new(slot), input)
+  |                ^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: cbor-static: a struct takes one `other` field, its flattened fields' included
+  --> tests/ui/other_flattened.rs:18:10
+   |
+18 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Decode<'_> for Twice>::DECODE` failed inside this call
+   |
+note: inside `cbor_static::__private::map_ops`
+  --> src/keys.rs
+   |
+   |     match (int, text, deny, other(layout)) {
+   |                             ^^^^^^^^^^^^^
+note: inside `cbor_static::keys::other`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/keys.rs
+   |
+   | /             assert!(
+   | |                 !found,
+   | |                 "cbor-static: a struct takes one `other` field, its flattened fields' included"
+   | |             );
+   | |_____________- in this macro invocation
+
+note: the above error was encountered while instantiating `fn Decoder::<'_, '_, Twice>::new`
+ --> src/lib.rs
+  |
+  |     whole(&mut Decoder::new(slot), input)
+  |                ^^^^^^^^^^^^^^^^^^

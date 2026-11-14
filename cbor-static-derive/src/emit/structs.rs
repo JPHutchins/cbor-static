@@ -51,7 +51,11 @@ pub fn structure(
         lead,
     } = forms(form, &layout);
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
+        let (stack, depth) = level(
+            fields
+                .iter()
+                .map(|field| field_stack(field, Trait::Encode, path)),
+        );
         let kinds = arranged(
             &name,
             sort,
@@ -61,7 +65,7 @@ pub fn structure(
             .iter()
             .filter_map(|field| Some((member_name(field), part_order(field, path)?)));
         let checks = admitted(mode, parts.clone());
-        let kind = quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: #layout, kinds: #kinds, field_ptr: None });
+        let kind = quote!(__p::EncKind::Struct { ops: #encode_ops, layout: #layout, kinds: #kinds, field_ptr: None });
         Body {
             kind: if checks.is_empty() {
                 quote!(&#kind)
@@ -79,7 +83,11 @@ pub fn structure(
     });
     let params = params(item);
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
+        let (stack, depth) = level(
+            fields
+                .iter()
+                .map(|field| field_stack(field, Trait::Decode, path)),
+        );
         let kinds = arranged(
             &name,
             sort,
@@ -227,13 +235,13 @@ fn forms(form: StructForm, layout: &TokenStream) -> Forms {
         StructForm::Map { unknown } => {
             let deny = unknown == Unknown::Deny;
             Forms {
-                encode: quote!(__p::ENCODE_MAP),
+                encode: quote!(__p::encode_ops(#layout)),
                 decode: quote!(__p::map_ops(#layout, #deny)),
                 lead: quote!(__p::Lead::MAP),
             }
         }
         StructForm::Array => Forms {
-            encode: quote!(__p::ENCODE_ARRAY),
+            encode: quote!(&__p::ENCODE_ARRAY),
             decode: quote!(&__p::DECODE_ARRAY),
             lead: quote!(__p::Lead::ARRAY),
         },
@@ -247,7 +255,12 @@ fn labels(fields: &[Field]) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| match &field.key {
             Key::Label { label, variant } => Some((label, variant)),
-            Key::Text(_) | Key::Int(_) | Key::Position | Key::Skipped | Key::Flattened => None,
+            Key::Text(_)
+            | Key::Int(_)
+            | Key::Position
+            | Key::Skipped
+            | Key::Flattened
+            | Key::Other => None,
         })
         .unzip();
     labels.first().map(|label| {

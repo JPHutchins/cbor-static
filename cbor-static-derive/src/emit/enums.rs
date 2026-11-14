@@ -259,7 +259,7 @@ fn encode_kind(
 		}
 		(Payload::Unit | Payload::Struct(_), _) => quote!(None),
 	});
-    let (stack, depth) = stack(variants, path, false);
+    let (stack, depth) = stack(variants, (Trait::Encode, path), false);
     let parts = variants.iter().flat_map(|variant| match &variant.payload {
         Payload::Unit => Vec::new(),
         Payload::Newtype(field) => part_order(field, path)
@@ -347,7 +347,7 @@ fn decode_kind(
                 );
             }
         });
-    let (stack, depth) = stack(variants, path, unit_payload_frames(form));
+    let (stack, depth) = stack(variants, (Trait::Decode, path), unit_payload_frames(form));
     let layout = forms::decode_layout(form, variants, path, layouts.own);
     let checks = layouts.checks;
     Body {
@@ -367,14 +367,16 @@ fn decode_kind(
 /// `unit_frames`: an internally tagged unit variant decodes through an empty payload map.
 fn stack(
     variants: &[Variant],
-    path: &TokenStream,
+    (which, path): (Trait, &TokenStream),
     unit_frames: bool,
 ) -> (TokenStream, TokenStream) {
     level(variants.iter().map(|variant| match &variant.payload {
         Payload::Unit if unit_frames => level(core::iter::empty()),
         Payload::Unit => (quote!(()), quote!(0)),
         Payload::Newtype(field) => field_child(&field.ty, field.bytes, path),
-        Payload::Struct(fields) => level(fields.iter().map(|field| field_stack(field, path))),
+        Payload::Struct(fields) => {
+            level(fields.iter().map(|field| field_stack(field, which, path)))
+        }
     }))
 }
 
