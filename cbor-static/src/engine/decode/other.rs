@@ -50,8 +50,8 @@ pub(super) fn text_key<const INT: bool>(
     }
 }
 
-/// The unknown entry whose key's head, `key`, was just read: counted, then skipped as `skip`'s
-/// (items, header) say, or captured whole.
+/// The unknown entry whose key's head, `key`, was just read: captured whole, or counted, then
+/// passed over when this chunk holds it whole, else skipped as `skip`'s (items, header) say.
 pub(super) fn unclaimed(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -59,16 +59,20 @@ pub(super) fn unclaimed(
     key: Header,
     (items, header): (u64, Option<Header>),
 ) -> Result<Flow, ErrorKind> {
-    match claim(state, frames, key, whole(input, key)?.unwrap_or(&[]))? {
-        Next::Took(len) => {
+    let entry = whole(input, key)?;
+    match (
+        claim(state, frames, key, entry.unwrap_or(&[]))?,
+        entry.map(<[u8]>::len),
+    ) {
+        (Next::Took(len), _) | (Next::Done, Some(len)) => {
             input
                 .take_exact(len - key.head_len()?)
                 .ok_or(ErrorKind::Unsupported)?;
             state.step = ops(desc(top(state.depth, frames)?))?.entry;
             Ok(Flow::Continue)
         }
-        Next::Done => start_skip(state, items, header),
-        Next::Then(_) => Err(ErrorKind::Unsupported),
+        (Next::Done, None) => start_skip(state, items, header),
+        (Next::Then(_), _) => Err(ErrorKind::Unsupported),
     }
 }
 
