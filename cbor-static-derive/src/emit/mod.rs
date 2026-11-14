@@ -1,17 +1,18 @@
 mod enums;
 mod flatten;
 mod forms;
+mod order;
+mod params;
 mod shadows;
 mod structs;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
-use syn::punctuated::Punctuated;
-use syn::token::{Comma, Where};
-use syn::{GenericParam, Generics, WhereClause, WherePredicate, parse_quote};
 
 use crate::Directions;
 use crate::model::{Fallback, Field, Item, Key, Mode, Shape, StructForm};
+use order::{Order, admitted, joined, ordered, part_order};
+use params::{Params, codec_generics, generic, params};
 
 #[derive(Clone, Copy)]
 enum Trait {
@@ -62,14 +63,6 @@ struct Body {
     depth: TokenStream,
     lead: TokenStream,
     order: Order,
-}
-
-/// What an `Encode` impl says about key order (D-11b): the `Order` its type commits to, unless it
-/// is the trait's `Any`, and the deterministic ops a root of this type selects.
-#[derive(Default)]
-struct Order {
-    order: Option<TokenStream>,
-    selects: Option<TokenStream>,
 }
 
 /// Whether `directions` derives `which`. Each derive expands alone, so an impl of a trait other than
@@ -141,69 +134,6 @@ fn impls(
         }
         _ => TokenStream::new(),
     }
-}
-
-/// How the item's parameters are written (R-127): as an impl or a helper type declares them, as
-/// the type names them, its where clause, and a marker field that uses every one of them.
-struct Params {
-    declared: TokenStream,
-    named: TokenStream,
-    bounds: TokenStream,
-    marker: Option<TokenStream>,
-}
-
-fn params(item: &Item) -> Params {
-    let ident = &item.ident;
-    let (declared, named, bounds) = item.generics.split_for_impl();
-    Params {
-        declared: declared.to_token_stream(),
-        named: named.to_token_stream(),
-        bounds: bounds.to_token_stream(),
-        marker: (!item.generics.params.is_empty())
-            .then(|| quote!(pub __marker: ::core::marker::PhantomData<fn() -> #ident #named>,)),
-    }
-}
-
-/// The item's parameters as `which`'s impl declares them: each type parameter bounded by the trait,
-/// as serde bounds them, and for `Decode`, the input lifetime `'de`, outliving the item's own.
-fn codec_generics(item: &Item, which: Trait) -> Generics {
-    let (path, de): (TokenStream, Option<GenericParam>) = match which {
-        Trait::Encode => (quote!(::cbor_static::Encode), None),
-        Trait::Decode => (
-            quote!(::cbor_static::Decode<'de>),
-            Some(item.lifetime.as_ref().map_or_else(
-                || parse_quote!('de),
-                |lifetime| parse_quote!('de: #lifetime),
-            )),
-        ),
-    };
-    let predicates: Punctuated<WherePredicate, Comma> = item
-        .generics
-        .where_clause
-        .iter()
-        .flat_map(|clause| clause.predicates.iter().cloned())
-        .chain(item.generics.type_params().map(|param| {
-            let ident = &param.ident;
-            parse_quote!(#ident: #path)
-        }))
-        .collect();
-    Generics {
-        params: de
-            .into_iter()
-            .chain(item.generics.params.iter().cloned())
-            .collect(),
-        where_clause: (!predicates.is_empty()).then(|| WhereClause {
-            where_token: Where::default(),
-            predicates,
-        }),
-        ..item.generics.clone()
-    }
-}
-
-/// Whether the item has type or const parameters, which its field offsets depend on, so that its
-/// layout is built inside each impl rather than once.
-fn generic(item: &Item) -> bool {
-    item.generics.type_params().next().is_some() || item.generics.const_params().next().is_some()
 }
 
 /// A layout's consts, and how an impl refers to it: by name, or written out where its offsets
@@ -289,71 +219,6 @@ fn arranged(name: &Ident, mode: Mode, kinds: impl Iterator<Item = TokenStream>) 
             let order = sorted(name);
             quote!(&const { __p::permuted([#(#kinds),*], &#order) })
         }
-    }
-}
-
-/// The `Order` of a type that writes its own maps in `mode`, and the ops a root of it selects.
-fn ordered(mode: Mode) -> Order {
-    Order {
-        order: Some(order_of(mode)),
-        selects: match mode {
-            Mode::Declared => None,
-            Mode::Bytewise => Some(quote!(__p::BYTEWISE)),
-            Mode::LengthFirst => Some(quote!(__p::LENGTH_FIRST)),
-        },
-    }
-}
-
-fn order_of(mode: Mode) -> TokenStream {
-    let order = match mode {
-        Mode::Declared => quote!(Declared),
-        Mode::Bytewise => quote!(Bytewise),
-        Mode::LengthFirst => quote!(LengthFirst),
-    };
-    quote!(__p::Order::#order)
-}
-
-/// The `Order` of a type that writes no map of its own: its parts' (D-11b), or in a key order other
-/// than declaration order, that one.
-fn joined(mode: Mode, parts: impl Iterator<Item = TokenStream>) -> Order {
-    match mode {
-        Mode::Declared => Order {
-            order: Some(parts.fold(
-                quote!(__p::Order::Any),
-                |all, part| quote!(#all.join(#part)),
-            )),
-            selects: None,
-        },
-        Mode::Bytewise | Mode::LengthFirst => ordered(mode),
-    }
-}
-
-/// In a key order other than declaration order, an assert that each named part's `Order` is that
-/// one or `Any`, so every map under the type is sorted alike (D-11b).
-fn admitted(mode: Mode, parts: impl Iterator<Item = (String, TokenStream)>) -> TokenStream {
-    if mode == Mode::Declared {
-        return TokenStream::new();
-    }
-    let order = order_of(mode);
-    parts
-        .map(|(name, part)| {
-            let message = format!("cbor-static: `{name}` does not sort its map keys the same way");
-            quote!(assert!(#order.admits(#part), #message);)
-        })
-        .collect()
-}
-
-/// A field's `Order` as a part of its container: a `skip`ped field is never written, and a
-/// `#[cbor(bytes)]` field is a byte string.
-fn part_order(field: &Field, path: &TokenStream) -> Option<TokenStream> {
-    let ty = &field.ty;
-    match field.key {
-        Key::Skipped => None,
-        _ if field.bytes => None,
-        Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
-            Some(quote!(<#ty as #path>::ORDER))
-        }
-        Key::Other => Some(quote!(<#ty as __p::Other>::ORDER)),
     }
 }
 
