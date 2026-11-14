@@ -16,7 +16,27 @@ pub use kinds::MapGlue;
 pub use kinds::{DecKind, DecVariant, EncKind};
 pub use order::Order;
 
-/// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
+/// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`, for
+/// generic types too, each type parameter bounded by the trait (R-127):
+///
+/// ```
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// enum Either<L, R> {
+///     Left(L),
+///     Right { value: R },
+/// }
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::encode_into(&Either::<u8, bool>::Right { value: true }, &mut out)?;
+/// assert_eq!(&out[..len], b"\xa1\x65Right\xa1\x65value\xf5");
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// assert_eq!(
+///     *cbor_static::decode_into::<Either<u8, bool>>(b"\xa1\x64Left\x07", &mut slot)?,
+///     Either::Left(7)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 ///
 /// # Safety
 /// The engine trusts the descriptor without checking it against `Self`. `ENCODE` must describe

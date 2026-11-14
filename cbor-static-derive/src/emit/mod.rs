@@ -6,6 +6,9 @@ mod structs;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
+use syn::punctuated::Punctuated;
+use syn::token::{Comma, Where};
+use syn::{GenericParam, Generics, WhereClause, WherePredicate, parse_quote};
 
 use crate::Directions;
 use crate::model::{Fallback, Field, Item, Key, Mode, Shape, StructForm};
@@ -89,13 +92,12 @@ fn impls(
     body: impl FnOnce(&TokenStream) -> Body,
 ) -> TokenStream {
     let ident = &item.ident;
-    let ty = item
-        .lifetime
-        .as_ref()
-        .map_or_else(|| quote!(#ident), |lifetime| quote!(#ident<#lifetime>));
+    let Params { named, .. } = params(item);
+    let ty = quote!(#ident #named);
+    let codec = codec_generics(item, which);
+    let (generics, _, bounds) = codec.split_for_impl();
     match (which, directions) {
         (Trait::Encode, Directions::Encode | Directions::Both) => {
-            let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
             let Body {
                 kind,
                 stack,
@@ -109,7 +111,7 @@ fn impls(
             });
             quote! {
                 #[automatically_derived]
-                unsafe impl #generics ::cbor_static::Encode for #ty {
+                unsafe impl #generics ::cbor_static::Encode for #ty #bounds {
                     const ENCODE: &'static __p::EncKind = #kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
@@ -119,10 +121,6 @@ fn impls(
             }
         }
         (Trait::Decode, Directions::Decode | Directions::Both) => {
-            let generics = item.lifetime.as_ref().map_or_else(
-                || quote!(<'de>),
-                |lifetime| quote!(<'de: #lifetime, #lifetime>),
-            );
             let Body {
                 kind,
                 stack,
@@ -132,7 +130,7 @@ fn impls(
             } = body(&quote!(::cbor_static::Decode<'de>));
             quote! {
                 #[automatically_derived]
-                unsafe impl #generics ::cbor_static::Decode<'de> for #ty {
+                unsafe impl #generics ::cbor_static::Decode<'de> for #ty #bounds {
                     const DECODE: &'static __p::DecKind = #kind;
                     type Stack = #stack;
                     const MAX_DEPTH: usize = #depth;
@@ -145,45 +143,135 @@ fn impls(
     }
 }
 
-/// The `name: &Layout` const, with its keys and their pre-encoded names, from (key, byte offset,
+/// How the item's parameters are written (R-127): as an impl or a helper type declares them, as
+/// the type names them, its where clause, and a marker field that uses every one of them.
+struct Params {
+    declared: TokenStream,
+    named: TokenStream,
+    bounds: TokenStream,
+    marker: Option<TokenStream>,
+}
+
+fn params(item: &Item) -> Params {
+    let ident = &item.ident;
+    let (declared, named, bounds) = item.generics.split_for_impl();
+    Params {
+        declared: declared.to_token_stream(),
+        named: named.to_token_stream(),
+        bounds: bounds.to_token_stream(),
+        marker: (!item.generics.params.is_empty())
+            .then(|| quote!(pub __marker: ::core::marker::PhantomData<fn() -> #ident #named>,)),
+    }
+}
+
+/// The item's parameters as `which`'s impl declares them: each type parameter bounded by the trait,
+/// as serde bounds them, and for `Decode`, the input lifetime `'de`, outliving the item's own.
+fn codec_generics(item: &Item, which: Trait) -> Generics {
+    let (path, de): (TokenStream, Option<GenericParam>) = match which {
+        Trait::Encode => (quote!(::cbor_static::Encode), None),
+        Trait::Decode => (
+            quote!(::cbor_static::Decode<'de>),
+            Some(item.lifetime.as_ref().map_or_else(
+                || parse_quote!('de),
+                |lifetime| parse_quote!('de: #lifetime),
+            )),
+        ),
+    };
+    let predicates: Punctuated<WherePredicate, Comma> = item
+        .generics
+        .where_clause
+        .iter()
+        .flat_map(|clause| clause.predicates.iter().cloned())
+        .chain(item.generics.type_params().map(|param| {
+            let ident = &param.ident;
+            parse_quote!(#ident: #path)
+        }))
+        .collect();
+    Generics {
+        params: de
+            .into_iter()
+            .chain(item.generics.params.iter().cloned())
+            .collect(),
+        where_clause: (!predicates.is_empty()).then(|| WhereClause {
+            where_token: Where::default(),
+            predicates,
+        }),
+        ..item.generics.clone()
+    }
+}
+
+/// Whether the item has type or const parameters, which its field offsets depend on, so that its
+/// layout is built inside each impl rather than once.
+fn generic(item: &Item) -> bool {
+    item.generics.type_params().next().is_some() || item.generics.const_params().next().is_some()
+}
+
+/// A layout's consts, and how an impl refers to it: by name, or written out where its offsets
+/// depend on the item's parameters (R-127).
+struct Placed {
+    consts: TokenStream,
+    reference: TokenStream,
+    fields: TokenStream,
+}
+
+/// The layout `name`, with its keys and their pre-encoded names, from (key, byte offset,
 /// omit-if-absent) per entry. In a key order other than declaration order, the entries are sorted
-/// by their pre-encoded names at compile time, in the order [`sorted`] names.
+/// by their pre-encoded names at compile time, in the order [`sorted`] names, which needs no
+/// offset; `inline` writes the layout where it is used, since its offsets name `Self`.
 fn layout(
     name: &Ident,
     entries: impl Iterator<Item = (TokenStream, TokenStream, bool)>,
     mode: Mode,
-) -> TokenStream {
+    inline: bool,
+) -> Placed {
     let keys = format_ident!("{}_KEYS", name);
     let names = format_ident!("{}_NAMES", name);
-    let (entry_keys, fields): (Vec<_>, Vec<_>) = entries
+    let (entry_keys, (fields, unplaced)): (Vec<_>, (Vec<_>, Vec<_>)) = entries
         .enumerate()
         .map(|(index, (key, offset, omit))| {
             (
                 key,
-                quote!(const { __p::field(#keys, #index, #offset, #omit) }),
+                (
+                    quote!(const { __p::field(#keys, #index, #offset, #omit) }),
+                    quote!(const { __p::field(#keys, #index, 0, #omit) }),
+                ),
             )
         })
         .unzip();
-    let length_first = match mode {
-        Mode::Declared => {
-            return quote! {
-                const #keys: &[__p::Key] = &[#(#entry_keys),*];
-                const #names: [u8; const { __p::names_len(#keys) }] = const { __p::names(#keys) };
-                const #name: &__p::Layout = &__p::Layout { names: &#names, fields: &[#(#fields),*] };
-            };
-        }
-        Mode::Bytewise => false,
-        Mode::LengthFirst => true,
-    };
-    let declared = format_ident!("{}_DECLARED", name);
-    let order = sorted(name);
-    let count = fields.len();
-    quote! {
+    let blob = quote! {
         const #keys: &[__p::Key] = &[#(#entry_keys),*];
         const #names: [u8; const { __p::names_len(#keys) }] = const { __p::names(#keys) };
-        const #declared: [__p::FieldLayout; #count] = [#(#fields),*];
-        const #order: [u8; #count] = __p::sorted(&#names, &#declared, #length_first);
-        const #name: &__p::Layout = &__p::Layout { names: &#names, fields: &__p::permuted(#declared, &#order) };
+    };
+    let order = sorted(name);
+    let count = fields.len();
+    let length_first = mode == Mode::LengthFirst;
+    let declared = quote!([#(#fields),*]);
+    let (consts, placed) = match mode {
+        Mode::Declared => (blob, quote!(&#declared)),
+        Mode::Bytewise | Mode::LengthFirst => (
+            quote! {
+                #blob
+                const #order: [u8; #count] = __p::sorted(&#names, &[#(#unplaced),*], #length_first);
+            },
+            quote!(&__p::permuted(#declared, &#order)),
+        ),
+    };
+    let layout = quote!(&__p::Layout { names: &#names, fields: #placed });
+    if inline {
+        Placed {
+            consts,
+            reference: layout,
+            fields: placed,
+        }
+    } else {
+        Placed {
+            consts: quote! {
+                #consts
+                const #name: &__p::Layout = #layout;
+            },
+            reference: quote!(#name),
+            fields: quote!(#name.fields),
+        }
     }
 }
 
@@ -367,7 +455,7 @@ fn field_decode(
     field: &Field,
     index: usize,
     owner: &Ident,
-    generics: Option<&TokenStream>,
+    named: &TokenStream,
     path: &TokenStream,
 ) -> TokenStream {
     let ty = &field.ty;
@@ -376,7 +464,7 @@ fn field_decode(
         Fallback::Default => Some(quote!(__p::write_default::<#ty>)),
         Fallback::Path(_) => {
             let maker = maker(owner, index);
-            Some(quote!(__p::write_made::<#maker #generics>))
+            Some(quote!(__p::write_made::<#maker #named>))
         }
     };
     match (&field.key, write) {
@@ -392,12 +480,13 @@ fn field_decode(
 }
 
 /// For each of `owner`'s fields with `default = "path"`, a type whose `MakeDefault` calls the path.
-fn makers(
-    owner: &Ident,
-    fields: &[Field],
-    generics: Option<&TokenStream>,
-    marker: Option<&TokenStream>,
-) -> TokenStream {
+fn makers(owner: &Ident, fields: &[Field], params: &Params) -> TokenStream {
+    let Params {
+        declared,
+        named,
+        bounds,
+        marker,
+    } = params;
     fields
         .iter()
         .enumerate()
@@ -405,8 +494,8 @@ fn makers(
             Fallback::Path(made) => {
                 let (name, ty) = (maker(owner, index), &field.ty);
                 Some(quote! {
-                    pub struct #name #generics { #marker }
-                    impl #generics __p::MakeDefault for #name #generics {
+                    pub struct #name #declared #bounds { #marker }
+                    impl #declared __p::MakeDefault for #name #named #bounds {
                         type Value = #ty;
                         fn make() -> #ty { #made() }
                     }

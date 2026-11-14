@@ -4,9 +4,9 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
 use super::{
-    Body, Order, Trait, admitted, arranged, derives, field_child, field_decode, field_encode,
-    field_kind, field_stack, impls, joined, key, layout, level, makers, ordered, part_order,
-    static_type,
+    Body, Order, Params, Placed, Trait, admitted, arranged, derives, field_child, field_decode,
+    field_encode, field_kind, field_stack, generic, impls, joined, key, layout, level, makers,
+    ordered, params, part_order, static_type,
 };
 use crate::Directions;
 use crate::model::{Field, Item, Key, Mode, StructForm, Unknown};
@@ -17,29 +17,39 @@ pub fn structure(
     (form, mode): (StructForm, Mode),
     directions: Directions,
 ) -> TokenStream {
-    let static_ty = static_type(item);
+    let inline = generic(item);
+    let placed_in = if inline {
+        quote!(Self)
+    } else {
+        static_type(item)
+    };
     let name = format_ident!("LAYOUT");
     let sort = match form {
         StructForm::Map { .. } => mode,
         StructForm::Array => Mode::Declared,
     };
-    let layout = layout(
+    let Placed {
+        consts: layout_consts,
+        reference: layout,
+        ..
+    } = layout(
         &name,
         fields.iter().map(|field| {
             let member = &field.member;
             (
                 key(&field.key),
-                quote!(::core::mem::offset_of!(#static_ty, #member)),
+                quote!(::core::mem::offset_of!(#placed_in, #member)),
                 field.omit_if_absent,
             )
         }),
         sort,
+        inline,
     );
     let Forms {
         encode: encode_ops,
         decode: decode_ops,
         lead,
-    } = forms(form);
+    } = forms(form, &layout);
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
         let kinds = arranged(
@@ -51,7 +61,7 @@ pub fn structure(
             .iter()
             .filter_map(|field| Some((member_name(field), part_order(field, path)?)));
         let checks = admitted(mode, parts.clone());
-        let kind = quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: LAYOUT, kinds: #kinds, field_ptr: None });
+        let kind = quote!(__p::EncKind::Struct { ops: &#encode_ops, layout: #layout, kinds: #kinds, field_ptr: None });
         Body {
             kind: if checks.is_empty() {
                 quote!(&#kind)
@@ -67,18 +77,19 @@ pub fn structure(
             },
         }
     });
-    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+    let params = params(item);
     let decode = impls(item, directions, Trait::Decode, |path| {
         let (stack, depth) = level(fields.iter().map(|field| field_stack(field, path)));
         let kinds = arranged(
             &name,
             sort,
-            fields.iter().enumerate().map(|(index, field)| {
-                field_decode(field, index, &item.ident, generics.as_ref(), path)
-            }),
+            fields
+                .iter()
+                .enumerate()
+                .map(|(index, field)| field_decode(field, index, &item.ident, &params.named, path)),
         );
         Body {
-            kind: quote!(&__p::DecKind::Struct { ops: #decode_ops, layout: LAYOUT, kinds: #kinds, drop: __p::drop_fn::<Self>() }),
+            kind: quote!(&__p::DecKind::Struct { ops: #decode_ops, layout: #layout, kinds: #kinds, drop: __p::drop_fn::<Self>() }),
             stack,
             depth,
             lead,
@@ -87,17 +98,9 @@ pub fn structure(
     });
     let labels = labels(fields);
     let map_form = map_forms(item, fields, form, directions);
-    let makers = makers(
-        &item.ident,
-        fields,
-        generics.as_ref(),
-        item.lifetime
-            .as_ref()
-            .map(|lifetime| quote!(pub __marker: ::core::marker::PhantomData<&#lifetime ()>,))
-            .as_ref(),
-    );
+    let makers = makers(&item.ident, fields, &params);
     quote! {
-        #layout
+        #layout_consts
         #labels
         #map_form
         #makers
@@ -185,7 +188,12 @@ fn map_forms(
     form: StructForm,
     directions: Directions,
 ) -> TokenStream {
-    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+    let Params {
+        declared,
+        named,
+        bounds,
+        ..
+    } = params(item);
     let ident = &item.ident;
     let count = fields.len();
     [
@@ -196,8 +204,8 @@ fn map_forms(
     .filter(|(which, _)| matches!(form, StructForm::Map { .. }) && derives(directions, *which))
     .map(|(_, direction)| {
         quote! {
-            impl #generics __p::MapForm<#direction> for #ident #generics {}
-            impl #generics __p::Flat<#direction> for #ident #generics {
+            impl #declared __p::MapForm<#direction> for #ident #named #bounds {}
+            impl #declared __p::Flat<#direction> for #ident #named #bounds {
                 type Entries<__CborX: Copy + 'static> = [__CborX; #count];
                 type Names = [u8; LAYOUT_NAMES.len()];
             }
@@ -206,7 +214,7 @@ fn map_forms(
     .collect()
 }
 
-/// What a struct's form chooses: its encode ops, its decode ops (for a map, those its `LAYOUT`'s
+/// What a struct's form chooses: its encode ops, its decode ops (for a map, those its layout's
 /// keys need), and the class of its first byte.
 struct Forms {
     encode: TokenStream,
@@ -214,13 +222,13 @@ struct Forms {
     lead: TokenStream,
 }
 
-fn forms(form: StructForm) -> Forms {
+fn forms(form: StructForm, layout: &TokenStream) -> Forms {
     match form {
         StructForm::Map { unknown } => {
             let deny = unknown == Unknown::Deny;
             Forms {
                 encode: quote!(__p::ENCODE_MAP),
-                decode: quote!(__p::map_ops(LAYOUT, #deny)),
+                decode: quote!(__p::map_ops(#layout, #deny)),
                 lead: quote!(__p::Lead::MAP),
             }
         }

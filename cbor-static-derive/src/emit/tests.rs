@@ -108,6 +108,15 @@ fn structs() -> Vec<DeriveInput> {
             }
         ),
         parse_quote!(
+            struct Generic<'a, T: Copy, const N: usize>
+            where
+                T: PartialEq,
+            {
+                a: [T; N],
+                b: &'a str,
+            }
+        ),
+        parse_quote!(
             #[cbor(deterministic)]
             struct Flattening<'a> {
                 a: u32,
@@ -133,6 +142,14 @@ fn enums() -> Vec<DeriveInput> {
                 A,
                 B(u32),
                 C { x: u32 },
+            }
+        ),
+        parse_quote!(
+            #[repr(C, u8)]
+            enum GenericUnion<T> {
+                A,
+                B(T),
+                C { x: T },
             }
         ),
         parse_quote!(

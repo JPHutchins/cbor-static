@@ -2,25 +2,28 @@
 //! shadow structs, the `repr(C, u8)` mirror, and their offsets or the enum's own (D-21, R-129).
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, Member};
 
+use super::Params;
 use crate::model::{Field, Offsets, Payload, Repr, Variant};
 
-/// Per variant: the shadow (or mirror) type the payload is decoded through, if any, and the types
-/// its fields' `default = "path"` need.
+/// Per variant: the shadow (or mirror) type the payload is decoded through, if any, as it is named
+/// in `ty`, and the types its fields' `default = "path"` need. A Rust-repr newtype's is its field's
+/// type.
 pub struct Shadow {
     pub ident: Ident,
+    pub ty: TokenStream,
     pub definition: TokenStream,
 }
 
-pub fn shadow(
-    ident: &Ident,
-    variant: &Variant,
-    repr: Repr,
-    generics: Option<&TokenStream>,
-    marker: Option<&TokenStream>,
-) -> Option<Shadow> {
+pub fn shadow(ident: &Ident, variant: &Variant, repr: Repr, params: &Params) -> Option<Shadow> {
+    let Params {
+        declared,
+        named,
+        bounds,
+        marker,
+    } = params;
     let name = format_ident!("__{}{}", ident, variant.ident);
     let (attrs, tag) = match repr {
         Repr::Rust => (quote!(), quote!()),
@@ -30,64 +33,77 @@ pub fn shadow(
     let definition = match &variant.payload {
         Payload::Unit => return None,
         Payload::Newtype(field) if repr == Repr::Rust => {
-            let ty = &field.ty;
-            let definition = quote!(pub type #name #generics = #ty;);
             return Some(Shadow {
                 ident: name,
-                definition,
+                ty: field.ty.to_token_stream(),
+                definition: TokenStream::new(),
             });
         }
         Payload::Newtype(field) => {
             let ty = &field.ty;
-            quote!(#attrs pub struct #name #generics { #tag pub f0: #ty, #marker })
+            quote!(#attrs pub struct #name #declared #bounds { #tag pub f0: #ty, #marker })
         }
         Payload::Struct(fields) => {
             use super::makers;
 
-            let makers = makers(&owner(ident, variant), fields, generics, marker);
+            let makers = makers(&owner(ident, variant), fields, params);
             let fields = fields
                 .iter()
                 .map(|Field { member, ty, .. }| quote!(pub #member: #ty,));
             quote! {
-                #attrs pub struct #name #generics { #tag #(#fields)* #marker }
+                #attrs pub struct #name #declared #bounds { #tag #(#fields)* #marker }
                 #makers
             }
         }
     };
     Some(Shadow {
+        ty: quote!(#name #named),
         ident: name,
         definition,
     })
 }
 
-/// The `repr(C, u8)` enum's mirror: its tag, then a union of every variant's shadow, asserted to be
-/// the enum's size (RFC 2195).
-pub fn mirror(
-    ident: &Ident,
-    shadows: &[Option<Shadow>],
-    generics: Option<&TokenStream>,
-    statics: Option<&TokenStream>,
-) -> TokenStream {
-    let (mirror, payload_union) = (
-        format_ident!("__{}Mirror", ident),
-        format_ident!("__{}Payload", ident),
-    );
+/// The `repr(C, u8)` enum's mirror: its tag, then a union of every variant's shadow (RFC 2195).
+pub fn mirror(ident: &Ident, shadows: &[Option<Shadow>], params: &Params) -> TokenStream {
+    let Params {
+        declared,
+        named,
+        bounds,
+        marker,
+    } = params;
+    let (mirror, payload_union) = (mirror_ident(ident), format_ident!("__{}__Payload", ident));
     let arms = shadows.iter().flatten().map(|s| {
-        let shadow = &s.ident;
-        let field = format_ident!("{}", shadow.to_string().to_lowercase());
-        quote!(pub #field: ::core::mem::ManuallyDrop<#shadow #generics>,)
+        let (field, ty) = (
+            format_ident!("{}", s.ident.to_string().to_lowercase()),
+            &s.ty,
+        );
+        quote!(pub #field: ::core::mem::ManuallyDrop<#ty>,)
     });
+    let marker = marker
+        .as_ref()
+        .map(|_| quote!(pub __marker: ::core::mem::ManuallyDrop<::core::marker::PhantomData<fn() -> #ident #named>>,));
     quote! {
-        #[repr(C)] pub union #payload_union #generics { #(#arms)* pub __unit: () }
-        #[repr(C)] pub struct #mirror #generics { pub tag: u8, pub payload: #payload_union #generics }
-        const _: () = assert!(::core::mem::size_of::<#mirror #statics>() == ::core::mem::size_of::<#ident #statics>());
+        #[repr(C)] pub union #payload_union #declared #bounds { #(#arms)* #marker pub __unit: () }
+        #[repr(C)] pub struct #mirror #declared #bounds { pub tag: u8, pub payload: #payload_union #named }
     }
 }
 
-/// How the enum `ident` places its payload fields.
+/// That the mirror is the enum's size, `placed_in` naming each's parameters.
+pub fn mirrored(ident: &Ident, placed_in: &TokenStream) -> TokenStream {
+    let mirror = mirror_ident(ident);
+    quote!(assert!(::core::mem::size_of::<#mirror #placed_in>() == ::core::mem::size_of::<#ident #placed_in>());)
+}
+
+/// The mirror's name, which no variant's shadow, `__{Enum}{Variant}`, can take.
+fn mirror_ident(ident: &Ident) -> Ident {
+    format_ident!("__{}__Mirror", ident)
+}
+
+/// How the enum `ident` places its payload fields, `statics` naming its parameters where the
+/// offsets are taken.
 pub struct Placement<'a> {
     pub ident: &'a Ident,
-    pub statics: Option<&'a TokenStream>,
+    pub statics: &'a TokenStream,
     pub repr: Repr,
     pub offsets: Offsets,
 }
@@ -110,7 +126,7 @@ impl Placement<'_> {
         match (offsets, repr) {
             (Offsets::Enum, _) => quote!(::core::mem::offset_of!(#ident #statics, #variant.#own)),
             (Offsets::Shadows, Repr::CU8) => {
-                let mirror = format_ident!("__{}Mirror", ident);
+                let mirror = mirror_ident(ident);
                 quote! {
                     ::core::mem::offset_of!(#mirror #statics, payload) + ::core::mem::offset_of!(#shadow #statics, #shadowed)
                 }

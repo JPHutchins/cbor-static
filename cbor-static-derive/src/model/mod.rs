@@ -6,7 +6,8 @@ mod fields;
 use proc_macro2::Span;
 use syn::spanned::Spanned as _;
 use syn::{
-    Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Ident, Lifetime, Member, Path, Type,
+    Attribute, Data, DeriveInput, Expr, Fields, GenericParam, Generics, Ident, Lifetime, Member,
+    Path, Type,
 };
 
 use attrs::StructAttrs;
@@ -17,7 +18,10 @@ const MAX_FIELDS: usize = 64;
 
 pub struct Item {
     pub ident: Ident,
+    /// The one lifetime the item may borrow input for.
     pub lifetime: Option<Lifetime>,
+    /// Every parameter, the lifetime included (R-127).
+    pub generics: Generics,
     pub shape: Shape,
 }
 
@@ -201,9 +205,11 @@ impl Item {
             }
         };
         holds_not_itself(&ast.ident, &shape)?;
+        flattens_no_parameter(&ast.generics, &shape)?;
         Ok(Self {
             ident: ast.ident.clone(),
             lifetime: lifetime(ast)?,
+            generics: ast.generics.clone(),
             shape,
         })
     }
@@ -344,17 +350,43 @@ fn not_one_field() -> syn::Error {
     )
 }
 
+/// The item's one lifetime, if any: type and const parameters may join it (R-127).
 fn lifetime(ast: &DeriveInput) -> syn::Result<Option<Lifetime>> {
     ast.generics
         .params
         .iter()
         .try_fold(None, |found, param| match (found, param) {
+            (found, GenericParam::Type(_) | GenericParam::Const(_)) => Ok(found),
             (None, GenericParam::Lifetime(def)) if def.bounds.is_empty() => {
                 Ok(Some(def.lifetime.clone()))
             }
-            (_, other) => Err(syn::Error::new(
+            (_, GenericParam::Lifetime(other)) => Err(syn::Error::new(
                 other.span(),
                 "cbor-static: at most one unbounded lifetime parameter is supported",
             )),
+        })
+}
+
+/// A flattened field's entries are copied into its struct's at compile time, into arrays whose
+/// shapes the field's type names; when that type is one of the item's own parameters, stable Rust
+/// cannot borrow them for `'static` (#25).
+fn flattens_no_parameter(generics: &Generics, shape: &Shape) -> syn::Result<()> {
+    let Shape::Struct { fields, .. } = shape else {
+        return Ok(());
+    };
+    fields
+        .iter()
+        .filter(|field| matches!(field.key, Key::Flattened))
+        .find(|field| {
+            generics
+                .type_params()
+                .any(|param| matches!(&field.ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident(&param.ident)))
+        })
+        .map_or(Ok(()), |field| {
+            Err(syn::Error::new(
+                field.ty.span(),
+                "cbor-static: a type parameter cannot be flattened yet; see \
+                 https://github.com/JPHutchins/cbor-static/issues/25",
+            ))
         })
 }

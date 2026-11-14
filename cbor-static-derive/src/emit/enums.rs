@@ -2,10 +2,11 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::Ident;
 
-use super::shadows::{Placement, Shadow, mirror, owner, shadow};
+use super::shadows::{Placement, Shadow, mirror, mirrored, owner, shadow};
 use super::{
-    Body, Order, Trait, admitted, arranged, derives, field_child, field_decode, field_encode,
-    field_kind, field_stack, forms, impls, joined, key, layout, level, ordered, part_order, sorted,
+    Body, Order, Params, Placed, Trait, admitted, arranged, derives, field_child, field_decode,
+    field_encode, field_kind, field_stack, forms, generic, impls, joined, key, layout, level,
+    ordered, params, part_order, sorted,
 };
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Mode, Offsets, Payload, Repr, Variant};
@@ -19,25 +20,30 @@ pub fn enumeration(
 ) -> TokenStream {
     let ops = forms::ops(form);
     let ident = &item.ident;
-    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
-    let statics = item.lifetime.as_ref().map(|_| quote!(<'static>));
-    let marker = item
-        .lifetime
-        .as_ref()
-        .map(|lifetime| quote!(pub __marker: ::core::marker::PhantomData<&#lifetime ()>,));
+    let params = params(item);
+    let inline = generic(item);
+    let placed_in = if inline {
+        params.named.clone()
+    } else {
+        item.lifetime.as_ref().map_or_default(|_| quote!(<'static>))
+    };
     let shadows: Vec<Option<Shadow>> = variants
         .iter()
-        .map(|variant| shadow(ident, variant, repr, generics.as_ref(), marker.as_ref()))
+        .map(|variant| shadow(ident, variant, repr, &params))
         .collect();
-    let mirror_definition =
-        (repr == Repr::CU8).then(|| mirror(ident, &shadows, generics.as_ref(), statics.as_ref()));
+    let mirror_check = (repr == Repr::CU8).then(|| mirrored(ident, &placed_in));
+    let mirror_definition = (repr == Repr::CU8).then(|| {
+        let definition = mirror(ident, &shadows, &params);
+        let check = (!inline).then(|| quote!(const _: () = { #mirror_check };));
+        quote!(#definition #check)
+    });
     let placement = Placement {
         ident,
-        statics: statics.as_ref(),
+        statics: &placed_in,
         repr,
         offsets,
     };
-    let variant_layout = layout(
+    let enum_layout = layout(
         &format_ident!("LAYOUT"),
         variants
             .iter()
@@ -61,11 +67,56 @@ pub fn enumeration(
                     .map(|key| (key, quote!(0), false)),
             ),
         Mode::Declared,
+        inline,
     );
-    let payload_layouts = variants
+    let payload_layouts = payload_layouts(variants, &shadows, &placement, (mode, inline));
+    let layouts = Layouts {
+        own: &enum_layout,
+        payloads: &payload_layouts,
+        checks: &mirror_check.filter(|_| inline).unwrap_or_default(),
+    };
+    let definitions = shadows.iter().flatten().map(|s| &s.definition);
+    let payload_consts = payload_layouts
         .iter()
-        .zip(&shadows)
-        .filter_map(|(variant, shadow)| match (&variant.payload, shadow) {
+        .flatten()
+        .map(|placed| &placed.consts);
+    let enum_consts = &enum_layout.consts;
+    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, (directions, mode)));
+    let encode = impls(item, directions, Trait::Encode, |path| {
+        encode_kind(variants, (repr, mode), form, (&ops.encode, &layouts), path)
+    });
+    let decode = impls(item, directions, Trait::Decode, |path| {
+        decode_kind(
+            (ident, &params.named),
+            variants,
+            &shadows,
+            (repr, mode),
+            (form, &layouts),
+            path,
+        )
+    });
+    quote! {
+        #(#definitions)*
+        #mirror_definition
+        #enum_consts
+        #(#payload_consts)*
+        #glue
+        #encode
+        #decode
+    }
+}
+
+/// Each struct variant's layout, its fields placed in its shadow, sorted in `mode`.
+fn payload_layouts(
+    variants: &[Variant],
+    shadows: &[Option<Shadow>],
+    placement: &Placement,
+    (mode, inline): (Mode, bool),
+) -> Vec<Option<Placed>> {
+    variants
+        .iter()
+        .zip(shadows)
+        .map(|(variant, shadow)| match (&variant.payload, shadow) {
             (Payload::Struct(fields), Some(s)) => Some(layout(
                 &layout_ident(&variant.ident),
                 fields.iter().map(|field| {
@@ -76,34 +127,19 @@ pub fn enumeration(
                     )
                 }),
                 mode,
+                inline,
             )),
             _ => None,
-        });
-    let definitions = shadows.iter().flatten().map(|s| &s.definition);
-    let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, (directions, mode)));
-    let encode = impls(item, directions, Trait::Encode, |path| {
-        encode_kind(variants, (repr, mode), form, &ops.encode, path)
-    });
-    let decode = impls(item, directions, Trait::Decode, |path| {
-        decode_kind(
-            ident,
-            variants,
-            &shadows,
-            (repr, mode),
-            generics.as_ref(),
-            form,
-            path,
-        )
-    });
-    quote! {
-        #(#definitions)*
-        #mirror_definition
-        #variant_layout
-        #(#payload_layouts)*
-        #glue
-        #encode
-        #decode
-    }
+        })
+        .collect()
+}
+
+/// Where an enum's impls find its layouts: its own, its struct variants', and the checks a layout
+/// built in the impl needs there.
+struct Layouts<'a> {
+    own: &'a Placed,
+    payloads: &'a [Option<Placed>],
+    checks: &'a TokenStream,
 }
 
 /// The glue a Rust-repr enum's encoding (`EnumGlue`) and decoding (`Assemble`) go through, each with
@@ -116,7 +152,12 @@ fn glue(
     (directions, mode): (Directions, Mode),
 ) -> TokenStream {
     let ident = &item.ident;
-    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+    let Params {
+        declared,
+        named,
+        bounds,
+        ..
+    } = params(item);
     let indices = variants.iter().enumerate().map(|(index, variant)| {
         let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
         let name = &variant.ident;
@@ -155,22 +196,18 @@ fn glue(
             let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
             let name = &variant.ident;
             let (shadow_ty, build) = match (&variant.payload, shadow) {
-                (Payload::Newtype(_), Some(s)) => {
-                    let s = &s.ident;
-                    (quote!(#s #generics), quote!(Self::#name(shadow)))
-                }
+                (Payload::Newtype(_), Some(s)) => (s.ty.clone(), quote!(Self::#name(shadow))),
                 (Payload::Struct(fields), Some(s)) => {
-                    let s = &s.ident;
                     let moves = fields
                         .iter()
                         .map(|Field { member, .. }| quote!(#member: shadow.#member));
-                    (quote!(#s #generics), quote!(Self::#name { #(#moves),* }))
+                    (s.ty.clone(), quote!(Self::#name { #(#moves),* }))
                 }
                 _ => (quote!(()), quote!({ let () = shadow; Self::#name })),
             };
             quote! {
                 #[automatically_derived]
-                impl #generics __p::Assemble<#index> for #ident #generics {
+                impl #declared __p::Assemble<#index> for #ident #named #bounds {
                     type Shadow = #shadow_ty;
                     fn assemble(shadow: Self::Shadow) -> Self { #build }
                 }
@@ -179,7 +216,7 @@ fn glue(
     let enum_glue = derives(directions, Trait::Encode).then(|| {
         quote! {
             #[automatically_derived]
-            impl #generics __p::EnumGlue for #ident #generics {
+            impl #declared __p::EnumGlue for #ident #named #bounds {
                 fn variant_index(&self) -> u8 { match self { #(#indices),* } }
                 fn field_ptr(&self, field: u8) -> *const u8 {
                     match (self, field) { #(#pointers,)* _ => ::core::ptr::null() }
@@ -201,7 +238,7 @@ fn encode_kind(
     variants: &[Variant],
     (repr, mode): (Repr, Mode),
     form: &EnumForm,
-    ops: &TokenStream,
+    (ops, layouts): (&TokenStream, &Layouts),
     path: &TokenStream,
 ) -> Body {
     let glue = (repr == Repr::Rust).then(|| quote!(Some(__p::field_ptr_of::<Self>)));
@@ -209,18 +246,18 @@ fn encode_kind(
     let index = glue
         .as_ref()
         .map_or_else(|| quote!(__p::index_tag), |_| quote!(__p::index_of::<Self>));
-    let payloads = variants.iter().map(|variant| match &variant.payload {
-		Payload::Unit => quote!(None),
-		Payload::Newtype(field) => {
+    let payloads = variants.iter().zip(layouts.payloads).map(|(variant, placed)| match (&variant.payload, placed) {
+		(Payload::Newtype(field), _) => {
 			let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
 			let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
 			quote!(Some({ #check #kind }))
 		}
-		Payload::Struct(fields) => {
+		(Payload::Struct(fields), Some(Placed { reference, .. })) => {
 			let name = layout_ident(&variant.ident);
 			let kinds = arranged(&name, mode, fields.iter().map(|field| field_encode(field, path)));
-			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #name, kinds: #kinds, field_ptr: #field_ptr }))
+			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #reference, kinds: #kinds, field_ptr: #field_ptr }))
 		}
+		(Payload::Unit | Payload::Struct(_), _) => quote!(None),
 	});
     let (stack, depth) = stack(variants, path, false);
     let parts = variants.iter().flat_map(|variant| match &variant.payload {
@@ -239,8 +276,11 @@ fn encode_kind(
             })
             .collect(),
     });
-    let checks = admitted(mode, parts.clone());
-    let kind = quote!(__p::EncKind::Enum { ops: &#ops, layout: LAYOUT, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr });
+    let checks: TokenStream = [admitted(mode, parts.clone()), layouts.checks.clone()]
+        .into_iter()
+        .collect();
+    let enum_layout = &layouts.own.reference;
+    let kind = quote!(__p::EncKind::Enum { ops: &#ops, layout: #enum_layout, payloads: &[#(#payloads),*], index: #index, field_ptr: #field_ptr });
     Body {
         kind: if checks.is_empty() {
             quote!(&#kind)
@@ -263,34 +303,33 @@ fn encode_kind(
 }
 
 fn decode_kind(
-    ident: &Ident,
+    (ident, named): (&Ident, &TokenStream),
     variants: &[Variant],
     shadows: &[Option<Shadow>],
     (repr, mode): (Repr, Mode),
-    generics: Option<&TokenStream>,
-    form: &EnumForm,
+    (form, layouts): (&EnumForm, &Layouts),
     path: &TokenStream,
 ) -> Body {
     let ops = forms::ops(form).decode;
-    let entries = variants.iter().enumerate().map(|(index, variant)| {
+    let entries = variants.iter().zip(layouts.payloads).enumerate().map(|(index, (variant, placed))| {
 		let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
 		let assemble = match repr {
 			Repr::Rust => quote!(__p::assemble::<Self, #index>),
 			Repr::U8 | Repr::CU8 => quote!(__p::write_tag::<#index>),
 		};
-		let payload = match &variant.payload {
-			Payload::Unit => quote!(None),
-			Payload::Newtype(field) => {
+		let payload = match (&variant.payload, placed) {
+			(Payload::Newtype(field), _) => {
 				let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
 				let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
 				quote!(Some({ #check #kind }))
 			}
-			Payload::Struct(fields) => {
+			(Payload::Struct(fields), Some(Placed { reference, .. })) => {
 				let name = layout_ident(&variant.ident);
 				let owner = owner(ident, variant);
-				let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, generics, path)));
-				quote!(Some(&__p::DecKind::Struct { ops: __p::map_ops(#name, false), layout: #name, kinds: #kinds, drop: None }))
+				let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, named, path)));
+				quote!(Some(&__p::DecKind::Struct { ops: __p::map_ops(#reference, false), layout: #reference, kinds: #kinds, drop: None }))
 			}
+			(Payload::Unit | Payload::Struct(_), _) => quote!(None),
 		};
 		quote!(__p::DecVariant { payload: #payload, assemble: #assemble })
 	});
@@ -299,8 +338,7 @@ fn decode_kind(
         .flatten()
         .filter(|_| repr == Repr::Rust)
         .map(|s| {
-            let shadow = &s.ident;
-            let shadow = quote!(#shadow #generics);
+            let shadow = &s.ty;
             quote! {
                 assert!(
                     ::core::mem::size_of::<#shadow>() <= ::core::mem::size_of::<Self>()
@@ -310,10 +348,12 @@ fn decode_kind(
             }
         });
     let (stack, depth) = stack(variants, path, unit_payload_frames(form));
-    let layout = forms::decode_layout(form, variants, path);
+    let layout = forms::decode_layout(form, variants, path, layouts.own);
+    let checks = layouts.checks;
     Body {
         kind: quote!(&{
             #(#fits)*
+            #checks
             __p::DecKind::Enum { ops: &#ops, layout: #layout, variants: &[#(#entries),*], drop: __p::drop_fn::<Self>() }
         }),
         stack,

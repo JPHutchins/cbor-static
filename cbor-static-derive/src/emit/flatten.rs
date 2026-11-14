@@ -1,5 +1,5 @@
-//! Map-form structs whose layout is built inside each impl: those with `flatten` fields, whose
-//! children's entries join the struct's own map (R-127, Q34). Each child's names, entries and kinds
+//! Map-form structs with `flatten` fields, whose children's entries join the struct's own map
+//! (R-127, Q34); their layout is built inside each impl. Each child's names, entries and kinds
 //! are copied at compile time, at the field's place in declaration order, from the child's own
 //! descriptors into arrays whose shapes `Flat` names, so the engine sees one map of at most 64
 //! entries.
@@ -8,8 +8,8 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{ToTokens, quote};
 
 use super::{
-    Body, Order, Trait, admitted, derives, field_decode, field_encode, field_stack, impls, key,
-    level, makers, ordered, part_order,
+    Body, Order, Params, Trait, admitted, derives, field_decode, field_encode, field_stack, impls,
+    key, level, makers, ordered, params, part_order,
 };
 use crate::Directions;
 use crate::model::{Field, Item, Key, Mode, Unknown};
@@ -24,7 +24,7 @@ pub fn flattening(
         .iter()
         .filter(|field| !flattened(field))
         .map(|field| key(&field.key));
-    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+    let params = params(item);
     let ident = &item.ident;
     let flats = flats(item, fields, directions);
     let encode = impls(item, directions, Trait::Encode, |path| {
@@ -71,7 +71,7 @@ pub fn flattening(
             if flattened(field) {
                 quote!(__p::DecKind::kinds(<#ty as #path>::DECODE))
             } else {
-                let kind = field_decode(field, index, ident, generics.as_ref(), path);
+                let kind = field_decode(field, index, ident, &params.named, path);
                 quote!(&[#kind])
             }
         });
@@ -98,15 +98,7 @@ pub fn flattening(
             order: Order::default(),
         }
     });
-    let makers = makers(
-        ident,
-        fields,
-        generics.as_ref(),
-        item.lifetime
-            .as_ref()
-            .map(|lifetime| quote!(pub __marker: ::core::marker::PhantomData<&#lifetime ()>,))
-            .as_ref(),
-    );
+    let makers = makers(ident, fields, &params);
     quote! {
         const LAYOUT_KEYS: &[__p::Key] = &[#(#own_keys),*];
         const LAYOUT_NAMES: [u8; const { __p::names_len(LAYOUT_KEYS) }] = const { __p::names(LAYOUT_KEYS) };
@@ -120,7 +112,12 @@ pub fn flattening(
 /// The struct's `Flat` and `MapForm` impls in each direction it derives: the shapes of its entries
 /// and names, its flattened fields' in their places.
 fn flats(item: &Item, fields: &[Field], directions: Directions) -> TokenStream {
-    let generics = item.lifetime.as_ref().map(|lifetime| quote!(<#lifetime>));
+    let Params {
+        declared,
+        named,
+        bounds,
+        ..
+    } = params(item);
     let ident = &item.ident;
     [
         (Trait::Encode, quote!(__p::Encoding)),
@@ -138,11 +135,11 @@ fn flats(item: &Item, fields: &[Field], directions: Directions) -> TokenStream {
             },
         );
         quote! {
-            impl #generics __p::Flat<#direction> for #ident #generics {
+            impl #declared __p::Flat<#direction> for #ident #named #bounds {
                 type Entries<__CborX: Copy + 'static> = #entries;
                 type Names = #names;
             }
-            impl #generics __p::MapForm<#direction> for #ident #generics {}
+            impl #declared __p::MapForm<#direction> for #ident #named #bounds {}
         }
     })
     .collect()

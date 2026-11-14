@@ -6,7 +6,7 @@ use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 use syn::Type;
 
-use super::{Trait, text_key};
+use super::{Placed, Trait, text_key};
 use crate::model::{EnumForm, Payload, Variant};
 
 pub struct Ops {
@@ -131,12 +131,18 @@ pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenS
     }
 }
 
-/// The layout the decoder walks: `LAYOUT`, or for an untagged enum the same placements with each
-/// variant's classes, behind asserts that no two variants share one (D-10).
-pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenStream {
+/// The layout the decoder walks: the enum's own, or for an untagged enum the same placements with
+/// each variant's classes, behind asserts that no two variants share one (D-10).
+pub fn decode_layout(
+    form: &EnumForm,
+    variants: &[Variant],
+    path: &TokenStream,
+    own: &Placed,
+) -> TokenStream {
     if !matches!(form, EnumForm::Untagged) {
-        return quote!(LAYOUT);
+        return own.reference.clone();
     }
+    let fields = &own.fields;
     let leads: Vec<TokenStream> = variants
         .iter()
         .map(|variant| variant_lead(variant, path))
@@ -158,7 +164,7 @@ pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) 
     let count = Literal::usize_unsuffixed(variants.len());
     quote!({
         #(#disjoint)*
-        &__p::Layout { names: &const { __p::names::<{ __p::Lead::ENCODED_LEN * #count }>(&[#(__p::Key::Lead(#leads)),*]) }, fields: LAYOUT.fields }
+        &__p::Layout { names: &const { __p::names::<{ __p::Lead::ENCODED_LEN * #count }>(&[#(__p::Key::Lead(#leads)),*]) }, fields: #fields }
     })
 }
 
