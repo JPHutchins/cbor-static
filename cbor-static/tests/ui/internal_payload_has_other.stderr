@@ -21,3 +21,21 @@ note: the above error was encountered while instantiating `fn Encoder::<'_, Even
   |
   |     match Encoder::new(value).resume(out)? {
   |           ^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: cbor-static: an internally tagged enum's payload takes no `other` field
+ --> tests/ui/internal_payload_has_other.rs:8:10
+  |
+8 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Decode<'_> for Event>::DECODE` failed here
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |             state: decode::State::new(T::DECODE, slot.as_mut_ptr().cast()),
+  |                                       ^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Decoder::<'_, '_, Event>::new`
+ --> src/lib.rs
+  |
+  |     whole(&mut Decoder::new(slot), input)
+  |                ^^^^^^^^^^^^^^^^^^

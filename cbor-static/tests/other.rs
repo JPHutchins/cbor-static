@@ -39,6 +39,30 @@ fn skipped_counts_unknown_entries_in_any_chunks_and_is_never_written() {
     );
 }
 
+/// A counted entry's value is checked alike whether one chunk holds the entry, which is then walked
+/// once, or chunks split it, which the chunked skip then walks.
+#[test]
+fn a_counted_entrys_malformed_value_fails_alike_in_any_chunks() {
+    let cases: [(&[u8], ErrorKind); 6] = [
+        (b"\x62\xff\xfe", ErrorKind::InvalidUtf8),
+        (b"\x7f\x62\xff\xfe\xff", ErrorKind::InvalidUtf8),
+        (b"\x7f\x41a\xff", ErrorKind::NotWellFormed),
+        (b"\x7f\x61a\x7f\x61b\xff\xff", ErrorKind::NotWellFormed),
+        (b"\x1c", ErrorKind::NotWellFormed),
+        (b"\xf8\x10", ErrorKind::NotWellFormed),
+    ];
+    for (value, error) in cases {
+        let input = [b"\xa3\x62id\x01\x61z".as_slice(), value, b"\x63seq\x02"].concat();
+        for chunk in 1..=input.len() {
+            assert_eq!(
+                chunked_decode::<Counting>(&input, chunk),
+                Err(error),
+                "{value:02x?} in chunks of {chunk}"
+            );
+        }
+    }
+}
+
 #[test]
 fn strict_rejects_an_unknown_entry_though_other_would_take_it() {
     assert_eq!(
