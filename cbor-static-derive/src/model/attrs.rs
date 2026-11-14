@@ -4,8 +4,8 @@
 use proc_macro2::Span;
 use syn::{Attribute, Expr, ExprLit, ExprUnary, Lit, LitInt, LitStr, Path, UnOp};
 
-use super::Fallback;
 use super::case::{Case, RULES};
+use super::{Fallback, Mode};
 
 /// One attribute and where it was written.
 pub struct Spanned<T> {
@@ -24,6 +24,10 @@ pub enum Attr {
     Borrow(Vec<String>),
     Transparent,
     OffsetOfEnum,
+    /// `deterministic` or `length_first`.
+    Order(Mode),
+    Flatten,
+    Other,
     Key(KeyLit),
     Keys(Path),
     Array,
@@ -48,6 +52,7 @@ pub struct StructAttrs {
     pub deny_unknown_fields: bool,
     pub rename_all: Option<Case>,
     pub transparent: bool,
+    pub order: Option<Mode>,
 }
 
 #[derive(Default)]
@@ -55,6 +60,7 @@ pub struct EnumAttrs {
     pub form: FormAttrs,
     pub rename_all: Option<Case>,
     pub offset_of_enum: bool,
+    pub order: Option<Mode>,
 }
 
 /// The attributes that choose an enum's representation.
@@ -71,11 +77,22 @@ pub struct FieldAttrs {
     pub rename: Option<String>,
     pub default: Fallback,
     pub skip_if_none: bool,
-    pub skip: bool,
+    pub role: Role,
     pub key: Option<KeyLit>,
     pub bytes: bool,
     /// The lifetimes `borrow` names; empty for every one the field's type has.
     pub borrow: Option<Vec<String>>,
+}
+
+/// Whether a field is written under a key of its own, `skip`ped, `flatten`ed into its struct's
+/// map, or takes the map's `other` entries.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Role {
+    #[default]
+    Keyed,
+    Skip,
+    Flatten,
+    Other,
 }
 
 #[derive(Default)]
@@ -105,6 +122,10 @@ impl StructAttrs {
             }),
             Attr::Transparent => Ok(Self {
                 transparent: true,
+                ..self
+            }),
+            Attr::Order(mode) => Ok(Self {
+                order: Some(ordered(self.order, mode, attr.span)?),
                 ..self
             }),
             _ => Err(misplaced(attr.span, "a struct")),
@@ -151,6 +172,10 @@ impl EnumAttrs {
                 offset_of_enum: true,
                 ..self
             }),
+            Attr::Order(mode) => Ok(Self {
+                order: Some(ordered(self.order, mode, attr.span)?),
+                ..self
+            }),
             _ => Err(misplaced(attr.span, "an enum")),
         }
     }
@@ -171,7 +196,10 @@ impl FieldAttrs {
                 skip_if_none: true,
                 ..self
             }),
-            Attr::Skip => Ok(Self { skip: true, ..self }),
+            Attr::Skip => Ok(Self {
+                role: role(self.role, Role::Skip, attr.span)?,
+                ..self
+            }),
             Attr::Borrow(lifetimes) => Ok(Self {
                 borrow: Some(lifetimes),
                 ..self
@@ -182,6 +210,14 @@ impl FieldAttrs {
             }),
             Attr::Bytes => Ok(Self {
                 bytes: true,
+                ..self
+            }),
+            Attr::Flatten => Ok(Self {
+                role: role(self.role, Role::Flatten, attr.span)?,
+                ..self
+            }),
+            Attr::Other => Ok(Self {
+                role: role(self.role, Role::Other, attr.span)?,
                 ..self
             }),
             _ => Err(misplaced(attr.span, "a field")),
@@ -258,6 +294,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ),
                     ("borrow", _) => Attr::Borrow(Vec::new()),
                     ("transparent", _) => Attr::Transparent,
+                    ("flatten", _) => Attr::Flatten,
                     ("skip_serializing" | "skip_deserializing", _) => {
                         return Err(meta.error(
                             "cbor-static: a field is skipped in both directions or not at all; \
@@ -274,6 +311,9 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("bytes", true) => Attr::Bytes,
                     ("index", true) => Attr::Index,
                     ("offset_of_enum", true) => Attr::OffsetOfEnum,
+                    ("other", true) => Attr::Other,
+                    ("deterministic", true) => Attr::Order(Mode::Bytewise),
+                    ("length_first", true) => Attr::Order(Mode::LengthFirst),
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }
@@ -313,6 +353,28 @@ fn key(expr: &Expr) -> syn::Result<KeyLit> {
         other => Err(syn::Error::new_spanned(
             other,
             "cbor-static: a key is an integer or a string",
+        )),
+    }
+}
+
+/// A field takes one of `skip`, `flatten` and `other`.
+fn role(already: Role, role: Role, span: Span) -> syn::Result<Role> {
+    match already {
+        Role::Keyed => Ok(role),
+        Role::Skip | Role::Flatten | Role::Other => Err(syn::Error::new(
+            span,
+            "cbor-static: a field takes one of `skip`, `flatten` and `other`",
+        )),
+    }
+}
+
+/// A type takes one key order (D-11b).
+fn ordered(already: Option<Mode>, mode: Mode, span: Span) -> syn::Result<Mode> {
+    match already {
+        None => Ok(mode),
+        Some(_) => Err(syn::Error::new(
+            span,
+            "cbor-static: `deterministic` and `length_first` are mutually exclusive",
         )),
     }
 }

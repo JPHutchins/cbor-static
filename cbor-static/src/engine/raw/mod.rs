@@ -4,10 +4,13 @@
 //! they hold, verbatim.
 
 mod codec;
+mod other;
 
 use core::marker::PhantomData;
 
 use crate::schema::Decode;
+
+pub use other::{RawEntry, Skipped};
 
 /// One well-formed item, borrowed from the input.
 ///

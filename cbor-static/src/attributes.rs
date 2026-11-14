@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
-//! The serde attributes the derives honour beyond names and keys (D-08, #13 Q30 and Q31). Each is
-//! written `#[serde(...)]` or `#[cbor(...)]`; any other serde attribute is a compile error. This
-//! module holds no items.
+//! The serde attributes the derives honour beyond names and keys (D-08, #13 Q30 and Q31, #14
+//! Q34). Each is written `#[serde(...)]` or `#[cbor(...)]`; any other serde attribute is a compile
+//! error. This module holds no items.
 //!
 //! # `rename_all`
 //!
@@ -133,4 +133,85 @@
 //!     Named { name: "a" }
 //! );
 //! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! # `flatten`
+//!
+//! A field whose type is a derived map-form struct brings that struct's entries into its own
+//! struct's map, in its place, at compile time (#14 Q34). Its struct alone decides what an unknown
+//! entry does: the flattened struct's own `deny_unknown_fields` does not apply.
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[serde(deny_unknown_fields)]
+//! struct Labels {
+//!     #[cbor(key = 1)]
+//!     alg: i8,
+//! }
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Header {
+//!     id: u8,
+//!     #[serde(flatten)]
+//!     labels: Labels,
+//!     seq: u8,
+//! }
+//!
+//! let header = Header { id: 1, labels: Labels { alg: -7 }, seq: 2 };
+//! let mut out = [0u8; 16];
+//! let len = cbor_static::encode_into(&header, &mut out)?;
+//! assert_eq!(&out[..len], b"\xa3\x62id\x01\x01\x26\x63seq\x02");
+//!
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! assert_eq!(
+//!     *cbor_static::decode_into::<Header>(b"\xa4\x63seq\x02\x05\x00\x01\x26\x62id\x01", &mut slot)?,
+//!     header
+//! );
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! The map's keys must differ, its flattened entries' included:
+//!
+//! ```compile_fail,E0080
+//! #[derive(cbor_static::Encode)]
+//! struct Labels {
+//!     id: u8,
+//! }
+//!
+//! #[derive(cbor_static::Encode)]
+//! struct Header {
+//!     id: u8,
+//!     #[serde(flatten)]
+//!     labels: Labels,
+//! }
+//!
+//! let _ = cbor_static::encode_into(&Header { id: 1, labels: Labels { id: 2 } }, &mut [0u8; 16]);
+//! ```
+//!
+//! And the field's type must be a struct encoded as a map:
+//!
+//! ```compile_fail,E0277
+//! #[derive(cbor_static::Encode)]
+//! struct Header {
+//!     #[serde(flatten)]
+//!     count: u32,
+//! }
+//! ```
+//!
+//! # `other`
+//!
+//! `#[cbor(other)]` on one field of a map-form struct, a flattened struct's included, takes the
+//! entries no field claims (R-128): [`crate::Skipped`] counts them, and with feature `heapless`, a
+//! `heapless::Vec` of [`crate::RawEntry`] captures each whole and writes it back in its place. It
+//! is a cbor-static attribute; serde's variant-level `other` is unsupported. `Strict` still rejects
+//! an unknown entry, and `deny_unknown_fields` beside it is a compile error:
+//!
+//! ```compile_fail
+//! #[derive(cbor_static::Cbor)]
+//! #[serde(deny_unknown_fields)]
+//! struct Header {
+//!     id: u8,
+//!     #[cbor(other)]
+//!     unknown: cbor_static::Skipped,
+//! }
 //! ```

@@ -1,0 +1,81 @@
+error[E0277]: the trait bound `u32: cbor_static::__private::Flat<cbor_static::__private::Encoding>` is not satisfied
+  --> tests/ui/flatten_not_a_map.rs:4:10
+   |
+ 4 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::Flat<cbor_static::__private::Encoding>` is not implemented for `u32`
+   |
+help: the following other types implement trait `cbor_static::__private::Flat<Direction>`
+  --> tests/ui/flatten_not_a_map.rs:4:10
+   |
+ 4 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfScalar`
+...
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfArray`
+   = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `u32: cbor_static::__private::Flat<cbor_static::__private::Decoding>` is not satisfied
+  --> tests/ui/flatten_not_a_map.rs:4:10
+   |
+ 4 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::Flat<cbor_static::__private::Decoding>` is not implemented for `u32`
+   |
+help: the following other types implement trait `cbor_static::__private::Flat<Direction>`
+  --> tests/ui/flatten_not_a_map.rs:4:10
+   |
+ 4 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfScalar`
+...
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfArray`
+   = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `(): cbor_static::__private::Unlevel` is not satisfied
+ --> tests/ui/flatten_not_a_map.rs:4:10
+  |
+4 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::Unlevel` is not implemented for `()`
+  |
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Pair: cbor_static::__private::Flat<cbor_static::__private::Encoding>` is not satisfied
+  --> tests/ui/flatten_not_a_map.rs:10:10
+   |
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `cbor_static::__private::Flat<cbor_static::__private::Encoding>` is not implemented for `Pair`
+  --> tests/ui/flatten_not_a_map.rs:2:1
+   |
+ 2 | struct Pair(u8, u8);
+   | ^^^^^^^^^^^
+help: the following other types implement trait `cbor_static::__private::Flat<Direction>`
+  --> tests/ui/flatten_not_a_map.rs:4:10
+   |
+ 4 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfScalar`
+...
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfArray`
+   = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Pair: cbor_static::__private::Flat<cbor_static::__private::Decoding>` is not satisfied
+  --> tests/ui/flatten_not_a_map.rs:10:10
+   |
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `cbor_static::__private::Flat<cbor_static::__private::Decoding>` is not implemented for `Pair`
+  --> tests/ui/flatten_not_a_map.rs:2:1
+   |
+ 2 | struct Pair(u8, u8);
+   | ^^^^^^^^^^^
+help: the following other types implement trait `cbor_static::__private::Flat<Direction>`
+  --> tests/ui/flatten_not_a_map.rs:4:10
+   |
+ 4 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfScalar`
+...
+10 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ `OfArray`
+   = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -8,7 +8,9 @@ use crate::engine::{
     exactly, nothing, offset, within,
 };
 use crate::lead::Lead;
-use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, FieldLayout, Layout, sealed};
+use crate::schema::{
+    ByteString, DecKind, Decode, EncKind, Encode, FieldLayout, Layout, Order, sealed,
+};
 use crate::stack::{Level, Widest, deeper};
 
 /// A tuple element `at` bytes in: positional, so it has no name and is never omitted.
@@ -36,6 +38,7 @@ macro_rules! tuple {
             };
             type Stack = Level<tuple!(@widest $($T::Stack),+)>;
             const MAX_DEPTH: usize = 1 + tuple!(@deepest $($T::MAX_DEPTH),+);
+            const ORDER: Order = Order::Any$(.join($T::ORDER))+;
         }
 
         #[allow(unsafe_code)]
@@ -71,6 +74,7 @@ unsafe impl<T: Encode, const N: usize> Encode for [T; N] {
     };
     type Stack = Level<T::Stack>;
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
+    const ORDER: Order = T::ORDER;
 }
 
 #[allow(unsafe_code)]

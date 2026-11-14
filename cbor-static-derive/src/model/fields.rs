@@ -4,7 +4,7 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
 use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
-use super::attrs::{self, FieldAttrs, KeyLit, VariantAttrs};
+use super::attrs::{self, FieldAttrs, KeyLit, Role, VariantAttrs};
 use super::case::Case;
 use super::{Fallback, Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
 
@@ -41,6 +41,16 @@ pub fn variant(variant: &syn::Variant, rename_all: Option<Case>) -> syn::Result<
             None,
         )?),
     };
+    if let Payload::Struct(fields) = &payload
+        && let Some(field) = fields
+            .iter()
+            .find(|field| matches!(field.key, Key::Flattened | Key::Other))
+    {
+        return Err(syn::Error::new(
+            field.ty.span(),
+            "cbor-static: `flatten` and `other` go on a struct's fields, not a variant's",
+        ));
+    }
     Ok(Variant {
         ident: variant.ident.clone(),
         name,
@@ -80,8 +90,11 @@ pub fn fields_of<'a>(
                 .clone()
                 .ok_or_else(|| syn::Error::new(field.span(), "unnamed field"))?;
             borrowed(field, attrs.borrow.as_deref())?;
-            if attrs.skip {
-                return skip(field, ident, attrs);
+            match attrs.role {
+                Role::Skip => return skip(field, ident, attrs),
+                Role::Flatten => return flattened(field, ident, form, attrs),
+                Role::Other => return other(field, ident, form, attrs),
+                Role::Keyed => {}
             }
             let key = key(form, keys, rename_all, &ident, attrs.key, attrs.rename)
                 .map_err(|message| syn::Error::new(field.span(), message))?;
@@ -156,7 +169,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             skip_if_none: false,
             bytes: false,
             borrow: None,
-            skip: _,
+            role: _,
             default,
         } => Ok(Field {
             member: Member::Named(ident),
@@ -172,6 +185,84 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
         _ => Err(syn::Error::new(
             field.span(),
             "cbor-static: a skipped field takes only `default`",
+        )),
+    }
+}
+
+/// A `flatten` field (#14 Q34): its type's entries join a map-form struct's own, so it has no key
+/// of its own and takes no other attribute.
+fn flattened(
+    field: &syn::Field,
+    ident: Ident,
+    form: StructForm,
+    attrs: FieldAttrs,
+) -> syn::Result<Field> {
+    match (form, attrs) {
+        (StructForm::Array, _) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: `flatten` joins a map, so an `array` struct takes none",
+        )),
+        (
+            StructForm::Map { .. },
+            FieldAttrs {
+                rename: None,
+                default: Fallback::Type,
+                skip_if_none: false,
+                role: _,
+                key: None,
+                bytes: false,
+                borrow: None,
+            },
+        ) => Ok(Field {
+            member: Member::Named(ident),
+            ty: field.ty.clone(),
+            key: Key::Flattened,
+            fallback: Fallback::Type,
+            omit_if_absent: false,
+            bytes: false,
+        }),
+        (StructForm::Map { .. }, _) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: a `flatten` field takes no other field attribute",
+        )),
+    }
+}
+
+/// An `other` field (R-128): it takes its map's unknown entries, so it has no key of its own and
+/// takes no other attribute.
+fn other(
+    field: &syn::Field,
+    ident: Ident,
+    form: StructForm,
+    attrs: FieldAttrs,
+) -> syn::Result<Field> {
+    match (form, attrs) {
+        (StructForm::Array, _) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: `other` takes a map's unknown entries, so an `array` struct takes none",
+        )),
+        (
+            StructForm::Map { .. },
+            FieldAttrs {
+                rename: None,
+                default: Fallback::Type,
+                skip_if_none: false,
+                role: _,
+                key: None,
+                bytes: false,
+                borrow: None,
+            },
+        ) => Ok(Field {
+            member: Member::Named(ident),
+            ty: field.ty.clone(),
+            key: Key::Other,
+            fallback: Fallback::Type,
+            omit_if_absent: true,
+            bytes: false,
+        }),
+        (StructForm::Map { .. }, _) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: an `other` field takes no other field attribute",
         )),
     }
 }
@@ -199,7 +290,7 @@ pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
             rename: None,
             default: Fallback::Type,
             skip_if_none: false,
-            skip: false,
+            role: Role::Keyed,
             key: None,
             bytes,
             borrow,
@@ -321,8 +412,8 @@ pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
 /// rules, which change case for any letter, where serde's `rename_all` (`Case`) changes only ASCII.
 fn camel(field: &Ident) -> Ident {
     format_ident!(
-        "{}",
-        field
+        "{camel}",
+        camel = field
             .unraw()
             .to_string()
             .split('_')

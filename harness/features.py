@@ -132,6 +132,40 @@ FEATURES: Final = (
 		(f"{LEAF}::ENC_SKIPPED", f"{LEAF}::dec_skipped"),
 	),
 	Feature(
+		"`other`, counted (`Skipped`)",
+		"other_skipped",
+		"struct",
+		(
+			f"{DECODE}::map::MAP_OTHER",
+			f"{ENCODE}::map::MAP_OTHER",
+			"cbor_static::engine::raw::other::count",
+		),
+	),
+	Feature(
+		"`other`, integer keys",
+		"other_int_keys",
+		"int_keys",
+		(f"{DECODE}::map::MAP_INT_OTHER", f"{ENCODE}::map::MAP_OTHER"),
+	),
+	Feature(
+		"`other`, mixed keys",
+		"other_mixed_keys",
+		"mixed_keys",
+		(f"{DECODE}::map::MAP_MIXED_OTHER", f"{ENCODE}::map::MAP_OTHER"),
+	),
+	Feature(
+		"`other`, captured (`Vec<RawEntry>`)",
+		"other_entries",
+		"struct",
+		(
+			f"{DECODE}::map::MAP_OTHER",
+			f"{ENCODE}::map::MAP_OTHER",
+			f"{ENCODE}::entries::ENTRIES",
+			"cbor_static::engine::raw::other::captured::capture::<4, usize>",
+		),
+		cargo_features=(HEAPLESS,),
+	),
+	Feature(
 		"`Strict` profile",
 		"strict",
 		"struct",

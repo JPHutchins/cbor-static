@@ -67,6 +67,10 @@ fn descriptor_calls(tokens: TokenStream, in_const: bool) -> Vec<(String, bool)> 
 }
 
 fn inputs() -> Vec<DeriveInput> {
+    structs().into_iter().chain(enums()).collect()
+}
+
+fn structs() -> Vec<DeriveInput> {
     vec![
         parse_quote!(
             struct Flat<'a> {
@@ -82,29 +86,6 @@ fn inputs() -> Vec<DeriveInput> {
         ),
         parse_quote!(
             struct Pair(u32, Option<u32>);
-        ),
-        parse_quote!(
-            enum Glue {
-                A,
-                B(u32),
-                C { x: u32 },
-            }
-        ),
-        parse_quote!(
-            #[repr(u8)]
-            enum Tag {
-                A,
-                B(u32),
-                C { x: u32 },
-            }
-        ),
-        parse_quote!(
-            #[repr(C, u8)]
-            enum Union {
-                A,
-                B(u32),
-                C { x: u32 },
-            }
         ),
         parse_quote!(
             #[cbor(keys = Label, deny_unknown_fields)]
@@ -124,6 +105,66 @@ fn inputs() -> Vec<DeriveInput> {
             struct Positional {
                 a: u32,
                 b: Option<u32>,
+            }
+        ),
+        parse_quote!(
+            struct Generic<'a, T: Copy, const N: usize>
+            where
+                T: PartialEq,
+            {
+                a: [T; N],
+                b: &'a str,
+            }
+        ),
+        parse_quote!(
+            struct Capturing<'a> {
+                a: u32,
+                #[cbor(other)]
+                rest: Vec<RawEntry<'a>, 4>,
+            }
+        ),
+        parse_quote!(
+            #[cbor(deterministic)]
+            struct Flattening<'a> {
+                a: u32,
+                #[serde(flatten)]
+                inner: Inner<'a>,
+            }
+        ),
+    ]
+}
+
+fn enums() -> Vec<DeriveInput> {
+    vec![
+        parse_quote!(
+            enum Glue {
+                A,
+                B(u32),
+                C { x: u32 },
+            }
+        ),
+        parse_quote!(
+            #[repr(u8)]
+            enum Tag {
+                A,
+                B(u32),
+                C { x: u32 },
+            }
+        ),
+        parse_quote!(
+            #[repr(C, u8)]
+            enum GenericUnion<T> {
+                A,
+                B(T),
+                C { x: T },
+            }
+        ),
+        parse_quote!(
+            #[repr(C, u8)]
+            enum Union {
+                A,
+                B(u32),
+                C { x: u32 },
             }
         ),
         parse_quote!(

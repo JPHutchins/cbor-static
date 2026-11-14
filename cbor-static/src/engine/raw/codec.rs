@@ -110,7 +110,7 @@ fn used<'de, T: Decode<'de>>(
 }
 
 /// `bytes` for the input's lifetime, which the decoder's own `'de` guarantees.
-unsafe fn borrowed<'de>(bytes: &[u8]) -> &'de [u8] {
+pub(super) unsafe fn borrowed<'de>(bytes: &[u8]) -> &'de [u8] {
     unsafe { core::slice::from_raw_parts(bytes.as_ptr(), bytes.len()) }
 }
 

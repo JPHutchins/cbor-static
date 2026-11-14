@@ -1,16 +1,42 @@
 #![deny(unsafe_code)]
 //! Constant descriptors the derives emit. Private: free to change before 1.0.
 
+mod flat;
 mod kinds;
+mod order;
 
-use crate::engine::{DECODE_OPTION, ENCODE_OPTION, absent_option, drop_fn, none, some, some_ptr};
+use crate::engine::{
+    DECODE_OPTION, DeterministicOps, ENCODE_OPTION, absent_option, drop_fn, none, some, some_ptr,
+};
 use crate::lead::Lead;
 
+pub use flat::{Concat, Flat, Run, Storage, entries, flattened};
 #[cfg(feature = "heapless")]
 pub use kinds::MapGlue;
 pub use kinds::{DecKind, DecVariant, EncKind};
+pub use order::Order;
 
-/// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`.
+/// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`, for
+/// generic types too, each type parameter bounded by the trait (R-127):
+///
+/// ```
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// enum Either<L, R> {
+///     Left(L),
+///     Right { value: R },
+/// }
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::encode_into(&Either::<u8, bool>::Right { value: true }, &mut out)?;
+/// assert_eq!(&out[..len], b"\xa1\x65Right\xa1\x65value\xf5");
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// assert_eq!(
+///     *cbor_static::decode_into::<Either<u8, bool>>(b"\xa1\x64Left\x07", &mut slot)?,
+///     Either::Left(7)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 ///
 /// # Safety
 /// The engine trusts the descriptor without checking it against `Self`. `ENCODE` must describe
@@ -50,6 +76,12 @@ pub unsafe trait Encode: Sized {
         some: Self::ENCODE,
         some_ptr: some_ptr::<Self>,
     };
+    /// The deterministic encoding a value of this type selects as the root (D-11b).
+    #[doc(hidden)]
+    const DETERMINISTIC: Option<&'static DeterministicOps> = None;
+    /// The map key order this type's encoding commits to (D-11b).
+    #[doc(hidden)]
+    const ORDER: Order = Order::Any;
 }
 
 /// Decodes through the engine via a constant descriptor; implemented by `#[derive(Decode)]`.
@@ -153,6 +185,31 @@ pub trait ByteString: sealed::ByteString {
     const DECODE_BYTES: &'static DecKind;
 }
 
+/// What a map-form struct's `#[cbor(other)]` field may be (R-128): [`crate::Skipped`], which counts
+/// the entries no field claims, or with feature `heapless`, a `heapless::Vec` of
+/// [`crate::RawEntry`], which captures them. The engine trusts these kinds, so the trait is sealed.
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Cbor)]
+/// struct Header {
+///     #[cbor(other)]
+///     unknown: u32,
+/// }
+/// ```
+pub trait Other: sealed::Other {
+    #[doc(hidden)]
+    const ENCODE_OTHER: &'static EncKind;
+    #[doc(hidden)]
+    const DECODE_OTHER: &'static DecKind;
+    /// Captured entries cannot be sorted, so a deterministic type cannot hold them (D-11b).
+    #[doc(hidden)]
+    const ORDER: Order;
+    #[doc(hidden)]
+    type Stack;
+    #[doc(hidden)]
+    const MAX_DEPTH: usize;
+}
+
 /// A struct encoded as a map, which is what an internally tagged enum's newtype variant must wrap:
 /// the tag entry joins the payload's own entries (D-10). The derive implements it for named structs
 /// that are not `#[cbor(array)]`, in each direction it derives.
@@ -208,6 +265,7 @@ pub trait MakeDefault {
 /// The types whose byte-string kinds cbor-static describes, so the engine may trust them.
 pub(crate) mod sealed {
     pub trait ByteString {}
+    pub trait Other {}
 }
 
 /// Field or variant names (pre-encoded text items, concatenated) and per-entry placement.
@@ -239,10 +297,16 @@ pub trait Assemble<const V: u8>: Sized {
 impl Layout {
     pub(crate) fn name_item(&self, index: u8) -> &'static [u8] {
         self.fields.get(usize::from(index)).map_or(&[], |field| {
-            let start = usize::from(field.name_at) - if field.name_len < 24 { 1 } else { 2 };
+            let start = usize::from(field.name_at) - head_before(field.name_len);
             self.names
                 .get(start..usize::from(field.name_at) + usize::from(field.name_len))
                 .unwrap_or(&[])
         })
     }
+}
+
+/// The bytes of an identifier's item before its `name_at`, by its `name_len`: its initial byte, and
+/// the length byte of a text of 24 bytes or more.
+pub(crate) const fn head_before(name_len: u8) -> usize {
+    if name_len < 24 { 1 } else { 2 }
 }

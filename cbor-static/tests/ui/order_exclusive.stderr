@@ -1,0 +1,5 @@
+error: cbor-static: `deterministic` and `length_first` are mutually exclusive
+ --> tests/ui/order_exclusive.rs:2:23
+  |
+2 | #[cbor(deterministic, length_first)]
+  |                       ^^^^^^^^^^^^

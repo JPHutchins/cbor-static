@@ -11,7 +11,7 @@ use crate::engine::{
     entry, fresh, len_of, shadow_fits, view,
 };
 use crate::lead::Lead;
-use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue, sealed};
+use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue, Order, sealed};
 use crate::stack::{Level, Twice, Widest, deeper};
 
 #[allow(unsafe_code)]
@@ -24,6 +24,7 @@ unsafe impl<T: Encode, const N: usize, L: LenType> Encode for Vec<T, N, L> {
     };
     type Stack = Level<T::Stack>;
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
+    const ORDER: Order = T::ORDER;
 }
 
 /// An array of up to `N` elements, each decoded in place; without `#[cbor(bytes)]`, a `Vec<u8>` is
@@ -60,6 +61,25 @@ unsafe impl<'de, T: Decode<'de>, const N: usize, L: LenType> Decode<'de> for Vec
     const LEAD: Lead = Lead::ARRAY;
 }
 
+/// A map of its entries in their order; under a deterministic root (D-11b), in their keys' order,
+/// found as each entry is written by encoding the keys on room the map's stack keeps for two of
+/// `K`'s encoders, which is none for a scalar or string key.
+///
+/// ```
+/// use heapless::LinearMap;
+///
+/// #[derive(cbor_static::Encode)]
+/// #[cbor(deterministic)]
+/// struct Sorted(LinearMap<u16, bool, 4>);
+///
+/// let map: LinearMap<u16, bool, 4> = [(1000, true), (5, false)].into_iter().collect();
+/// let mut out = [0u8; 8];
+/// let len = cbor_static::encode_into(&map, &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x19\x03\xe8\xf5\x05\xf4");
+/// let len = cbor_static::encode_into(&Sorted(map), &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x05\xf4\x19\x03\xe8\xf5");
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 #[allow(unsafe_code)]
 unsafe impl<K: Encode + Eq, V: Encode, const N: usize> Encode for LinearMap<K, V, N> {
     const ENCODE: &'static EncKind = &EncKind::Map {
@@ -69,8 +89,9 @@ unsafe impl<K: Encode + Eq, V: Encode, const N: usize> Encode for LinearMap<K, V
         len: len_of::<K, V, N>,
         entry: entry::<K, V, N>,
     };
-    type Stack = Level<Widest<K::Stack, V::Stack>>;
-    const MAX_DEPTH: usize = 1 + deeper(K::MAX_DEPTH, V::MAX_DEPTH);
+    type Stack = Level<Widest<Widest<K::Stack, V::Stack>, Twice<K::Stack>>>;
+    const MAX_DEPTH: usize = 1 + deeper(deeper(K::MAX_DEPTH, V::MAX_DEPTH), 2 * K::MAX_DEPTH);
+    const ORDER: Order = K::ORDER.join(V::ORDER);
 }
 
 /// A map of up to `N` entries, in input order, whose keys differ (D-12). Under `Strict`, each key's

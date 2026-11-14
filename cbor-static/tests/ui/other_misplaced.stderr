@@ -1,0 +1,60 @@
+error: cbor-static: an `other` field takes the unknown entries `deny_unknown_fields` rejects
+ --> tests/ui/other_misplaced.rs:7:14
+  |
+7 |     unknown: Skipped,
+  |              ^^^^^^^
+
+error: cbor-static: a struct takes one `other` field
+  --> tests/ui/other_misplaced.rs:15:13
+   |
+15 |     second: Skipped,
+   |             ^^^^^^^
+
+error: cbor-static: `other` takes a map's unknown entries, so an `array` struct takes none
+  --> tests/ui/other_misplaced.rs:21:5
+   |
+21 |     #[cbor(other)]
+   |     ^
+
+error: cbor-static: `flatten` and `other` go on a struct's fields, not a variant's
+  --> tests/ui/other_misplaced.rs:29:18
+   |
+29 |         unknown: Skipped,
+   |                  ^^^^^^^
+
+error: cbor-static: an `other` field takes no other field attribute
+  --> tests/ui/other_misplaced.rs:35:5
+   |
+35 |     #[cbor(other, rename = "rest")]
+   |     ^
+
+error[E0277]: the trait bound `u32: cbor_static::Other` is not satisfied
+  --> tests/ui/other_misplaced.rs:39:10
+   |
+39 | #[derive(cbor_static::Cbor)]
+   |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::Other` is not implemented for `u32`
+   |
+help: the following other types implement trait `cbor_static::Other`
+  --> src/engine/raw/other.rs
+   |
+   | impl Other for Skipped {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Skipped`
+...
+   |     impl<'de, const N: usize, L: LenType> Other for Vec<RawEntry<'de>, N, L> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `heapless::vec::VecInner<RawEntry<'de>, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<RawEntry<'de>>; N]>>`
+   = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `u32: cbor_static::Other` is not satisfied
+  --> tests/ui/other_misplaced.rs:42:14
+   |
+42 |     unknown: u32,
+   |              ^^^ the trait `cbor_static::Other` is not implemented for `u32`
+   |
+help: the following other types implement trait `cbor_static::Other`
+  --> src/engine/raw/other.rs
+   |
+   | impl Other for Skipped {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Skipped`
+...
+   |     impl<'de, const N: usize, L: LenType> Other for Vec<RawEntry<'de>, N, L> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `heapless::vec::VecInner<RawEntry<'de>, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<RawEntry<'de>>; N]>>`

@@ -7,8 +7,14 @@ error[E0080]: evaluation panicked: cbor-static: a field of the payload is keyed 
 note: erroneous constant encountered
  --> src/engine/mod.rs
   |
-  |             state: encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
-  |                                       ^^^^^^^^^
+  |                 None => encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+  |                                            ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |                     encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
+  |                                                  ^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn Encoder::<'_, Event>::new`
  --> src/lib.rs

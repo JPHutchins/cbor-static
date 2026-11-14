@@ -6,7 +6,7 @@ use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 use syn::Type;
 
-use super::{Trait, text_key};
+use super::{Placed, Trait, text_key};
 use crate::model::{EnumForm, Payload, Variant};
 
 pub struct Ops {
@@ -81,7 +81,8 @@ pub fn extras(form: &EnumForm) -> Vec<TokenStream> {
 
 /// What a newtype variant's payload type must be under `form`, checked at compile time for the
 /// direction its impl derives (`Encode` or `Decode`, at `path`): an internally tagged payload joins
-/// the tag entry to its own entries, so it must be a map-form struct, none of whose keys is the tag.
+/// the tag entry to its own entries, so it must be a map-form struct, none of whose keys is the tag,
+/// and with no `other` field to take the tag entry (a 1e limit).
 pub fn newtype_check(
     form: &EnumForm,
     ty: &Type,
@@ -106,6 +107,7 @@ pub fn newtype_check(
     Some(quote! {
         __p::map_form::<#ty, __p::#direction>();
         assert!(!__p::names_text(#kind, #tag), #message);
+        assert!(!__p::holds_other(#kind), "cbor-static: an internally tagged enum's payload takes no `other` field");
     })
 }
 
@@ -131,34 +133,40 @@ pub fn lead(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenS
     }
 }
 
-/// The layout the decoder walks: `LAYOUT`, or for an untagged enum the same placements with each
-/// variant's classes, behind asserts that no two variants share one (D-10).
-pub fn decode_layout(form: &EnumForm, variants: &[Variant], path: &TokenStream) -> TokenStream {
+/// The layout the decoder walks: the enum's own, or for an untagged enum the same placements with
+/// each variant's classes, behind asserts that no two variants share one (D-10).
+pub fn decode_layout(
+    form: &EnumForm,
+    variants: &[Variant],
+    path: &TokenStream,
+    own: &Placed,
+) -> TokenStream {
     if !matches!(form, EnumForm::Untagged) {
-        return quote!(LAYOUT);
+        return own.reference.clone();
     }
+    let fields = &own.fields;
     let leads: Vec<TokenStream> = variants
         .iter()
         .map(|variant| variant_lead(variant, path))
         .collect();
-    let disjoint =
-        variants
-            .iter()
-            .zip(&leads)
-            .enumerate()
-            .flat_map(|(at, (a, a_lead))| {
-                variants.iter().zip(&leads).skip(at + 1).map(move |(b, b_lead)| {
-            let message = format!(
-                "cbor-static: untagged variants `{}` and `{}` can start with the same item",
-                a.ident, b.ident
-            );
-            quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
-        })
-            });
+    let disjoint = variants
+        .iter()
+        .zip(&leads)
+        .enumerate()
+        .flat_map(|(at, (a, a_lead))| {
+            variants.iter().zip(&leads).skip(at + 1).map(move |(b, b_lead)| {
+                let message = format!(
+                    "cbor-static: untagged variants `{a}` and `{b}` can start with the same item",
+                    a = a.ident,
+                    b = b.ident
+                );
+                quote!(assert!(!#a_lead.overlaps(#b_lead), #message);)
+            })
+        });
     let count = Literal::usize_unsuffixed(variants.len());
     quote!({
         #(#disjoint)*
-        &__p::Layout { names: &const { __p::names::<{ __p::Lead::ENCODED_LEN * #count }>(&[#(__p::Key::Lead(#leads)),*]) }, fields: LAYOUT.fields }
+        &__p::Layout { names: &const { __p::names::<{ __p::Lead::ENCODED_LEN * #count }>(&[#(__p::Key::Lead(#leads)),*]) }, fields: #fields }
     })
 }
 
