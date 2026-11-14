@@ -71,10 +71,13 @@ pub fn mirror(ident: &Ident, shadows: &[Option<Shadow>], params: &Params) -> Tok
         bounds,
         marker,
     } = params;
-    let (mirror, payload_union) = (mirror_ident(ident), format_ident!("__{}__Payload", ident));
+    let (mirror, payload_union) = (
+        mirror_ident(ident),
+        format_ident!("__{ident}__Payload", ident = ident),
+    );
     let arms = shadows.iter().flatten().map(|s| {
         let (field, ty) = (
-            format_ident!("{}", s.ident.to_string().to_lowercase()),
+            format_ident!("{field}", field = s.ident.to_string().to_lowercase()),
             &s.ty,
         );
         quote!(pub #field: ::core::mem::ManuallyDrop<#ty>,)
@@ -96,7 +99,7 @@ pub fn mirrored(ident: &Ident, placed_in: &TokenStream) -> TokenStream {
 
 /// The mirror's name, which no variant's shadow, `__{Enum}{Variant}`, can take.
 fn mirror_ident(ident: &Ident) -> Ident {
-    format_ident!("__{}__Mirror", ident)
+    format_ident!("__{ident}__Mirror", ident = ident)
 }
 
 /// How the enum `ident` places its payload fields, `statics` naming its parameters where the

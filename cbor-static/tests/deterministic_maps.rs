@@ -34,6 +34,14 @@ const RFC_8949_BYTEWISE: [Key; 8] = [
     Key::Flag(false),
 ];
 
+/// The map from each of [`RFC_8949_BYTEWISE`]'s keys to its place, as §4.2.1 sorts it.
+const BYTEWISE: &[u8] =
+    b"\xa8\x0a\x00\x18\x64\x01\x20\x02\x61z\x03\x62aa\x04\x81\x18\x64\x05\x81\x20\x06\xf4\x07";
+
+/// The same map as §4.2.3 sorts it.
+const LENGTH_FIRST: &[u8] =
+    b"\xa8\x0a\x00\x20\x02\xf4\x07\x18\x64\x01\x61z\x03\x81\x20\x06\x62aa\x04\x81\x18\x64\x05";
+
 #[derive(Encode, Debug, PartialEq)]
 #[cbor(deterministic)]
 struct SortedMap(LinearMap<Key, u8, 8>);
@@ -51,10 +59,6 @@ fn map(insertion: impl Iterator<Item = usize>) -> LinearMap<Key, u8, 8> {
 
 #[test]
 fn a_linear_map_sorts_as_rfc_8949_lists_its_example_keys() {
-    let bytewise =
-        b"\xa8\x0a\x00\x18\x64\x01\x20\x02\x61z\x03\x62aa\x04\x81\x18\x64\x05\x81\x20\x06\xf4\x07";
-    let length_first =
-        b"\xa8\x0a\x00\x20\x02\xf4\x07\x18\x64\x01\x61z\x03\x81\x20\x06\x62aa\x04\x81\x18\x64\x05";
     for insertion in [
         map(0..8),
         map((0..8).rev()),
@@ -65,16 +69,45 @@ fn a_linear_map_sorts_as_rfc_8949_lists_its_example_keys() {
         for chunk in (1..=24).step_by(if cfg!(miri) { 7 } else { 1 }) {
             assert_eq!(
                 chunked_encode(&sorted, chunk),
-                bytewise,
+                BYTEWISE,
                 "chunks of {chunk}"
             );
             assert_eq!(
                 chunked_encode(&length_firsts, chunk),
-                length_first,
+                LENGTH_FIRST,
                 "chunks of {chunk}"
             );
         }
     }
+}
+
+#[derive(Encode, Debug, PartialEq)]
+#[serde(transparent)]
+#[cbor(deterministic)]
+struct TransparentSorted {
+    map: LinearMap<Key, u8, 8>,
+}
+
+#[derive(Encode, Debug, PartialEq)]
+#[serde(transparent)]
+#[cbor(length_first)]
+struct TransparentLengthFirst {
+    map: LinearMap<Key, u8, 8>,
+}
+
+#[test]
+fn a_transparent_struct_is_a_deterministic_root_as_a_newtype_is() {
+    let reversed = map((0..8).rev());
+    assert_eq!(
+        encode(&TransparentSorted {
+            map: reversed.clone()
+        }),
+        BYTEWISE
+    );
+    assert_eq!(
+        encode(&TransparentLengthFirst { map: reversed }),
+        LENGTH_FIRST
+    );
 }
 
 #[derive(Cbor, Debug, PartialEq)]

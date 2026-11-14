@@ -208,7 +208,7 @@ fn layout(
 /// The const holding the order [`layout`] sorted layout `name`'s entries into, by their indices in
 /// declaration order.
 fn sorted(name: &Ident) -> Ident {
-    format_ident!("{}_SORTED", name)
+    format_ident!("{name}_SORTED", name = name)
 }
 
 /// The kinds of layout `name`'s entries, given in declaration order, in the layout's order.

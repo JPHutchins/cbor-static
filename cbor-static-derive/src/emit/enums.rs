@@ -168,26 +168,26 @@ fn glue(
         }
     });
     let pointers = variants.iter().flat_map(|variant| {
-		let name = &variant.ident;
-		match &variant.payload {
-			Payload::Unit => vec![],
-			Payload::Newtype(_) => vec![quote!((Self::#name(value), 0) => ::core::ptr::from_ref(value).cast())],
-			Payload::Struct(fields) => fields
-				.iter()
-				.enumerate()
-				.map(|(index, Field { member, .. })| {
-					let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
-					match mode {
-						Mode::Declared => quote!((Self::#name { #member: value, .. }, #index) => ::core::ptr::from_ref(value).cast()),
-						Mode::Bytewise | Mode::LengthFirst => {
-							let order = sorted(&layout_ident(name));
-							quote!((Self::#name { #member: value, .. }, field) if #order.get(usize::from(field)) == Some(&#index) => ::core::ptr::from_ref(value).cast())
-						}
-					}
-				})
-				.collect(),
-		}
-	});
+        let name = &variant.ident;
+        match &variant.payload {
+            Payload::Unit => vec![],
+            Payload::Newtype(_) => vec![quote!((Self::#name(value), 0) => ::core::ptr::from_ref(value).cast())],
+            Payload::Struct(fields) => fields
+                .iter()
+                .enumerate()
+                .map(|(index, Field { member, .. })| {
+                    let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
+                    match mode {
+                        Mode::Declared => quote!((Self::#name { #member: value, .. }, #index) => ::core::ptr::from_ref(value).cast()),
+                        Mode::Bytewise | Mode::LengthFirst => {
+                            let order = sorted(&layout_ident(name));
+                            quote!((Self::#name { #member: value, .. }, field) if #order.get(usize::from(field)) == Some(&#index) => ::core::ptr::from_ref(value).cast())
+                        }
+                    }
+                })
+                .collect(),
+        }
+    });
     let assembles = variants
         .iter()
         .zip(shadows)
@@ -247,18 +247,18 @@ fn encode_kind(
         .as_ref()
         .map_or_else(|| quote!(__p::index_tag), |_| quote!(__p::index_of::<Self>));
     let payloads = variants.iter().zip(layouts.payloads).map(|(variant, placed)| match (&variant.payload, placed) {
-		(Payload::Newtype(field), _) => {
-			let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
-			let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
-			quote!(Some({ #check #kind }))
-		}
-		(Payload::Struct(fields), Some(Placed { reference, .. })) => {
-			let name = layout_ident(&variant.ident);
-			let kinds = arranged(&name, mode, fields.iter().map(|field| field_encode(field, path)));
-			quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #reference, kinds: #kinds, field_ptr: #field_ptr }))
-		}
-		(Payload::Unit | Payload::Struct(_), _) => quote!(None),
-	});
+        (Payload::Newtype(field), _) => {
+            let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
+            let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
+            quote!(Some({ #check #kind }))
+        }
+        (Payload::Struct(fields), Some(Placed { reference, .. })) => {
+            let name = layout_ident(&variant.ident);
+            let kinds = arranged(&name, mode, fields.iter().map(|field| field_encode(field, path)));
+            quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #reference, kinds: #kinds, field_ptr: #field_ptr }))
+        }
+        (Payload::Unit | Payload::Struct(_), _) => quote!(None),
+    });
     let (stack, depth) = stack(variants, (Trait::Encode, path), false);
     let parts = variants.iter().flat_map(|variant| match &variant.payload {
         Payload::Unit => Vec::new(),
@@ -270,7 +270,11 @@ fn encode_kind(
             .iter()
             .filter_map(|field| {
                 Some((
-                    format!("{}::{}", variant.ident, field.member.to_token_stream()),
+                    format!(
+                        "{variant}::{member}",
+                        variant = variant.ident,
+                        member = field.member.to_token_stream()
+                    ),
                     part_order(field, path)?,
                 ))
             })
@@ -312,27 +316,27 @@ fn decode_kind(
 ) -> Body {
     let ops = forms::ops(form).decode;
     let entries = variants.iter().zip(layouts.payloads).enumerate().map(|(index, (variant, placed))| {
-		let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
-		let assemble = match repr {
-			Repr::Rust => quote!(__p::assemble::<Self, #index>),
-			Repr::U8 | Repr::CU8 => quote!(__p::write_tag::<#index>),
-		};
-		let payload = match (&variant.payload, placed) {
-			(Payload::Newtype(field), _) => {
-				let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
-				let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
-				quote!(Some({ #check #kind }))
-			}
-			(Payload::Struct(fields), Some(Placed { reference, .. })) => {
-				let name = layout_ident(&variant.ident);
-				let owner = owner(ident, variant);
-				let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, named, path)));
-				quote!(Some(&__p::DecKind::Struct { ops: __p::map_ops(#reference, false), layout: #reference, kinds: #kinds, drop: None }))
-			}
-			(Payload::Unit | Payload::Struct(_), _) => quote!(None),
-		};
-		quote!(__p::DecVariant { payload: #payload, assemble: #assemble })
-	});
+        let index = Literal::u8_unsuffixed(u8::try_from(index).unwrap_or(u8::MAX));
+        let assemble = match repr {
+            Repr::Rust => quote!(__p::assemble::<Self, #index>),
+            Repr::U8 | Repr::CU8 => quote!(__p::write_tag::<#index>),
+        };
+        let payload = match (&variant.payload, placed) {
+            (Payload::Newtype(field), _) => {
+                let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
+                let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
+                quote!(Some({ #check #kind }))
+            }
+            (Payload::Struct(fields), Some(Placed { reference, .. })) => {
+                let name = layout_ident(&variant.ident);
+                let owner = owner(ident, variant);
+                let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, named, path)));
+                quote!(Some(&__p::DecKind::Struct { ops: __p::map_ops(#reference, false), layout: #reference, kinds: #kinds, drop: None }))
+            }
+            (Payload::Unit | Payload::Struct(_), _) => quote!(None),
+        };
+        quote!(__p::DecVariant { payload: #payload, assemble: #assemble })
+    });
     let fits = shadows
         .iter()
         .flatten()
