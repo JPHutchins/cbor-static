@@ -191,16 +191,14 @@ unsafe fn zero(dst: *mut u8) {
 
 /// Shifts each digit into the magnitude, which a seventeenth significant digit outgrows.
 unsafe fn shifted(dst: *mut u8, _: usize, segment: &[u8]) -> Result<(), ErrorKind> {
-    let magnitude =
-        segment
-            .iter()
-            .try_fold(unsafe { dst.cast::<u128>().read() }, |magnitude, &digit| {
-                (magnitude >> (u128::BITS - u8::BITS) == 0)
-                    .then(|| magnitude << u8::BITS | u128::from(digit))
-                    .ok_or(ErrorKind::OutOfRange)
-            })?;
-    unsafe { dst.cast::<u128>().write(magnitude) };
-    Ok(())
+    segment
+        .iter()
+        .try_fold(unsafe { dst.cast::<u128>().read() }, |magnitude, &digit| {
+            (magnitude >> (u128::BITS - u8::BITS) == 0)
+                .then(|| magnitude << u8::BITS | u128::from(digit))
+                .ok_or(ErrorKind::OutOfRange)
+        })
+        .map(|magnitude| unsafe { dst.cast::<u128>().write(magnitude) })
 }
 
 /// The magnitude of `digits` digits, which `Strict` checks: the `u128` it is.
@@ -218,10 +216,7 @@ unsafe fn positive(
     digits: usize,
     strict: Option<&'static StrictOps>,
 ) -> Result<(), ErrorKind> {
-    let value = i128::try_from(unsafe { magnitude(dst, digits, strict) }?)
-        .map_err(|_| ErrorKind::OutOfRange)?;
-    unsafe { dst.cast::<i128>().write(value) };
-    Ok(())
+    unsafe { signed(dst, digits, strict, core::convert::identity) }
 }
 
 /// The `i128` a tag-3 magnitude of `digits` digits is: -1 minus it.
@@ -230,10 +225,19 @@ unsafe fn negative(
     digits: usize,
     strict: Option<&'static StrictOps>,
 ) -> Result<(), ErrorKind> {
-    let value = i128::try_from(unsafe { magnitude(dst, digits, strict) }?)
-        .map_err(|_| ErrorKind::OutOfRange)?;
-    unsafe { dst.cast::<i128>().write(!value) };
-    Ok(())
+    unsafe { signed(dst, digits, strict, |magnitude| !magnitude) }
+}
+
+/// The `i128` the magnitude, in range, becomes through `sign`.
+unsafe fn signed(
+    dst: *mut u8,
+    digits: usize,
+    strict: Option<&'static StrictOps>,
+    sign: impl FnOnce(i128) -> i128,
+) -> Result<(), ErrorKind> {
+    i128::try_from(unsafe { magnitude(dst, digits, strict) }?)
+        .map_err(|_| ErrorKind::OutOfRange)
+        .map(|magnitude| unsafe { dst.cast::<i128>().write(sign(magnitude)) })
 }
 
 unsafe fn magnitude(
@@ -242,10 +246,9 @@ unsafe fn magnitude(
     strict: Option<&'static StrictOps>,
 ) -> Result<u128, ErrorKind> {
     let magnitude = unsafe { dst.cast::<u128>().read() };
-    if let Some(strict) = strict {
-        (strict.bignum)(magnitude, digits)?;
-    }
-    Ok(magnitude)
+    strict.map_or(Ok(magnitude), |strict| {
+        (strict.bignum)(magnitude, digits).map(|()| magnitude)
+    })
 }
 
 unsafe fn dec_null(_: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
