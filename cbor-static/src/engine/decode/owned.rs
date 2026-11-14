@@ -6,6 +6,7 @@ use core::mem::MaybeUninit;
 
 use super::option::{done, holds_nothing, payload_only};
 use super::{After, Begin, DecOps, Flow, Scratch, State, complete, unnamed};
+use crate::engine::StrictOps;
 use crate::engine::input::Input;
 use crate::engine::text::Utf8;
 use crate::error::ErrorKind;
@@ -17,8 +18,8 @@ use crate::wire::{Header, Major, length};
 pub type BeginFn = unsafe fn(*mut u8);
 /// Copies the next segment of the payload, which starts `at` bytes in.
 pub type AppendFn = unsafe fn(*mut u8, usize, &[u8]) -> Result<(), ErrorKind>;
-/// Checks, and completes, a value of this many bytes.
-pub type FinishFn = unsafe fn(*mut u8, usize) -> Result<(), ErrorKind>;
+/// Checks, and completes, a value of this many bytes, under the profile `Strict` names.
+pub type FinishFn = unsafe fn(*mut u8, usize, Option<&'static StrictOps>) -> Result<(), ErrorKind>;
 
 pub static TEXT: DecOps = DecOps {
     value: Begin::Header(text),
@@ -127,7 +128,7 @@ fn copy(
             }
         }
         let total = unsafe { state.scratch.assume_init_ref().copy.total };
-        unsafe { finish(dst, total) }?;
+        unsafe { finish(dst, total, state.strict) }?;
         return complete(state, frames).map(|()| Flow::Continue);
     }
 }

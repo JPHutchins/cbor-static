@@ -19,7 +19,8 @@ pub struct StrictOps {
     pub(super) head: fn(&[u8]) -> Result<Header, ErrorKind>,
     /// The field a map's frame takes next.
     pub(super) order: fn(&Layout, &Frame, u8) -> Result<(), ErrorKind>,
-    pub(super) bignum: fn(&[u8]) -> Result<(), ErrorKind>,
+    /// A bignum's magnitude, from this many digits.
+    pub(super) bignum: fn(u128, usize) -> Result<(), ErrorKind>,
     /// An entry the top frame of a depth does not claim.
     pub(super) unknown: fn(&mut [MaybeUninit<Frame>], u8) -> Result<(), ErrorKind>,
     /// A map held whole in this chunk, of a count of entries.
@@ -67,8 +68,13 @@ fn order(layout: &Layout, frame: &Frame, field: u8) -> Result<(), ErrorKind> {
     deterministic(frame.seen == 0 || layout.name_item(frame.field) < layout.name_item(field))
 }
 
-fn bignum(digits: &[u8]) -> Result<(), ErrorKind> {
-    deterministic(digits.len() > size_of::<u64>() && digits.first() != Some(&0))
+/// More digits than a `u64` holds, the first of them not zero.
+fn bignum(magnitude: u128, digits: usize) -> Result<(), ErrorKind> {
+    deterministic(
+        digits > size_of::<u64>()
+            && u32::try_from(digits)
+                .is_ok_and(|digits| digits == magnitude.bit_width().div_ceil(u8::BITS)),
+    )
 }
 
 fn sorted(bytes: &[u8], count: u64) -> Result<(), ErrorKind> {
@@ -205,15 +211,21 @@ mod tests {
 
     #[test]
     fn a_bignum_has_no_leading_zero_and_outgrows_64_bits() {
-        let cases: [(&[u8], bool); 5] = [
-            (b"", false),
-            (b"\x01", false),
-            (b"\xff\xff\xff\xff\xff\xff\xff\xff", false),
-            (b"\x01\x00\x00\x00\x00\x00\x00\x00\x00", true),
-            (b"\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00", false),
+        let cases: [(u128, usize, bool); 7] = [
+            (0, 0, false),
+            (1, 1, false),
+            (u64::MAX.into(), 8, false),
+            (u64::MAX.into(), 9, false),
+            (1 << 64, 9, true),
+            (1 << 64, 10, false),
+            (u128::MAX, 16, true),
         ];
-        for (digits, accepted) in cases {
-            assert_eq!(bignum(digits).is_ok(), accepted, "{digits:x?}");
+        for (magnitude, digits, accepted) in cases {
+            assert_eq!(
+                bignum(magnitude, digits).is_ok(),
+                accepted,
+                "{magnitude:x} of {digits}"
+            );
         }
     }
 
