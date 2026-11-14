@@ -220,6 +220,16 @@ pub(crate) fn other_field(layout: &Layout) -> Option<u8> {
         .find(|&at| layout.name_item(at) == OTHER)
 }
 
+/// Whether a descriptor's layout has an `other` field. An internally tagged enum's tag shares its
+/// payload's map, so a payload's `other` field would take the tag entry (R-128).
+#[must_use]
+pub const fn holds_other(layout: Option<&Layout>) -> bool {
+    match layout {
+        None => false,
+        Some(layout) => other(layout),
+    }
+}
+
 /// Whether `layout` has an `other` field: one at most, a flattened struct's included.
 const fn other(layout: &Layout) -> bool {
     let (mut found, mut at) = (false, 0);

@@ -81,7 +81,8 @@ pub fn extras(form: &EnumForm) -> Vec<TokenStream> {
 
 /// What a newtype variant's payload type must be under `form`, checked at compile time for the
 /// direction its impl derives (`Encode` or `Decode`, at `path`): an internally tagged payload joins
-/// the tag entry to its own entries, so it must be a map-form struct, none of whose keys is the tag.
+/// the tag entry to its own entries, so it must be a map-form struct, none of whose keys is the tag,
+/// and with no `other` field to take the tag entry (a 1e limit).
 pub fn newtype_check(
     form: &EnumForm,
     ty: &Type,
@@ -106,6 +107,7 @@ pub fn newtype_check(
     Some(quote! {
         __p::map_form::<#ty, __p::#direction>();
         assert!(!__p::names_text(#kind, #tag), #message);
+        assert!(!__p::holds_other(#kind), "cbor-static: an internally tagged enum's payload takes no `other` field");
     })
 }
 

@@ -385,7 +385,8 @@ pub mod __private {
         write_default, write_made, write_tag,
     };
     pub use crate::keys::{
-        Key, distinct, encode_ops, field, map_ops, names, names_len, names_text, permuted, sorted,
+        Key, distinct, encode_ops, field, holds_other, map_ops, names, names_len, names_text,
+        permuted, sorted,
     };
     pub use crate::lead::Lead;
     pub use crate::schema::{

@@ -156,6 +156,61 @@ mod captured {
     }
 
     #[derive(Cbor, Debug, PartialEq)]
+    struct Body<'a> {
+        a: u8,
+        #[cbor(other)]
+        rest: Vec<RawEntry<'a>, 2>,
+    }
+
+    #[derive(Cbor, Debug, PartialEq)]
+    #[serde(tag = "t", content = "c")]
+    enum Adjacent<'a> {
+        V(Body<'a>),
+    }
+
+    #[derive(Cbor, Debug, PartialEq)]
+    enum External<'a> {
+        V(Body<'a>),
+    }
+
+    #[derive(Cbor, Debug, PartialEq)]
+    #[serde(untagged)]
+    enum Untagged<'a> {
+        Flag(bool),
+        V(Body<'a>),
+    }
+
+    /// A payload whose own map holds its entries captures only its own unknown entry, and writes a
+    /// head that counts it, whichever enum carries it; only an internally tagged enum, whose tag
+    /// joins the payload's map, takes no `other` payload.
+    #[test]
+    fn a_payload_with_its_own_map_captures_only_its_own_unknown_entries() {
+        let payload = b"\xa2\x61a\x01\x61z\x02";
+        let cases: [std::vec::Vec<u8>; 3] = [
+            [b"\xa2\x61t\x61V\x61c".as_slice(), payload].concat(),
+            [b"\xa1\x61V".as_slice(), payload].concat(),
+            payload.to_vec(),
+        ];
+        let mut slot = MaybeUninit::uninit();
+        let adjacent: &mut Adjacent = decode_into(&cases[0], &mut slot).expect("decodes");
+        let Adjacent::V(body) = &*adjacent;
+        assert_eq!((body.a, body.rest.len()), (1, 1));
+        assert_eq!(encode(&*adjacent), cases[0]);
+        let mut slot = MaybeUninit::uninit();
+        let external: &mut External = decode_into(&cases[1], &mut slot).expect("decodes");
+        let External::V(body) = &*external;
+        assert_eq!((body.a, body.rest.len()), (1, 1));
+        assert_eq!(encode(&*external), cases[1]);
+        let mut slot = MaybeUninit::uninit();
+        let untagged: &mut Untagged = decode_into(&cases[2], &mut slot).expect("decodes");
+        let Untagged::V(body) = &*untagged else {
+            panic!("the payload's variant");
+        };
+        assert_eq!((body.a, body.rest.len()), (1, 1));
+        assert_eq!(encode(&*untagged), cases[2]);
+    }
+
+    #[derive(Cbor, Debug, PartialEq)]
     struct Extra<'a> {
         tag: u8,
         #[cbor(other)]
