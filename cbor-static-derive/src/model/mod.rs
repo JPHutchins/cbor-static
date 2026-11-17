@@ -1,5 +1,6 @@
 mod attrs;
 mod case;
+mod distinct;
 mod enums;
 mod fields;
 

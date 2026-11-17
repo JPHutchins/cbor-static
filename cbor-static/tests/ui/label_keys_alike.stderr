@@ -1,0 +1,5 @@
+error: cbor-static: fields `key_ops` and `keyOps` share the key Label::KeyOps
+  --> tests/ui/label_keys_alike.rs:11:5
+   |
+11 |     keyOps: u32,
+   |     ^^^^^^

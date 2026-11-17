@@ -35,10 +35,15 @@ jobs:
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       RUSTC_WRAPPER: ${{ !contains(fromJSON('["miri", "kani"]'), matrix.task) && 'sccache' || '' }}
+      SCCACHE_IDLE_TIMEOUT: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/nix
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.19.0
+      - if: env.RUSTC_WRAPPER != ''
+        run: sccache --start-server
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

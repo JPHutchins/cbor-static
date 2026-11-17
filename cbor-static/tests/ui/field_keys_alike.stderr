@@ -1,0 +1,5 @@
+error: cbor-static: fields `a_b` and `c` share the key "a-b"
+ --> tests/ui/field_keys_alike.rs:6:5
+  |
+6 |     c: u32,
+  |     ^

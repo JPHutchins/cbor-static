@@ -7,6 +7,7 @@ use syn::spanned::Spanned as _;
 
 use super::attrs::{self, EnumAttrs, FormAttrs};
 use super::case::Case;
+use super::distinct;
 use super::fields::{check_name, variant};
 use super::{EnumForm, Key, Mode, Offsets, Payload, Repr, Shape, Variant};
 
@@ -19,6 +20,7 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
         .iter()
         .map(|each| variant(each, attrs.rename_all))
         .collect::<syn::Result<Vec<_>>>()?;
+    distinct::names(&variants)?;
     let form = form(attrs.form, &variants)?;
     names_written(&form, attrs.rename_all, &variants)?;
     if let EnumForm::Internal { tag } | EnumForm::Adjacent { tag, .. } = &form {
@@ -147,12 +149,8 @@ fn names_written(
 
 /// A `cbor_tag` enum's tags are distinct, and every variant has a payload to tag.
 fn cbor_tags(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
-    if let Some((first, again)) = variants.iter().enumerate().find_map(|(at, first)| {
-        variants
-            .iter()
-            .skip(at + 1)
-            .find(|again| again.cbor_tag.is_some() && again.cbor_tag == first.cbor_tag)
-            .map(|again| (first, again))
+    if let Some((first, again)) = distinct::clash(variants, |first, again| {
+        again.cbor_tag.is_some() && again.cbor_tag == first.cbor_tag
     }) {
         return Err(syn::Error::new(
             again.ident.span(),

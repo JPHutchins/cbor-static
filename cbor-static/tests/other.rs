@@ -63,6 +63,34 @@ fn a_counted_entrys_malformed_value_fails_alike_in_any_chunks() {
     }
 }
 
+/// A `skip`ped field and an `other` field have reserved names no key matches, so neither clashes
+/// with the other, nor two `skip`ped fields with each other.
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+struct Reserved {
+    id: u8,
+    #[serde(skip)]
+    cache: u8,
+    #[cbor(other)]
+    unknown: Skipped,
+    #[serde(skip)]
+    spare: u8,
+}
+
+#[test]
+fn skipped_and_other_fields_share_no_key() {
+    let reserved = decode::<Reserved>(UNKNOWN).expect("decodes");
+    assert_eq!(
+        (
+            reserved.id,
+            reserved.cache,
+            reserved.spare,
+            reserved.unknown.count()
+        ),
+        (1, 0, 0, 4)
+    );
+    assert_eq!(encode(&reserved), b"\xa1\x62id\x01");
+}
+
 #[test]
 fn strict_rejects_an_unknown_entry_though_other_would_take_it() {
     assert_eq!(

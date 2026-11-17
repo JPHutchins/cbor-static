@@ -6,6 +6,7 @@ use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
 use super::attrs::{self, FieldAttrs, KeyLit, Role, VariantAttrs};
 use super::case::Case;
+use super::distinct;
 use super::{Fallback, Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
 
 /// A variant, named by its `rename`, else by its identifier under the enum's `rename_all`, which
@@ -119,6 +120,7 @@ pub fn fields_of<'a>(
         .collect::<syn::Result<Vec<_>>>()?
         .into_iter()
         .partition(|field| !matches!(field.key, Key::Skipped));
+    distinct::keys(&kept)?;
     Ok(kept.into_iter().chain(skipped).collect())
 }
 

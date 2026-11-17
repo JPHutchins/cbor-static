@@ -1,0 +1,5 @@
+error: cbor-static: fields `to` and `whence` share the key 1
+ --> tests/ui/variant_field_keys_alike.rs:7:9
+  |
+7 |         whence: u32,
+  |         ^^^^^^
