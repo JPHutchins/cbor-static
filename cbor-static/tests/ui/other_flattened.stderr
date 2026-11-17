@@ -7,7 +7,8 @@ error[E0080]: evaluation panicked: cbor-static: an `other` field takes the unkno
 note: inside `cbor_static::__private::map_ops`
   --> $RUST/core/src/panic.rs
    |
-   = note: the failure occurred here
+   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
    |
   ::: src/keys.rs
    |
@@ -43,7 +44,8 @@ note: inside `cbor_static::__private::map_ops`
 note: inside `cbor_static::keys::other`
   --> $RUST/core/src/panic.rs
    |
-   = note: the failure occurred here
+   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
    |
   ::: src/keys.rs
    |

@@ -3,6 +3,7 @@
 import os
 import sys
 import tomllib
+from functools import partial
 from pathlib import Path
 
 from camas import Claude, Config, Parallel, Project, Task
@@ -28,6 +29,9 @@ TOOLCHAIN = {
 }
 TOOLCHAINS = tuple(TOOLCHAIN.values())
 TARGET_DIR = f"{ROOT}/target"
+MIRI_SHARDS = tuple(str(shard) for shard in range(1, 5))
+MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
+nightly_miri = partial(Task, cwd=TOOLCHAIN["nightly"]["DIR"], env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"})
 
 harness = Project("harness")
 
@@ -89,11 +93,13 @@ build = Parallel(
 	variants=TOOLCHAINS,
 	matrix={"TRIPLE": TRIPLES},
 )
-miri = Task(
-	f"cargo miri test -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'",
-	cwd=TOOLCHAIN["nightly"]["DIR"],
-	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"},
+miri = Parallel(
+	nightly_miri(
+		f"cargo miri nextest run {MIRI_PACKAGE} --no-fail-fast --partition slice:{{SHARD}}/{len(MIRI_SHARDS)}"
+	),
+	matrix={"SHARD": MIRI_SHARDS},
 )
+miri_doc = nightly_miri(f"cargo miri test {MIRI_PACKAGE} --doc", help="nextest runs no doctests")
 fix = rust_fmt | tasks_fix | nix_fmt | harness
 check = rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | oneshot | tasks_check | harness
 f32 = Task(
@@ -107,7 +113,8 @@ diagnostics = Task(
 	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
 )
 kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
-ci = (check - unit) | test | build | miri | f32 | diagnostics | kani | flake
+ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake
+ci = ci_jobs | miri
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))

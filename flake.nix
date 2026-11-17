@@ -53,6 +53,7 @@
             kani
             pkgs.cbmc
             pkgs.cargo-mutants
+            pkgs.cargo-nextest
             pkgs.cargo-fuzz
           ];
           CBOR_STATIC_DEV_SHELL = "1";
