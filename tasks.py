@@ -5,7 +5,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from camas import Claude, Config, Parallel, Project, Task
+from camas import Claude, Config, Parallel, Project, Sequential, Task
 
 if "CBOR_STATIC_DEV_SHELL" not in os.environ and not any(
 	arg.startswith("--github-matrix") for arg in sys.argv
@@ -89,8 +89,12 @@ build = Parallel(
 	variants=TOOLCHAINS,
 	matrix={"TRIPLE": TRIPLES},
 )
-miri = Task(
-	f"cargo miri test -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'",
+miri = Sequential(
+	Task(f"cargo miri nextest run -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"),
+	Task(
+		f"cargo miri test -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}' --doc",
+		help="nextest runs no doctests",
+	),
 	cwd=TOOLCHAIN["nightly"]["DIR"],
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"},
 )
