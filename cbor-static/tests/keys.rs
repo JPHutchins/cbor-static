@@ -206,6 +206,22 @@ enum Op {
 }
 
 #[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+struct Kebab {
+    key_ops: u32,
+    #[serde(rename = "Alg")]
+    alg_id: u32,
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+enum KebabOp {
+    ReadAll,
+    WriteOne(u32),
+    Nested { inner_field: u32 },
+}
+
+#[derive(Cbor, Debug, PartialEq, Clone, Copy)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum Event {
     MoveTo { x: i32 },
@@ -223,6 +239,23 @@ fn rename_all_renames_unrenamed_text_keys_and_variant_names_as_serde_does() {
     );
     golden(&Pascal { key_ops: 1 }, b"\xa1\x66KeyOps\x01");
     golden(&Snake { key_ops: 1 }, b"\xa1\x67key_ops\x01");
+    golden(
+        &Kebab {
+            key_ops: 1,
+            alg_id: 2,
+        },
+        b"\xa2\x67key-ops\x01\x63Alg\x02",
+    );
+    golden(&KebabOp::ReadAll, b"\x68read-all");
+    golden(&KebabOp::WriteOne(5), b"\xa1\x69write-one\x05");
+    golden(
+        &KebabOp::Nested { inner_field: 1 },
+        b"\xa1\x66nested\xa1\x6binner_field\x01",
+    );
+    assert_eq!(
+        decode::<KebabOp>(b"\x68read_all"),
+        Err(ErrorKind::UnknownVariant)
+    );
     golden(&Op::ReadAll, b"\x68read_all");
     golden(&Op::WriteOne(5), b"\xa1\x69write_one\x05");
     golden(&Op::SeekTo(6), b"\xa1\x64Seek\x06");

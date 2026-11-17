@@ -5,8 +5,8 @@
 //!
 //! # `rename_all`
 //!
-//! `"snake_case"`, `"camelCase"` or `"PascalCase"` renames, as serde does, each field of a struct,
-//! or each variant of an enum, that has no `rename` of its own:
+//! `"snake_case"`, `"camelCase"`, `"PascalCase"` or `"kebab-case"` renames, as serde does, each
+//! field of a struct, or each variant of an enum, that has no `rename` of its own:
 //!
 //! ```
 //! #[derive(cbor_static::Cbor)]
@@ -23,11 +23,24 @@
 //!     ReadAll,
 //! }
 //!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! #[serde(rename_all = "kebab-case")]
+//! enum Mode {
+//!     WriteThrough,
+//! }
+//!
 //! let mut out = [0u8; 32];
 //! let len = cbor_static::encode_into(&Header { key_ops: 1, alg_id: -7 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x66keyOps\x01\x63Alg\x26");
 //! let len = cbor_static::encode_into(&Command::ReadAll, &mut out)?;
 //! assert_eq!(&out[..len], b"\x68read_all");
+//! let len = cbor_static::encode_into(&Mode::WriteThrough, &mut out)?;
+//! assert_eq!(&out[..len], b"\x6dwrite-through");
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! assert_eq!(
+//!     *cbor_static::decode_into::<Mode>(&out[..len], &mut slot)?,
+//!     Mode::WriteThrough
+//! );
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!

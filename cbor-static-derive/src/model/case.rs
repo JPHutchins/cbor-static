@@ -7,13 +7,15 @@ pub enum Case {
     Snake,
     Camel,
     Pascal,
+    Kebab,
 }
 
 /// The rules cbor-static accepts, by the name `rename_all = "…"` gives each.
-pub const RULES: [(&str, Case); 3] = [
+pub const RULES: [(&str, Case); 4] = [
     ("snake_case", Case::Snake),
     ("camelCase", Case::Camel),
     ("PascalCase", Case::Pascal),
+    ("kebab-case", Case::Kebab),
 ];
 
 impl Case {
@@ -39,6 +41,7 @@ impl Case {
                 })
                 .collect(),
             Self::Camel => lower_first(&Self::Pascal.field(field)),
+            Self::Kebab => field.replace('_', "-"),
         }
     }
 
@@ -57,6 +60,7 @@ impl Case {
                         .chain([ch.to_ascii_lowercase()])
                 })
                 .collect(),
+            Self::Kebab => Self::Snake.variant(variant).replace('_', "-"),
         }
     }
 }
@@ -75,29 +79,39 @@ mod tests {
 
     #[test]
     fn variants_follow_serde() {
-        for (original, camel, snake) in [
-            ("Outcome", "outcome", "outcome"),
-            ("VeryTasty", "veryTasty", "very_tasty"),
-            ("A", "a", "a"),
-            ("Z42", "z42", "z42"),
+        for (original, camel, snake, kebab) in [
+            ("Outcome", "outcome", "outcome", "outcome"),
+            ("VeryTasty", "veryTasty", "very_tasty", "very-tasty"),
+            ("A", "a", "a", "a"),
+            ("Z42", "z42", "z42", "z42"),
+            (
+                "HTTPServer",
+                "hTTPServer",
+                "h_t_t_p_server",
+                "h-t-t-p-server",
+            ),
         ] {
             assert_eq!(Case::Pascal.variant(original), original);
             assert_eq!(Case::Camel.variant(original), camel);
             assert_eq!(Case::Snake.variant(original), snake);
+            assert_eq!(Case::Kebab.variant(original), kebab);
         }
     }
 
     #[test]
     fn fields_follow_serde() {
-        for (original, pascal, camel) in [
-            ("outcome", "Outcome", "outcome"),
-            ("very_tasty", "VeryTasty", "veryTasty"),
-            ("a", "A", "a"),
-            ("z42", "Z42", "z42"),
+        for (original, pascal, camel, kebab) in [
+            ("outcome", "Outcome", "outcome", "outcome"),
+            ("very_tasty", "VeryTasty", "veryTasty", "very-tasty"),
+            ("a", "A", "a", "a"),
+            ("z42", "Z42", "z42", "z42"),
+            ("x_y_z", "XYZ", "xYZ", "x-y-z"),
+            ("keyOps", "KeyOps", "keyOps", "keyOps"),
         ] {
             assert_eq!(Case::Snake.field(original), original);
             assert_eq!(Case::Pascal.field(original), pascal);
             assert_eq!(Case::Camel.field(original), camel);
+            assert_eq!(Case::Kebab.field(original), kebab);
         }
     }
 
@@ -118,7 +132,8 @@ mod tests {
             "lowercase",
             "UPPERCASE",
             "SCREAMING_SNAKE_CASE",
-            "kebab-case",
+            "SCREAMING-KEBAB-CASE",
+            "kebab_case",
             "",
         ] {
             assert_eq!(Case::named(rejected), None, "{rejected}");
