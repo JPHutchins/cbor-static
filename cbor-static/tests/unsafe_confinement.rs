@@ -1,5 +1,6 @@
 //! R-131 (D-24, D-24a): `unsafe` appears only under `src/engine/`, apart from `unsafe impl` of the
-//! codec traits and the two `unsafe trait` declarations.
+//! codec traits and the two `unsafe trait` declarations. Neither crate shares a mutable static:
+//! Miri under nextest runs each test in its own process, so it never sees two tests race on one.
 
 use std::fs;
 use std::iter::once;
@@ -9,6 +10,7 @@ use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 
 const CODEC_TRAITS: [&str; 2] = ["Encode", "Decode"];
+const THREAD_MARKERS: [&str; 2] = ["Send", "Sync"];
 
 #[derive(Debug, PartialEq, Eq)]
 enum Unsafe {
@@ -91,6 +93,52 @@ fn every_other_unsafe_is_reported() {
     }
 }
 
+#[test]
+#[cfg_attr(miri, ignore = "reads the source tree")]
+fn no_crate_shares_a_mutable_static() {
+    let found: Vec<(PathBuf, String)> = ["src", "../cbor-static-derive/src"]
+        .into_iter()
+        .flat_map(|dir| sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join(dir)))
+        .flat_map(|path| {
+            shared_mutable(parsed(&fs::read_to_string(&path).expect("reads")))
+                .into_iter()
+                .map(move |found| (path.clone(), found))
+        })
+        .collect();
+    assert_eq!(found, Vec::<(PathBuf, String)>::new());
+}
+
+#[test]
+fn immutable_and_atomic_statics_and_static_lifetimes_are_not_shared_mutable() {
+    for allowed in [
+        "pub static ENC_STR: EncKind = EncKind::Leaf { size };",
+        "static DROPPED: AtomicUsize = AtomicUsize::new(0);",
+        "fn f(slot: &'static mut u8) {}",
+        "unsafe impl Encode for u32 {}",
+        "macro_rules! m { () => { quote!(static TABLE: [u8; 2] = [0, 1];) } }",
+    ] {
+        assert_eq!(
+            shared_mutable(parsed(allowed)),
+            Vec::<String>::new(),
+            "{allowed}"
+        );
+    }
+}
+
+#[test]
+fn static_mut_and_thread_marker_impls_are_shared_mutable() {
+    for flagged in [
+        "static mut COUNT: usize = 0;",
+        "pub(crate) static mut SLOT: Option<u8> = None;",
+        "unsafe impl Sync for Slot {}",
+        "unsafe impl<T> core::marker::Send for Slot<T> where T: Copy {}",
+        "fn f() { static mut LOCAL: u8 = 0; }",
+        "macro_rules! m { () => { quote!(static mut TABLE: u8 = 0;) } }",
+    ] {
+        assert_eq!(shared_mutable(parsed(flagged)).len(), 1, "{flagged}");
+    }
+}
+
 fn parsed(source: &str) -> TokenStream {
     syn::parse_file(source).expect("parses").into_token_stream()
 }
@@ -104,6 +152,36 @@ fn uses(tokens: TokenStream) -> Vec<Unsafe> {
         .flat_map(|(at, tree)| match tree {
             TokenTree::Ident(ident) if ident == "unsafe" => vec![classify(&trees[at + 1..])],
             TokenTree::Group(group) => uses(group.stream()),
+            _ => vec![],
+        })
+        .collect()
+}
+
+/// Every `static mut` and every `unsafe impl` of `Send` or `Sync` in `tokens`, macro bodies
+/// included: what safe code would need to share a non-atomic mutable static.
+fn shared_mutable(tokens: TokenStream) -> Vec<String> {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees
+        .iter()
+        .enumerate()
+        .flat_map(|(at, tree)| match (tree, &trees[at + 1..]) {
+            (TokenTree::Group(group), _) => shared_mutable(group.stream()),
+            (TokenTree::Ident(ident), [next, ..])
+                if ident == "static"
+                    && is(next, "mut")
+                    && !at
+                        .checked_sub(1)
+                        .is_some_and(|before| matches!(&trees[before], TokenTree::Punct(p) if p.as_char() == '\'')) =>
+            {
+                vec![TokenStream::from_iter(trees[at..].iter().take(4).cloned()).to_string()]
+            }
+            (TokenTree::Ident(ident), [keyword, header @ ..])
+                if ident == "unsafe"
+                    && is(keyword, "impl")
+                    && trait_name(header).is_some_and(|name| THREAD_MARKERS.contains(&name.as_str())) =>
+            {
+                vec![TokenStream::from_iter(trees[at..].iter().take(6).cloned()).to_string()]
+            }
             _ => vec![],
         })
         .collect()
