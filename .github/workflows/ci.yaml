@@ -26,8 +26,10 @@ jobs:
           enable-cache: true
       - id: matrix
         run: |
-          echo "matrix=$(uv run --locked camas ci_jobs --github-matrix=tasks)" >> "$GITHUB_OUTPUT"
-          echo "miri=$(uv run --locked camas miri --github-matrix=axes)" >> "$GITHUB_OUTPUT"
+          tasks=$(uv run --locked camas ci_jobs --github-matrix=tasks)
+          shards=$(uv run --locked camas miri --github-matrix=axes)
+          echo "matrix=$tasks" >> "$GITHUB_OUTPUT"
+          echo "miri=$shards" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: discover
