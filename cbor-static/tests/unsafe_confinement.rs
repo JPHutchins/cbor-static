@@ -1,6 +1,6 @@
 //! R-131 (D-24, D-24a): `unsafe` appears only under `src/engine/`, apart from `unsafe impl` of the
-//! codec traits and the two `unsafe trait` declarations. Neither crate shares a mutable static:
-//! Miri under nextest runs each test in its own process, so it never sees two tests race on one.
+//! codec traits and the two `unsafe trait` declarations. Neither crate, nor a test, shares a
+//! mutable static.
 
 use std::fs;
 use std::iter::once;
@@ -10,7 +10,6 @@ use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 
 const CODEC_TRAITS: [&str; 2] = ["Encode", "Decode"];
-const THREAD_MARKERS: [&str; 2] = ["Send", "Sync"];
 
 #[derive(Debug, PartialEq, Eq)]
 enum Unsafe {
@@ -23,19 +22,14 @@ enum Unsafe {
 #[cfg_attr(miri, ignore = "reads the source tree")]
 fn unsafe_outside_the_engine_is_only_the_codec_traits() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let found: Vec<(PathBuf, Unsafe)> = sources(&src)
-        .into_iter()
-        .filter(|path| {
+    let found = found_in(
+        sources(&src).into_iter().filter(|path| {
             !path
                 .strip_prefix(&src)
                 .is_ok_and(|inner| inner.starts_with("engine"))
-        })
-        .flat_map(|path| {
-            uses(parsed(&fs::read_to_string(&path).expect("reads")))
-                .into_iter()
-                .map(move |found| (path.clone(), found))
-        })
-        .collect();
+        }),
+        uses,
+    );
     assert_eq!(
         found
             .iter()
@@ -54,6 +48,7 @@ fn unsafe_outside_the_engine_is_only_the_codec_traits() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "parses source text, which no unsafe touches")]
 fn codec_impls_and_declarations_are_allowed_in_items_and_macros() {
     for allowed in [
         "unsafe impl Encode for u32 {}",
@@ -74,6 +69,7 @@ fn codec_impls_and_declarations_are_allowed_in_items_and_macros() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "parses source text, which no unsafe touches")]
 fn every_other_unsafe_is_reported() {
     for flagged in [
         "unsafe impl Send for Slot {}",
@@ -95,20 +91,20 @@ fn every_other_unsafe_is_reported() {
 
 #[test]
 #[cfg_attr(miri, ignore = "reads the source tree")]
-fn no_crate_shares_a_mutable_static() {
-    let found: Vec<(PathBuf, String)> = ["src", "../cbor-static-derive/src"]
-        .into_iter()
-        .flat_map(|dir| sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join(dir)))
-        .flat_map(|path| {
-            shared_mutable(parsed(&fs::read_to_string(&path).expect("reads")))
+fn no_crate_or_test_shares_a_mutable_static() {
+    assert_eq!(
+        found_in(
+            ["src", "tests", "../cbor-static-derive/src"]
                 .into_iter()
-                .map(move |found| (path.clone(), found))
-        })
-        .collect();
-    assert_eq!(found, Vec::<(PathBuf, String)>::new());
+                .flat_map(|dir| sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join(dir))),
+            shared_mutable,
+        ),
+        Vec::<(PathBuf, String)>::new()
+    );
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "parses source text, which no unsafe touches")]
 fn immutable_and_atomic_statics_and_static_lifetimes_are_not_shared_mutable() {
     for allowed in [
         "pub static ENC_STR: EncKind = EncKind::Leaf { size };",
@@ -126,7 +122,8 @@ fn immutable_and_atomic_statics_and_static_lifetimes_are_not_shared_mutable() {
 }
 
 #[test]
-fn static_mut_and_thread_marker_impls_are_shared_mutable() {
+#[cfg_attr(miri, ignore = "parses source text, which no unsafe touches")]
+fn static_mut_thread_marker_impls_and_sync_cells_are_shared_mutable() {
     for flagged in [
         "static mut COUNT: usize = 0;",
         "pub(crate) static mut SLOT: Option<u8> = None;",
@@ -134,8 +131,9 @@ fn static_mut_and_thread_marker_impls_are_shared_mutable() {
         "unsafe impl<T> core::marker::Send for Slot<T> where T: Copy {}",
         "fn f() { static mut LOCAL: u8 = 0; }",
         "macro_rules! m { () => { quote!(static mut TABLE: u8 = 0;) } }",
+        "static SLOT: core::cell::SyncUnsafeCell<u8> = core::cell::SyncUnsafeCell::new(0);",
     ] {
-        assert_eq!(shared_mutable(parsed(flagged)).len(), 1, "{flagged}");
+        assert!(!shared_mutable(parsed(flagged)).is_empty(), "{flagged}");
     }
 }
 
@@ -143,48 +141,64 @@ fn parsed(source: &str) -> TokenStream {
     syn::parse_file(source).expect("parses").into_token_stream()
 }
 
-/// Every `unsafe` keyword in `tokens`, macro bodies included, classified.
-fn uses(tokens: TokenStream) -> Vec<Unsafe> {
+/// What `pick` finds in each file at `paths`.
+fn found_in<T>(
+    paths: impl Iterator<Item = PathBuf>,
+    pick: impl Fn(TokenStream) -> Vec<T>,
+) -> Vec<(PathBuf, T)> {
+    paths
+        .flat_map(|path| {
+            pick(parsed(&fs::read_to_string(&path).expect("reads")))
+                .into_iter()
+                .map(move |found| (path.clone(), found))
+        })
+        .collect()
+}
+
+/// What `pick` finds at each token of `tokens`, macro bodies included. `pick` sees the token's
+/// whole stream and its index in it.
+fn scan<T>(tokens: TokenStream, pick: &impl Fn(&[TokenTree], usize) -> Option<T>) -> Vec<T> {
     let trees: Vec<TokenTree> = tokens.into_iter().collect();
     trees
         .iter()
         .enumerate()
         .flat_map(|(at, tree)| match tree {
-            TokenTree::Ident(ident) if ident == "unsafe" => vec![classify(&trees[at + 1..])],
-            TokenTree::Group(group) => uses(group.stream()),
-            _ => vec![],
+            TokenTree::Group(group) => scan(group.stream(), pick),
+            _ => pick(&trees, at).into_iter().collect(),
         })
         .collect()
 }
 
-/// Every `static mut` and every `unsafe impl` of `Send` or `Sync` in `tokens`, macro bodies
-/// included: what safe code would need to share a non-atomic mutable static.
+/// Every `unsafe` keyword in `tokens`, classified.
+fn uses(tokens: TokenStream) -> Vec<Unsafe> {
+    scan(tokens, &|trees, at| {
+        is(&trees[at], "unsafe").then(|| classify(&trees[at + 1..]))
+    })
+}
+
+/// Every `static mut`, `unsafe impl` of `Send` or `Sync`, and `SyncUnsafeCell` in `tokens`: what
+/// code needs to share a non-atomic mutable static.
 fn shared_mutable(tokens: TokenStream) -> Vec<String> {
-    let trees: Vec<TokenTree> = tokens.into_iter().collect();
-    trees
-        .iter()
-        .enumerate()
-        .flat_map(|(at, tree)| match (tree, &trees[at + 1..]) {
-            (TokenTree::Group(group), _) => shared_mutable(group.stream()),
-            (TokenTree::Ident(ident), [next, ..])
-                if ident == "static"
-                    && is(next, "mut")
-                    && !at
-                        .checked_sub(1)
-                        .is_some_and(|before| matches!(&trees[before], TokenTree::Punct(p) if p.as_char() == '\'')) =>
-            {
-                vec![TokenStream::from_iter(trees[at..].iter().take(4).cloned()).to_string()]
-            }
-            (TokenTree::Ident(ident), [keyword, header @ ..])
-                if ident == "unsafe"
-                    && is(keyword, "impl")
-                    && trait_name(header).is_some_and(|name| THREAD_MARKERS.contains(&name.as_str())) =>
-            {
-                vec![TokenStream::from_iter(trees[at..].iter().take(6).cloned()).to_string()]
-            }
-            _ => vec![],
-        })
-        .collect()
+    scan(tokens, &|trees, at| match (&trees[..at], &trees[at..]) {
+        ([.., TokenTree::Punct(lifetime)], _) if lifetime.as_char() == '\'' => None,
+        (_, [keyword, next, ..]) if is(keyword, "static") && is(next, "mut") => {
+            Some(excerpt(&trees[at..]))
+        }
+        (_, [keyword, next, header @ ..])
+            if is(keyword, "unsafe")
+                && is(next, "impl")
+                && trait_name(header)
+                    .is_some_and(|name| ["Send", "Sync"].contains(&name.as_str())) =>
+        {
+            Some(excerpt(&trees[at..]))
+        }
+        (_, [cell, ..]) if is(cell, "SyncUnsafeCell") => Some(excerpt(&trees[at..])),
+        _ => None,
+    })
+}
+
+fn excerpt(trees: &[TokenTree]) -> String {
+    TokenStream::from_iter(trees.iter().take(6).cloned()).to_string()
 }
 
 fn classify(after: &[TokenTree]) -> Unsafe {
@@ -200,7 +214,7 @@ fn classify(after: &[TokenTree]) -> Unsafe {
         {
             Unsafe::CodecImpl
         }
-        _ => Unsafe::Other(TokenStream::from_iter(after.iter().take(6).cloned()).to_string()),
+        _ => Unsafe::Other(excerpt(after)),
     }
 }
 
