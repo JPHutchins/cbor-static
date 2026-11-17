@@ -5,7 +5,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from camas import Claude, Config, Parallel, Project, Sequential, Task
+from camas import Claude, Config, Parallel, Project, Task
 
 if "CBOR_STATIC_DEV_SHELL" not in os.environ and not any(
 	arg.startswith("--github-matrix") for arg in sys.argv
@@ -28,6 +28,7 @@ TOOLCHAIN = {
 }
 TOOLCHAINS = tuple(TOOLCHAIN.values())
 TARGET_DIR = f"{ROOT}/target"
+MIRI_SHARDS = tuple(str(shard) for shard in range(1, 5))
 
 harness = Project("harness")
 
@@ -89,14 +90,20 @@ build = Parallel(
 	variants=TOOLCHAINS,
 	matrix={"TRIPLE": TRIPLES},
 )
-miri = Sequential(
-	Task(f"cargo miri nextest run -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"),
+miri = Parallel(
 	Task(
-		f"cargo miri test -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}' --doc",
-		help="nextest runs no doctests",
+		f"cargo miri nextest run -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
+		f" --partition slice:{{SHARD}}/{len(MIRI_SHARDS)}"
 	),
+	matrix={"SHARD": MIRI_SHARDS},
 	cwd=TOOLCHAIN["nightly"]["DIR"],
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"},
+)
+miri_doc = Task(
+	f"cargo miri test -p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}' --doc",
+	cwd=TOOLCHAIN["nightly"]["DIR"],
+	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"},
+	help="nextest runs no doctests",
 )
 fix = rust_fmt | tasks_fix | nix_fmt | harness
 check = rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | oneshot | tasks_check | harness
@@ -111,7 +118,8 @@ diagnostics = Task(
 	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
 )
 kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
-ci = (check - unit) | test | build | miri | f32 | diagnostics | kani | flake
+ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake
+ci = ci_jobs | miri
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))

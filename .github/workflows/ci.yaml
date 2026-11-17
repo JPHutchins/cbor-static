@@ -18,13 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      miri: ${{ steps.matrix.outputs.miri }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
       - id: matrix
-        run: echo "matrix=$(uv run --locked camas ci --github-matrix=tasks)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "matrix=$(uv run --locked camas ci_jobs --github-matrix=tasks)" >> "$GITHUB_OUTPUT"
+          echo "miri=$(uv run --locked camas miri --github-matrix=axes)" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: discover
@@ -34,7 +37,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
-      RUSTC_WRAPPER: ${{ !contains(fromJSON('["miri", "kani"]'), matrix.task) && 'sccache' || '' }}
+      RUSTC_WRAPPER: ${{ !contains(fromJSON('["miri_doc", "kani"]'), matrix.task) && 'sccache' || '' }}
       SCCACHE_IDLE_TIMEOUT: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,7 +47,8 @@ jobs:
           version: v0.19.0
       - if: env.RUSTC_WRAPPER != ''
         run: sccache --start-server
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - &cargo-registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/cargo-home/registry/index
@@ -54,8 +58,21 @@ jobs:
           restore-keys: cargo-registry-
       - run: nix develop -c camas ${{ matrix.task }}
 
+  miri:
+    needs: discover
+    name: miri ${{ matrix.SHARD }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.miri) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/nix
+      - *cargo-registry
+      - run: nix develop -c camas miri --matrix SHARD=${{ matrix.SHARD }}
+
   nix:
-    needs: ci
+    needs: [ci, miri]
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
