@@ -1,6 +1,6 @@
 [toolchain]
 channel = "1.100.0"
-components = ["clippy", "rustfmt", "llvm-tools"]
+components = ["clippy", "rustfmt", "llvm-tools", "rust-analyzer", "rust-src"]
 targets = [
 	"thumbv6m-none-eabi",
 	"thumbv7m-none-eabi",
