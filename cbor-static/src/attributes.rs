@@ -23,6 +23,12 @@
 //!     ReadAll,
 //! }
 //!
+//! #[derive(cbor_static::Cbor)]
+//! #[serde(rename_all = "PascalCase")]
+//! struct Params {
+//!     base_iv: u32,
+//! }
+//!
 //! #[derive(cbor_static::Cbor, Debug, PartialEq)]
 //! #[serde(rename_all = "kebab-case")]
 //! enum Mode {
@@ -34,6 +40,8 @@
 //! assert_eq!(&out[..len], b"\xa2\x66keyOps\x01\x63Alg\x26");
 //! let len = cbor_static::encode_into(&Command::ReadAll, &mut out)?;
 //! assert_eq!(&out[..len], b"\x68read_all");
+//! let len = cbor_static::encode_into(&Params { base_iv: 2 }, &mut out)?;
+//! assert_eq!(&out[..len], b"\xa1\x66BaseIv\x02");
 //! let len = cbor_static::encode_into(&Mode::WriteThrough, &mut out)?;
 //! assert_eq!(&out[..len], b"\x6dwrite-through");
 //! let mut slot = core::mem::MaybeUninit::uninit();

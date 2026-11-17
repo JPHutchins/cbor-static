@@ -1,5 +1,6 @@
 //! `rename_all`'s rules (#13 Q30), exactly as serde applies them: `serde_derive`'s `RenameRule`
-//! (`apply_to_field`, `apply_to_variant`) at 1.0.229, whose own test tables the tests below repeat.
+//! (`apply_to_field`, `apply_to_variant`) at 1.0.229. The tests below hold serde's own test tables,
+//! and more rows, each checked against what serde 1.0.229 writes.
 
 /// A `rename_all` rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
