@@ -52,6 +52,7 @@ pub(crate) use decode::{
 pub(crate) use encode::BTREE_MAP as ENCODE_BTREE_MAP;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
+pub(crate) use encode::EmbeddedEncoding;
 #[cfg(feature = "heapless")]
 pub(crate) use encode::LINEAR_MAP as ENCODE_LINEAR_MAP;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
@@ -94,6 +95,7 @@ pub(crate) use leaf::{
 pub use limited::{append_string_limited, append_vec_limited, at_limited};
 pub use limited::{bytes_limited, limited, str_limited};
 pub use pending::Pending;
+pub(crate) use raw::EmbeddedDecoding;
 pub use raw::{
     ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped, WithDecode, WithDecoding,
 };
@@ -261,6 +263,19 @@ impl<'v, T: Encode> Encoder<'v, T> {
                     encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
                 }
             },
+            stack: MaybeUninit::uninit(),
+            value: PhantomData,
+        }
+    }
+
+    /// An encoder of `value` under the deterministic encoding `deterministic` names, which an
+    /// embedded value's encoder takes from its root's, so both count and write it alike.
+    pub(crate) const fn under(
+        value: &'v T,
+        deterministic: Option<&'static DeterministicOps>,
+    ) -> Self {
+        Self {
+            state: encode::State::under(T::ENCODE, ptr::from_ref(value).cast(), deterministic),
             stack: MaybeUninit::uninit(),
             value: PhantomData,
         }

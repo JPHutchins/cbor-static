@@ -29,7 +29,6 @@ impl Pending {
     }
 
     /// The deterministic encoding the root selects, if any (D-11b).
-    #[cfg(any(feature = "heapless", feature = "alloc"))]
     pub(crate) const fn deterministic(&self) -> Option<&'static DeterministicOps> {
         self.deterministic
     }

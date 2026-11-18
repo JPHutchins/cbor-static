@@ -8,6 +8,7 @@ mod cbor_tag;
 mod chunks;
 mod deterministic;
 mod elements;
+mod embedded;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 mod entries;
 mod enums;
@@ -35,6 +36,7 @@ pub use cbor_tag::CBOR_TAG;
 pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use deterministic::{BYTEWISE, DeterministicOps, LENGTH_FIRST};
 pub use elements::ELEMENTS;
+pub use embedded::EmbeddedEncoding;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 pub use entries::ENTRIES;
 pub use enums::EXTERNAL;
@@ -111,6 +113,18 @@ impl State {
         }
     }
 
+    /// An encoder under the deterministic encoding `deterministic` names, if any.
+    pub(crate) const fn under(
+        kind: &'static EncKind,
+        at: *const u8,
+        deterministic: Option<&'static DeterministicOps>,
+    ) -> Self {
+        match deterministic {
+            Some(ops) => Self::deterministic(kind, at, ops),
+            None => Self::new(kind, at),
+        }
+    }
+
     /// An encoder of a root type that selects deterministic encoding (D-11b).
     #[inline(never)]
     pub(crate) const fn deterministic(
@@ -181,7 +195,10 @@ pub(crate) fn bytewise(
     deterministic: Option<&'static DeterministicOps>,
 ) -> Result<core::cmp::Ordering, ErrorKind> {
     let (for_a, for_b) = frames.split_at_mut(frames.len() / 2);
-    let (mut a, mut b) = (under(kind, a, deterministic), under(kind, b, deterministic));
+    let (mut a, mut b) = (
+        State::under(kind, a, deterministic),
+        State::under(kind, b, deterministic),
+    );
     loop {
         match (next_byte(&mut a, for_a)?, next_byte(&mut b, for_b)?) {
             (Some(x), Some(y)) if x == y => {}
@@ -198,24 +215,12 @@ fn encoded_len(
     frames: &mut [MaybeUninit<Frame>],
     deterministic: Option<&'static DeterministicOps>,
 ) -> Result<usize, ErrorKind> {
-    let mut state = under(kind, at, deterministic);
+    let mut state = State::under(kind, at, deterministic);
     let mut len = 0;
     while next_byte(&mut state, frames)?.is_some() {
         len += 1;
     }
     Ok(len)
-}
-
-#[cfg(any(feature = "heapless", feature = "alloc"))]
-const fn under(
-    kind: &'static EncKind,
-    at: *const u8,
-    deterministic: Option<&'static DeterministicOps>,
-) -> State {
-    match deterministic {
-        Some(ops) => State::deterministic(kind, at, ops),
-        None => State::new(kind, at),
-    }
 }
 
 fn advance(state: &mut State, frames: &mut [MaybeUninit<Frame>]) -> Result<bool, ErrorKind> {

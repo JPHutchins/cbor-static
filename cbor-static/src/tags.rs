@@ -1,11 +1,14 @@
 #![deny(unsafe_code)]
 //! CBOR tags (RFC 8949 §3.4) around any value (#12 Q25). A decoder skips no tag but these.
 
-use crate::engine::{DECODE_SELF_DESCRIBED, ENCODE_TAG, dec_tagged, drop_fn};
+use crate::engine::{
+    DECODE_SELF_DESCRIBED, DeterministicOps, ENCODE_TAG, EmbeddedDecoding, EmbeddedEncoding,
+    dec_tagged, drop_fn,
+};
 use crate::lead::Lead;
 use crate::schema::{DecKind, Decode, EncKind, Encode, Order};
 use crate::stack::Level;
-use crate::wire::SELF_DESCRIBE;
+use crate::wire::{ENCODED_CBOR, SELF_DESCRIBE};
 
 /// A value wrapped in CBOR tag `TAG`; any other tag is rejected on decode.
 ///
@@ -74,6 +77,40 @@ pub type Epoch<T> = Tagged<1, T>;
 #[repr(transparent)]
 pub struct SelfDescribed<T>(pub T);
 
+/// A value encoded on its own and carried as the contents of a byte string under tag 24
+/// (RFC 8949 §3.4.5.1, #5 Q18), so that a receiver may pass it on, or check a signature over its
+/// bytes, without decoding it. Decoding it needs contiguous input, and checks the contents under
+/// the decoder's own profile.
+///
+/// ```
+/// use cbor_static::Embedded;
+///
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// struct Claims {
+///     sub: u8,
+/// }
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::to_slice(&Embedded(Claims { sub: 7 }), &mut out)?;
+/// assert_eq!(&out[..len], b"\xd8\x18\x46\xa1\x63sub\x07");
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// assert_eq!(
+///     cbor_static::decode_into::<Embedded<Claims>>(&out[..len], &mut slot)?.0,
+///     Claims { sub: 7 }
+/// );
+/// assert_eq!(
+///     cbor_static::decode_into::<Embedded<Claims>>(b"\xd8\x18\x47\xa1\x63sub\x07\x00", &mut slot)
+///         .map(|_| ())
+///         .map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::TrailingInput)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct Embedded<T>(pub T);
+
 #[allow(unsafe_code)]
 unsafe impl<const TAG: u64, T: Encode> Encode for Tagged<TAG, T> {
     const ENCODE: &'static EncKind = &EncKind::Tagged {
@@ -124,4 +161,23 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for SelfDescribed<T> {
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::TAG.union(T::LEAD);
     const CONTIGUOUS: bool = T::CONTIGUOUS;
+}
+
+#[allow(unsafe_code)]
+unsafe impl<T: Encode> Encode for Embedded<T> {
+    const ENCODE: &'static EncKind = EmbeddedEncoding::<T>::ENCODE;
+    type Stack = Level<T::Stack>;
+    const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
+    const DETERMINISTIC: Option<&'static DeterministicOps> = T::DETERMINISTIC;
+    const ORDER: Order = T::ORDER;
+}
+
+#[allow(unsafe_code)]
+unsafe impl<'de, T: Decode<'de>> Decode<'de> for Embedded<T> {
+    const DECODE: &'static DecKind = EmbeddedDecoding::<'de, T>::DECODE;
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+    type OptionStack = Level<()>;
+    const LEAD: Lead = Lead::tagged(ENCODED_CBOR);
+    const CONTIGUOUS: bool = true;
 }

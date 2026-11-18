@@ -25,6 +25,8 @@ pub const NULL: u8 = 22;
 pub const UNDEFINED: u8 = 23;
 /// The self-describe tag (RFC 8949 §3.4.6): `d9 d9f7`.
 pub const SELF_DESCRIBE: u64 = 55_799;
+/// The tag of an embedded CBOR data item in a byte string (RFC 8949 §3.4.5.1): `d8 18`.
+pub const ENCODED_CBOR: u64 = 24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Header {

@@ -1,7 +1,7 @@
 //! R-207: `encoded_len` is the length `to_slice` writes, within `MAX_ENCODED_LEN`, which each type's
 //! longest value reaches.
 
-use cbor_static::{Encode, MaxEncodedLen, SelfDescribed, Tagged, encoded_len, to_slice};
+use cbor_static::{Embedded, Encode, MaxEncodedLen, SelfDescribed, Tagged, encoded_len, to_slice};
 use proptest::prelude::*;
 
 fn config() -> ProptestConfig {
@@ -79,6 +79,31 @@ fn an_item_wider_than_the_scratch() {
     } else {
         assert_eq!(encoded_len(&wide.as_str()), Ok(102));
     }
+}
+
+/// An embedded item is counted as `encoded_len` counts it, so the one-shot build fails on one
+/// wider than the scratch, before writing anything (#38 Q5).
+#[test]
+fn an_embedded_item_wider_than_the_scratch() {
+    let wide = "x".repeat(100);
+    let mut out = [0u8; 128];
+    let written = to_slice(&Embedded(wide.as_str()), &mut out).map_err(|e| e.kind);
+    if cfg!(cbor_static_oneshot) {
+        assert_eq!(written, Err(cbor_static::ErrorKind::BufferTooSmall));
+    } else {
+        assert_eq!(written, Ok(106));
+        assert_eq!(&out[..5], b"\xd8\x18\x58\x66\x78");
+    }
+}
+
+/// The byte string's head widens with the embedded item: one byte up to 23, two from 24.
+#[test]
+fn an_embedded_item_at_the_byte_strings_head_widths() {
+    const { assert!(<Embedded<[bool; 22]> as MaxEncodedLen>::MAX_ENCODED_LEN == 2 + 1 + 23) };
+    const { assert!(<Embedded<[bool; 23]> as MaxEncodedLen>::MAX_ENCODED_LEN == 2 + 2 + 24) };
+    widest(&Embedded([true; 22]));
+    widest(&Embedded([true; 23]));
+    widest(&Embedded(Embedded(u64::MAX)));
 }
 
 #[test]

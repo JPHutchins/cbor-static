@@ -309,7 +309,7 @@ pub use half::F16;
 pub use schema::{ByteString, Decode, Encode, Other};
 pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
 pub use slices::{from_slice, from_slice_partial};
-pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
+pub use tags::{DateTime, Embedded, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 #[cfg(feature = "alloc")]
 pub use vectors::{to_vec, to_vec_in};

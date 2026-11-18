@@ -6,8 +6,8 @@ use crate::engine::{Encoder, Progress, Skipped};
 use crate::error::{Error, ErrorKind};
 use crate::half::F16;
 use crate::schema::Encode;
-use crate::tags::{SelfDescribed, Tagged};
-use crate::wire::{Head, Major, SELF_DESCRIBE};
+use crate::tags::{Embedded, SelfDescribed, Tagged};
+use crate::wire::{ENCODED_CBOR, Head, Major, SELF_DESCRIBE};
 
 /// The most bytes a value of this type encodes to: the longest of its preferred encodings
 /// (RFC 8949 §4.1), so `u64` counts 9 and `f64` counts 9 though most values take fewer.
@@ -90,7 +90,11 @@ pub fn encode_into<T: Encode + MaxEncodedLen, const N: usize>(
 /// # Errors
 /// As [`crate::to_slice`].
 pub fn encoded_len<T: Encode>(value: &T) -> Result<usize, Error> {
-    let mut encoder = Encoder::new(value);
+    counted(Encoder::new(value))
+}
+
+/// The length of the encoding `encoder` writes, which it counts in a small buffer on the stack.
+pub(crate) fn counted<T: Encode>(mut encoder: Encoder<'_, T>) -> Result<usize, Error> {
     let mut scratch = [0u8; 64];
     let mut counted = 0;
     loop {
@@ -175,6 +179,10 @@ impl<const TAG: u64, T: MaxEncodedLen> MaxEncodedLen for Tagged<TAG, T> {
 
 impl<T: MaxEncodedLen> MaxEncodedLen for SelfDescribed<T> {
     const MAX_ENCODED_LEN: usize = head_len(SELF_DESCRIBE) + T::MAX_ENCODED_LEN;
+}
+
+impl<T: MaxEncodedLen> MaxEncodedLen for Embedded<T> {
+    const MAX_ENCODED_LEN: usize = head_len(ENCODED_CBOR) + container_len(T::MAX_ENCODED_LEN, 1);
 }
 
 /// As a map's `other` field, it writes no entries.
