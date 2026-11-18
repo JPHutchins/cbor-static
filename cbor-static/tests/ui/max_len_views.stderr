@@ -1,0 +1,105 @@
+error[E0277]: `max_len` does not bound `cbor_static::Chunks<'a, str>`
+ --> tests/ui/max_len_views.rs:6:11
+  |
+6 |     text: Chunks<'a, str>,
+  |           ^^^^^^^^^^^^^^^ the trait `cbor_static::__private::Limit` is not implemented for `cbor_static::Chunks<'a, str>`
+  |
+  = note: it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one
+  = help: the following other types implement trait `cbor_static::__private::Limit`:
+            &[u8]
+            &str
+            Option<T>
+            heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>
+            heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>
+            heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>
+note: required by a bound in `cbor_static::__private::encode_limited`
+ --> src/limits.rs
+  |
+  | pub const fn encode_limited<T: Limit, const N: usize>(inner: &'static EncKind) -> EncKind {
+  |                                ^^^^^ required by this bound in `encode_limited`
+
+error[E0277]: `max_len` does not bound `ArrayRef<'a, u32>`
+ --> tests/ui/max_len_views.rs:8:13
+  |
+8 |     values: ArrayRef<'a, u32>,
+  |             ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::Limit` is not implemented for `ArrayRef<'a, u32>`
+  |
+  = note: it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one
+  = help: the following other types implement trait `cbor_static::__private::Limit`:
+            &[u8]
+            &str
+            Option<T>
+            heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>
+            heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>
+            heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>
+note: required by a bound in `cbor_static::__private::encode_limited`
+ --> src/limits.rs
+  |
+  | pub const fn encode_limited<T: Limit, const N: usize>(inner: &'static EncKind) -> EncKind {
+  |                                ^^^^^ required by this bound in `encode_limited`
+
+error[E0277]: `max_len` does not bound `MapRef<'a, u8, u32>`
+  --> tests/ui/max_len_views.rs:10:14
+   |
+10 |     entries: MapRef<'a, u8, u32>,
+   |              ^^^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::Limit` is not implemented for `MapRef<'a, u8, u32>`
+   |
+   = note: it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one
+   = help: the following other types implement trait `cbor_static::__private::Limit`:
+             &[u8]
+             &str
+             Option<T>
+             heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>
+             heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>
+             heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>
+note: required by a bound in `cbor_static::__private::encode_limited`
+  --> src/limits.rs
+   |
+   | pub const fn encode_limited<T: Limit, const N: usize>(inner: &'static EncKind) -> EncKind {
+   |                                ^^^^^ required by this bound in `encode_limited`
+
+error[E0277]: `max_len` does not bound this field's type
+ --> tests/ui/max_len_views.rs:3:10
+  |
+3 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+  = help: the trait `cbor_static::__private::LimitedDecode<'de>` is not implemented for `cbor_static::__private::Limited<cbor_static::Chunks<'a, str>, 4>`
+  = help: the following other types implement trait `cbor_static::__private::LimitedDecode<'de>`:
+            cbor_static::__private::Limited<&[u8], N>
+            cbor_static::__private::Limited<&str, N>
+            cbor_static::__private::Limited<Option<T>, N>
+            cbor_static::__private::Limited<heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>, N>
+            cbor_static::__private::Limited<heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>, N>
+            cbor_static::__private::Limited<heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>, N>
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `max_len` does not bound this field's type
+ --> tests/ui/max_len_views.rs:3:10
+  |
+3 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::LimitedDecode<'de>` is not implemented for `cbor_static::__private::Limited<ArrayRef<'a, u32>, 4>`
+  |
+  = help: the following other types implement trait `cbor_static::__private::LimitedDecode<'de>`:
+            cbor_static::__private::Limited<&[u8], N>
+            cbor_static::__private::Limited<&str, N>
+            cbor_static::__private::Limited<Option<T>, N>
+            cbor_static::__private::Limited<heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>, N>
+            cbor_static::__private::Limited<heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>, N>
+            cbor_static::__private::Limited<heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>, N>
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `max_len` does not bound this field's type
+ --> tests/ui/max_len_views.rs:3:10
+  |
+3 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::LimitedDecode<'de>` is not implemented for `cbor_static::__private::Limited<MapRef<'a, u8, u32>, 4>`
+  |
+  = help: the following other types implement trait `cbor_static::__private::LimitedDecode<'de>`:
+            cbor_static::__private::Limited<&[u8], N>
+            cbor_static::__private::Limited<&str, N>
+            cbor_static::__private::Limited<Option<T>, N>
+            cbor_static::__private::Limited<heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>, N>
+            cbor_static::__private::Limited<heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>, N>
+            cbor_static::__private::Limited<heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>, N>
+  = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -12,5 +12,5 @@ struct Sorted {
 }
 
 fn main() {
-    let _ = cbor_static::encode_into(&Sorted { b: 1, declared: Declared { a: 2 } }, &mut [0u8; 16]);
+    let _ = cbor_static::to_slice(&Sorted { b: 1, declared: Declared { a: 2 } }, &mut [0u8; 16]);
 }

@@ -3,7 +3,7 @@
 
 mod common;
 
-use cbor_static::{ErrorKind, encode_into};
+use cbor_static::{ErrorKind, to_slice};
 use common::{chunked_decode, decode};
 
 const LIMIT: usize = u16::MAX as usize;
@@ -85,7 +85,7 @@ fn beyond_16_bits<T>(decoded: T) -> Result<T, ErrorKind> {
 
 fn encoded<T: cbor_static::Encode>(value: &T) -> Vec<u8> {
     let mut out = vec![0; 2 * LIMIT + 16];
-    let len = encode_into(value, &mut out).expect("encodes");
+    let len = to_slice(value, &mut out).expect("encodes");
     out.truncate(len);
     out
 }

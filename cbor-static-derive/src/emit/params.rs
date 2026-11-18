@@ -33,16 +33,21 @@ pub fn params(item: &Item) -> Params {
 /// The item's parameters as `which`'s impl declares them: each type parameter bounded by the trait,
 /// as serde bounds them, and for `Decode`, the input lifetime `'de`, outliving the item's own.
 pub fn codec_generics(item: &Item, which: Trait) -> Generics {
-    let (path, de): (TokenStream, Option<GenericParam>) = match which {
-        Trait::Encode => (quote!(::cbor_static::Encode), None),
-        Trait::Decode => (
-            quote!(::cbor_static::Decode<'de>),
+    match which {
+        Trait::Encode => bounded(item, &quote!(::cbor_static::Encode), None),
+        Trait::Decode => bounded(
+            item,
+            &quote!(::cbor_static::Decode<'de>),
             Some(item.lifetime.as_ref().map_or_else(
                 || parse_quote!('de),
                 |lifetime| parse_quote!('de: #lifetime),
             )),
         ),
-    };
+    }
+}
+
+/// The item's parameters, `de` first if given, with each type parameter bounded by `path`.
+pub fn bounded(item: &Item, path: &TokenStream, de: Option<GenericParam>) -> Generics {
     let predicates: Punctuated<WherePredicate, Comma> = item
         .generics
         .where_clause

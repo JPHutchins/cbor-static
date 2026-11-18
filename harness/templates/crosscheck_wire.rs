@@ -10,7 +10,7 @@ fn hand<T: minicbor::Encode<()>>(value: &T) -> Vec<u8> {
 
 fn stat<T: cbor_static::Encode>(value: &T) -> Vec<u8> {
     let mut buf = [0u8; 1024];
-    let len = cbor_static::encode_into(value, &mut buf).expect("cbor-static encodes");
+    let len = cbor_static::to_slice(value, &mut buf).expect("cbor-static encodes");
     buf[..len].to_vec()
 }
 

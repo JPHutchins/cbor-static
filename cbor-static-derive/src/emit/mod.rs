@@ -4,10 +4,12 @@ mod forms;
 mod order;
 mod params;
 mod shadows;
+mod sizes;
 mod structs;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
+use syn::Expr;
 
 use crate::Directions;
 use crate::model::{Fallback, Field, Item, Key, Mode, Shape, StructForm};
@@ -46,11 +48,13 @@ pub fn item(item: &Item, directions: Directions) -> TokenStream {
             order,
         } => enums::enumeration(item, variants, (*repr, *offsets, *order), form, directions),
     };
+    let max_encoded_len = sizes::max_encoded_len(item, directions);
     quote! {
         #[allow(non_camel_case_types, non_upper_case_globals, dead_code, clippy::all, clippy::pedantic)]
         const _: () = {
             use ::cbor_static::__private as __p;
             #body
+            #max_encoded_len
         };
     }
 }
@@ -278,13 +282,28 @@ fn field_child(ty: &impl ToTokens, bytes: bool, path: &TokenStream) -> (TokenStr
 }
 
 /// A field's descriptor under `which` trait at `path`: its type's own, or with `#[cbor(bytes)]`,
-/// its byte string's.
-fn field_kind(ty: &impl ToTokens, bytes: bool, which: Trait, path: &TokenStream) -> TokenStream {
-    match (which, bytes) {
-        (Trait::Encode, false) => quote!(<#ty as #path>::ENCODE),
-        (Trait::Decode, false) => quote!(<#ty as #path>::DECODE),
-        (Trait::Encode, true) => quote!(<#ty as ::cbor_static::ByteString>::ENCODE_BYTES),
-        (Trait::Decode, true) => quote!(<#ty as ::cbor_static::ByteString>::DECODE_BYTES),
+/// its byte string's; under `max_len`, one that bounds its length too.
+fn field_kind(
+    ty: &impl ToTokens,
+    (bytes, max_len): (bool, Option<&Expr>),
+    which: Trait,
+    path: &TokenStream,
+) -> TokenStream {
+    match (which, bytes, max_len) {
+        (Trait::Encode, false, None) => quote!(<#ty as #path>::ENCODE),
+        (Trait::Decode, false, None) => quote!(<#ty as #path>::DECODE),
+        (Trait::Encode, true, None) => quote!(<#ty as ::cbor_static::ByteString>::ENCODE_BYTES),
+        (Trait::Decode, true, None) => quote!(<#ty as ::cbor_static::ByteString>::DECODE_BYTES),
+        (Trait::Encode, bytes, Some(max_len)) => {
+            let own = field_kind(ty, (bytes, None), which, path);
+            quote!(&const { __p::encode_limited::<#ty, { #max_len }>(#own) })
+        }
+        (Trait::Decode, false, Some(max_len)) => {
+            quote!(<__p::Limited<#ty, { #max_len }> as __p::LimitedDecode<'de>>::DECODE)
+        }
+        (Trait::Decode, true, Some(max_len)) => {
+            quote!(<__p::Limited<#ty, { #max_len }> as __p::LimitedBytes>::DECODE_BYTES)
+        }
     }
 }
 
@@ -319,7 +338,7 @@ fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
             quote!(<#ty as __p::Other>::ENCODE_OTHER)
         }
         Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
-            field_kind(&field.ty, field.bytes, Trait::Encode, path)
+            field_kind(&field.ty, field.coding(), Trait::Encode, path)
         }
     }
 }
@@ -348,9 +367,9 @@ fn field_decode(
             quote!(&const { __p::DecKind::skipped(#write, __p::drop_fn::<#ty>()) })
         }
         (Key::Other, _) => quote!(<#ty as __p::Other>::DECODE_OTHER),
-        (_, None) => field_kind(ty, field.bytes, Trait::Decode, path),
+        (_, None) => field_kind(ty, field.coding(), Trait::Decode, path),
         (_, Some(write)) => {
-            let kind = field_kind(ty, field.bytes, Trait::Decode, path);
+            let kind = field_kind(ty, field.coding(), Trait::Decode, path);
             quote!(&const { __p::DecKind::defaulted(#kind, #write) })
         }
     }

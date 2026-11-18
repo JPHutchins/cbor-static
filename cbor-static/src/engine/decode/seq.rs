@@ -23,7 +23,7 @@ pub static SEQ: DecOps = DecOps {
     drop,
 };
 
-fn value(
+pub(super) fn value(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     _: &mut Input,
@@ -41,7 +41,7 @@ fn value(
     }
 }
 
-fn entry(
+pub(super) fn entry(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,

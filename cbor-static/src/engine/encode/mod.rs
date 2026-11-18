@@ -10,12 +10,14 @@ mod elements;
 mod entries;
 mod enums;
 mod index;
+mod limited;
 #[cfg(feature = "heapless")]
 mod linear_map;
 mod map;
 mod option;
 #[cfg(feature = "heapless")]
 mod seq;
+mod stopped;
 mod tag;
 mod tagged;
 mod untagged;
@@ -32,6 +34,7 @@ pub use elements::ELEMENTS;
 pub use entries::ENTRIES;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
+pub use limited::LIMITED;
 #[cfg(feature = "heapless")]
 pub use linear_map::LINEAR_MAP;
 pub use map::{MAP, MAP_OTHER};

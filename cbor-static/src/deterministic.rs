@@ -29,9 +29,9 @@
 //! }
 //!
 //! let mut out = [0u8; 16];
-//! let len = cbor_static::encode_into(&Bytewise { z: 1, minus_one: 2, hundred: 3 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Bytewise { z: 1, minus_one: 2, hundred: 3 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa3\x18\x64\x03\x20\x02\x61z\x01");
-//! let len = cbor_static::encode_into(&LengthFirst { z: 1, minus_one: 2, hundred: 3 }, &mut out)?;
+//! let len = cbor_static::to_slice(&LengthFirst { z: 1, minus_one: 2, hundred: 3 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa3\x20\x02\x18\x64\x03\x61z\x01");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -56,9 +56,9 @@
 //!
 //! let part = Part { zero: -0.0, nan: f32::from_bits(0x7fc0_0001) };
 //! let mut out = [0u8; 32];
-//! let len = cbor_static::encode_into(&part, &mut out)?;
+//! let len = cbor_static::to_slice(&part, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x63nan\xf9\x7e\x00\x64zero\xf9\x80\x00");
-//! let len = cbor_static::encode_into(&Root { part }, &mut out)?;
+//! let len = cbor_static::to_slice(&Root { part }, &mut out)?;
 //! assert_eq!(
 //!     &out[..len],
 //!     b"\xa1\x64part\xa2\x63nan\xfa\x7f\xc0\x00\x01\x64zero\xf9\x80\x00"
@@ -86,7 +86,7 @@
 //! }
 //!
 //! let mut out = [0u8; 16];
-//! let len = cbor_static::encode_into(&Outer { d: 4, inner: Inner { c: 3, a: 1 }, b: 2 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Outer { d: 4, inner: Inner { c: 3, a: 1 }, b: 2 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa4\x61a\x01\x61b\x02\x61c\x03\x61d\x04");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -108,7 +108,7 @@
 //!     part: Option<Declared>,
 //! }
 //!
-//! let _ = cbor_static::encode_into(&Root { part: None }, &mut [0u8; 8]);
+//! let _ = cbor_static::to_slice(&Root { part: None }, &mut [0u8; 8]);
 //! ```
 //!
 //! `RawCbor`, `ArrayRef` and `MapRef` write the bytes they were decoded from (D-11a), sorted or
@@ -125,7 +125,7 @@
 //! let mut slot = core::mem::MaybeUninit::uninit();
 //! let envelope: &mut Envelope = cbor_static::decode_into(unsorted, &mut slot)?;
 //! let mut out = [0u8; 16];
-//! let len = cbor_static::encode_into(&*envelope, &mut out)?;
+//! let len = cbor_static::to_slice(&*envelope, &mut out)?;
 //! assert_eq!(&out[..len], unsorted);
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();

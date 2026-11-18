@@ -13,7 +13,7 @@
 //! }
 //!
 //! let mut out = [0u8; 32];
-//! let len = cbor_static::encode_into(&Reading { id: 7, rssi: None, name: "a" }, &mut out)?;
+//! let len = cbor_static::to_slice(&Reading { id: 7, rssi: None, name: "a" }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x62id\x07\x64name\x61a");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -39,7 +39,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&Key { alg: -7, crv: 1 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Key { alg: -7, crv: 1 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x01\x26\x20\x01");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -94,7 +94,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&Point { at: (1, -2), label: None }, &mut out)?;
+//! let len = cbor_static::to_slice(&Point { at: (1, -2), label: None }, &mut out)?;
 //! assert_eq!(&out[..len], b"\x81\x82\x01\x21");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -113,7 +113,7 @@
 //! struct Span(u32, Option<u32>);
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&(Ping, Meters(1000), Span(1, None)), &mut out)?;
+//! let len = cbor_static::to_slice(&(Ping, Meters(1000), Span(1, None)), &mut out)?;
 //! assert_eq!(&out[..len], b"\x83\xf6\x19\x03\xe8\x82\x01\xf6");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -125,7 +125,8 @@
 //! struct Meters(#[serde(rename = "m")] u32);
 //! ```
 //!
-//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]` and nothing else.
+//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]`, `max_len` and `borrow`,
+//! and nothing else.
 //!
 //! ```
 //! #[derive(cbor_static::Cbor)]
@@ -134,7 +135,7 @@
 //! }
 //!
 //! let mut out = [0u8; 16];
-//! let len = cbor_static::encode_into(&Frame::Raw([1, 2, 3, 4]), &mut out)?;
+//! let len = cbor_static::to_slice(&Frame::Raw([1, 2, 3, 4]), &mut out)?;
 //! assert_eq!(&out[..len], b"\xa1\x63Raw\x44\x01\x02\x03\x04");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -155,7 +156,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&[Some(Inner { x: 1 }), None], &mut out)?;
+//! let len = cbor_static::to_slice(&[Some(Inner { x: 1 }), None], &mut out)?;
 //! assert_eq!(&out[..len], b"\x82\xa1\x61x\x01\xf6");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -194,7 +195,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&(Command::Set(5), Envelope::Maced(1)), &mut out)?;
+//! let len = cbor_static::to_slice(&(Command::Set(5), Envelope::Maced(1)), &mut out)?;
 //! assert_eq!(&out[..len], b"\x82\x82\x01\x05\xd1\x01");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -230,7 +231,7 @@
 //! }
 //!
 //! let mut out = [0u8; 32];
-//! let len = cbor_static::encode_into(&Event::Move { x: 1 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Event::Move { x: 1 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x64type\x64Move\x61x\x01");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -273,8 +274,10 @@ mod error;
 mod half;
 mod keys;
 mod lead;
+mod limits;
 mod scalar;
 mod schema;
+mod sizes;
 mod stack;
 mod tags;
 mod token;
@@ -292,14 +295,26 @@ pub use engine::{
 pub use error::{Error, ErrorKind};
 pub use half::F16;
 pub use schema::{ByteString, Decode, Encode, Other};
+pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
 pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.
 ///
+/// ```
+/// let mut out = [0u8; 3];
+/// assert_eq!(cbor_static::to_slice(&500u16, &mut out)?, 3);
+/// assert_eq!(
+///     cbor_static::to_slice(&70_000u32, &mut out).map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::BufferTooSmall)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
 /// # Errors
-/// [`ErrorKind::BufferTooSmall`] when `out` cannot hold the whole encoding.
-pub fn encode_into<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
+/// [`ErrorKind::BufferTooSmall`] when `out` cannot hold the whole encoding, and
+/// [`ErrorKind::LimitExceeded`] when a field is longer than its `#[cbor(max_len = N)]`.
+pub fn to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
     match Encoder::new(value).resume(out)? {
         Progress::Done(written) => Ok(written),
         Progress::NeedSpace(written) => Err(Error::new(ErrorKind::BufferTooSmall, 0, written)),
@@ -384,14 +399,17 @@ pub mod __private {
         as_slice, assemble, drop_fn, field_ptr_of, gathered, index_of, index_tag, offset, wraps,
         write_default, write_made, write_tag,
     };
+    pub use crate::keys::item_len as key_len;
     pub use crate::keys::{
         Key, distinct, encode_ops, field, holds_other, map_ops, names, names_len, names_text,
         permuted, sorted,
     };
     pub use crate::lead::Lead;
+    pub use crate::limits::{Limit, Limited, LimitedBytes, LimitedDecode, encode_limited};
     pub use crate::schema::{
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
         Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,
     };
+    pub use crate::sizes::{container_len, head_len, larger};
     pub use crate::stack::{Level, Unlevel, Widest, deeper};
 }

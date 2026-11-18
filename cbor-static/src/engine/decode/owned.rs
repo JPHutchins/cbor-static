@@ -46,7 +46,7 @@ pub struct Copying {
     utf8: Utf8,
 }
 
-fn text(
+pub(super) fn text(
     state: &mut State,
     _: &mut [MaybeUninit<Frame>],
     _: &mut Input,
@@ -55,7 +55,7 @@ fn text(
     begin(state, header, Major::Text)
 }
 
-fn bytes(
+pub(super) fn bytes(
     state: &mut State,
     _: &mut [MaybeUninit<Frame>],
     _: &mut Input,

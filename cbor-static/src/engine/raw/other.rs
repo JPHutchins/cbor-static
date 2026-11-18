@@ -43,7 +43,7 @@ pub struct RawEntry<'de> {
 /// assert_eq!((header.id, header.unknown.count()), (7, 2));
 ///
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&*header, &mut out)?;
+/// let len = cbor_static::to_slice(&*header, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa1\x62id\x07");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
@@ -122,7 +122,7 @@ mod captured {
     /// assert_eq!(header.rest[1].key.as_bytes(), b"\x61z");
     ///
     /// let mut out = [0u8; 16];
-    /// let len = cbor_static::encode_into(&*header, &mut out)?;
+    /// let len = cbor_static::to_slice(&*header, &mut out)?;
     /// assert_eq!(&out[..len], input);
     ///
     /// let mut slot = core::mem::MaybeUninit::<Header>::uninit();

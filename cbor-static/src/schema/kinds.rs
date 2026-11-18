@@ -101,6 +101,35 @@ impl EncKind {
             | Self::Select { .. } => None,
         }
     }
+
+    /// `inner`, behind the check `limited` makes of a `#[cbor(max_len = N)]` field's value (#5
+    /// Q15): an `Option` kind whose ops encode the value as `inner`, or fail, and which is absent
+    /// where `inner` is.
+    #[must_use]
+    pub const fn limited(inner: &'static Self, limited: SomeFn) -> Self {
+        use crate::engine::ENCODE_LIMITED;
+
+        Self::Option {
+            ops: &ENCODE_LIMITED,
+            absent: inner.absent(),
+            some: inner,
+            some_ptr: limited,
+        }
+    }
+
+    const fn absent(&self) -> Option<AbsentFn> {
+        match self {
+            Self::Leaf { absent, .. } | Self::Option { absent, .. } => *absent,
+            Self::Struct { .. }
+            | Self::Enum { .. }
+            | Self::Array { .. }
+            | Self::Chunks { .. }
+            | Self::Seq { .. }
+            | Self::Tagged { .. }
+            | Self::Map { .. }
+            | Self::Select { .. } => None,
+        }
+    }
 }
 
 /// `repr(C, u8)` keeps `ops` (or a leaf's `decode`) and `drop` each at one offset in every variant,

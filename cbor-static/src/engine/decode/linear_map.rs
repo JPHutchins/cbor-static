@@ -23,7 +23,7 @@ pub static LINEAR_MAP: DecOps = DecOps {
     drop,
 };
 
-fn value(
+pub(super) fn value(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     _: &mut Input,
@@ -43,7 +43,7 @@ fn value(
 
 /// A key, counted against the map's length; or, once that key is complete and differs from every
 /// earlier one, its value.
-fn entry(
+pub(super) fn entry(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,

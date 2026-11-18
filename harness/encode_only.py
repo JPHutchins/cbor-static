@@ -40,7 +40,7 @@ ENCODE_ONLY: Final = Direction(
 	"encode-only",
 	"cbor_static::Encode",
 	"    let value: &Message = unsafe { &*(black_box(0x2000_2000usize) as *const Message) };\n"
-	"    black_box(cbor_static::encode_into(value, out).ok());",
+	"    black_box(cbor_static::to_slice(value, out).ok());",
 )
 CONTROL: Final = Direction(
 	"encode-decode-control",
@@ -48,7 +48,7 @@ CONTROL: Final = Direction(
 	"    let input: &[u8] = unsafe { core::slice::from_raw_parts(black_box(0x2000_0000usize) as *const u8, black_box(256)) };\n"
 	"    let mut slot = core::mem::MaybeUninit::<Message>::uninit();\n"
 	"    if let Ok(value) = cbor_static::decode_strict_into(input, &mut slot) {\n"
-	"        black_box(cbor_static::encode_into(&*value, out).ok());\n"
+	"        black_box(cbor_static::to_slice(&*value, out).ok());\n"
 	"    }",
 )
 

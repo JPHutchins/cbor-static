@@ -18,7 +18,7 @@ use crate::wire::SELF_DESCRIBE;
 /// }
 ///
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&Tagged::<1000, Point>(Point { x: 1 }), &mut out)?;
+/// let len = cbor_static::to_slice(&Tagged::<1000, Point>(Point { x: 1 }), &mut out)?;
 /// assert_eq!(&out[..len], b"\xd9\x03\xe8\xa1\x61x\x01");
 ///
 /// let mut slot = core::mem::MaybeUninit::uninit();
@@ -49,7 +49,7 @@ pub type DateTime<'de> = Tagged<0, &'de str>;
 /// ```
 /// let mut out = [0u8; 8];
 /// let epoch: cbor_static::Epoch<u64> = cbor_static::Tagged(1_363_896_240);
-/// let len = cbor_static::encode_into(&epoch, &mut out)?;
+/// let len = cbor_static::to_slice(&epoch, &mut out)?;
 /// assert_eq!(&out[..len], b"\xc1\x1a\x51\x4b\x67\xb0");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
@@ -62,7 +62,7 @@ pub type Epoch<T> = Tagged<1, T>;
 /// use cbor_static::SelfDescribed;
 ///
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&SelfDescribed(7u32), &mut out)?;
+/// let len = cbor_static::to_slice(&SelfDescribed(7u32), &mut out)?;
 /// assert_eq!(&out[..len], b"\xd9\xd9\xf7\x07");
 ///
 /// let mut slot = core::mem::MaybeUninit::uninit();

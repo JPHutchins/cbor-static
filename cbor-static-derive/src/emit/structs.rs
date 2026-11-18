@@ -127,24 +127,25 @@ pub fn transparent(
     mode: Mode,
     directions: Directions,
 ) -> TokenStream {
-    let (ty, bytes, offset) = field.map_or_else(
-        || (quote!(()), false, quote!(0)),
+    let (ty, coding, offset) = field.map_or_else(
+        || (quote!(()), (false, None), quote!(0)),
         |field| {
             let member = &field.member;
             (
                 field.ty.to_token_stream(),
-                field.bytes,
+                field.coding(),
                 quote!(::core::mem::offset_of!(Self, #member)),
             )
         },
     );
+    let (bytes, _) = coding;
     let wraps = quote!(assert!(
         __p::wraps::<Self, #ty>(#offset),
         "cbor-static: a unit or newtype struct must be laid out as what it wraps"
     ););
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = field_child(&ty, bytes, path);
-        let kind = field_kind(&ty, bytes, Trait::Encode, path);
+        let kind = field_kind(&ty, coding, Trait::Encode, path);
         let part = (!bytes).then(|| quote!(<#ty as #path>::ORDER));
         let checks = admitted(
             mode,
@@ -163,7 +164,7 @@ pub fn transparent(
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         let (stack, depth) = field_child(&ty, bytes, path);
-        let kind = field_kind(&ty, bytes, Trait::Decode, path);
+        let kind = field_kind(&ty, coding, Trait::Decode, path);
         Body {
             kind: quote!({
                 #wraps

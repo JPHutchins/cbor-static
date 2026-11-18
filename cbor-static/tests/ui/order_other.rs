@@ -7,5 +7,5 @@ struct Sorted<'a> {
 }
 
 fn main() {
-    let _ = cbor_static::encode_into(&Sorted { id: 1, rest: heapless::Vec::new() }, &mut [0u8; 16]);
+    let _ = cbor_static::to_slice(&Sorted { id: 1, rest: heapless::Vec::new() }, &mut [0u8; 16]);
 }

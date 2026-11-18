@@ -7,7 +7,7 @@ mod common;
 
 use core::cmp::Ordering;
 
-use cbor_static::{Cbor, Encode, ErrorKind, F16, encode_into};
+use cbor_static::{Cbor, Encode, ErrorKind, F16, to_slice};
 use common::{chunked_encode, encode};
 use heapless::LinearMap;
 use proptest::prelude::*;
@@ -122,7 +122,7 @@ fn keys_that_encode_alike_cannot_be_sorted() {
             .collect(),
     );
     assert_eq!(
-        encode_into(&halves, &mut [0; 16]).map_err(|error| error.kind),
+        to_slice(&halves, &mut [0; 16]).map_err(|error| error.kind),
         Err(ErrorKind::DuplicateKey)
     );
 }

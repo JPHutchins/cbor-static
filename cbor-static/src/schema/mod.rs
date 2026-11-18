@@ -27,7 +27,7 @@ pub use order::Order;
 /// }
 ///
 /// let mut out = [0u8; 16];
-/// let len = cbor_static::encode_into(&Either::<u8, bool>::Right { value: true }, &mut out)?;
+/// let len = cbor_static::to_slice(&Either::<u8, bool>::Right { value: true }, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa1\x65Right\xa1\x65value\xf5");
 ///
 /// let mut slot = core::mem::MaybeUninit::uninit();
@@ -58,7 +58,7 @@ pub use order::Order;
 ///     const MAX_DEPTH: usize = 1;
 /// }
 ///
-/// let _ = cbor_static::encode_into(&Liar(1), &mut [0u8; 8]);
+/// let _ = cbor_static::to_slice(&Liar(1), &mut [0u8; 8]);
 /// ```
 #[allow(unsafe_code)]
 pub unsafe trait Encode: Sized {
@@ -151,7 +151,7 @@ pub unsafe trait Decode<'de>: Sized {
 /// }
 ///
 /// let mut out = [0u8; 16];
-/// let len = cbor_static::encode_into(&Key { id: [1, 2], raw: [1, 2] }, &mut out)?;
+/// let len = cbor_static::to_slice(&Key { id: [1, 2], raw: [1, 2] }, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x62id\x42\x01\x02\x63raw\x82\x01\x02");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
@@ -179,6 +179,9 @@ pub unsafe trait Decode<'de>: Sized {
 /// }
 /// ```
 pub trait ByteString: sealed::ByteString {
+    /// The most bytes the type holds.
+    #[doc(hidden)]
+    const CAPACITY: usize;
     #[doc(hidden)]
     const ENCODE_BYTES: &'static EncKind;
     #[doc(hidden)]
@@ -227,7 +230,7 @@ pub trait Other: sealed::Other {
 /// }
 ///
 /// let mut out = [0u8; 16];
-/// let len = cbor_static::encode_into(&Event::Resize(Size { w: 3 }), &mut out)?;
+/// let len = cbor_static::to_slice(&Event::Resize(Size { w: 3 }), &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x64type\x66Resize\x61w\x03");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```

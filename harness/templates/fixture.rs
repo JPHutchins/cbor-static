@@ -19,7 +19,7 @@ pub extern "C" fn _start() -> ! {
     let out: &mut [u8] = unsafe { core::slice::from_raw_parts_mut(black_box(0x2000_1000usize) as *mut u8, black_box(64)) };
     let mut slot = core::mem::MaybeUninit::<Fixture>::uninit();
     if let Ok(value) = cbor_static::decode_into(input, &mut slot) {
-        black_box(cbor_static::encode_into(&*value, out).ok());
+        black_box(cbor_static::to_slice(&*value, out).ok());
     }
     loop {}
 }

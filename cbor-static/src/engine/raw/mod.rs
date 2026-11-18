@@ -27,7 +27,7 @@ pub use other::{RawEntry, Skipped};
 /// assert_eq!(envelope.body.as_bytes(), b"\x82\x18\x18\x01");
 ///
 /// let mut out = [0u8; 16];
-/// let len = cbor_static::encode_into(&*envelope, &mut out)?;
+/// let len = cbor_static::to_slice(&*envelope, &mut out)?;
 /// assert_eq!(&out[..len], input);
 /// # Ok::<(), cbor_static::Error>(())
 /// ```

@@ -11,5 +11,5 @@ struct Parent {
 }
 
 fn main() {
-    let _ = cbor_static::encode_into(&Parent { x: 1, child: Child { x: 2 } }, &mut [0u8; 16]);
+    let _ = cbor_static::to_slice(&Parent { x: 1, child: Child { x: 2 } }, &mut [0u8; 16]);
 }

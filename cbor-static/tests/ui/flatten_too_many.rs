@@ -74,5 +74,5 @@ struct Whole {
 }
 
 fn main() {
-    let _ = cbor_static::encode_into(&Whole::default(), &mut [0u8; 512]);
+    let _ = cbor_static::to_slice(&Whole::default(), &mut [0u8; 512]);
 }

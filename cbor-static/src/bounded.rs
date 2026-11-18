@@ -6,7 +6,7 @@ use core::mem::offset_of;
 use heapless::{LenType, LinearMap, String, Vec};
 
 use crate::engine::{
-    BYTES_OWNED, DECODE_LINEAR_MAP, DECODE_SEQ, ENCODE_LINEAR_MAP, ENCODE_SEQ, TEXT_OWNED,
+    AtFn, BYTES_OWNED, DECODE_LINEAR_MAP, DECODE_SEQ, ENCODE_LINEAR_MAP, ENCODE_SEQ, TEXT_OWNED,
     any_length, append_string, append_vec, assemble_map, at, drop_fn, empty, enc_string, enc_view,
     entry, fresh, len_of, shadow_fits, view,
 };
@@ -36,7 +36,7 @@ unsafe impl<T: Encode, const N: usize, L: LenType> Encode for Vec<T, N, L> {
 /// assert_eq!(values, &[1, 256]);
 ///
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&*values, &mut out)?;
+/// let len = cbor_static::to_slice(&*values, &mut out)?;
 /// assert_eq!(&out[..len], b"\x82\x01\x19\x01\x00");
 ///
 /// let mut slot = core::mem::MaybeUninit::<heapless::Vec<u16, 1>>::uninit();
@@ -74,9 +74,9 @@ unsafe impl<'de, T: Decode<'de>, const N: usize, L: LenType> Decode<'de> for Vec
 ///
 /// let map: LinearMap<u16, bool, 4> = [(1000, true), (5, false)].into_iter().collect();
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&map, &mut out)?;
+/// let len = cbor_static::to_slice(&map, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x19\x03\xe8\xf5\x05\xf4");
-/// let len = cbor_static::encode_into(&Sorted(map), &mut out)?;
+/// let len = cbor_static::to_slice(&Sorted(map), &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x05\xf4\x19\x03\xe8\xf5");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
@@ -126,18 +126,7 @@ unsafe impl<'de, K: Decode<'de> + Encode + Eq, V: Decode<'de>, const N: usize> D
             key: <K as Decode<'de>>::DECODE,
             drop: drop_fn::<Self>(),
             value: V::DECODE,
-            glue: &MapGlue {
-                begin: empty::<Vec<(K, V), N>>,
-                at: at::<(K, V), N, usize>,
-                key_at: offset_of!((K, V), 0),
-                value_at: offset_of!((K, V), 1),
-                stride: size_of::<(K, V)>(),
-                fresh: fresh::<K, V, N>,
-                drop_key: drop_fn::<K>(),
-                drop_shadow: drop_fn::<Vec<(K, V), N>>(),
-                assemble: assemble_map::<K, V, N>,
-                key_encode: <K as Encode>::ENCODE,
-            },
+            glue: &glue::<K, V, N>(at::<(K, V), N, usize>),
         }
     };
     type Stack =
@@ -204,13 +193,14 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
 /// assert_eq!(frame.payload, [1, 2, 3]);
 ///
 /// let mut out = [0u8; 16];
-/// let len = cbor_static::encode_into(&*frame, &mut out)?;
+/// let len = cbor_static::to_slice(&*frame, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa1\x67payload\x43\x01\x02\x03");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
 impl<const N: usize, L: LenType> sealed::ByteString for Vec<u8, N, L> {}
 
 impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
+    const CAPACITY: usize = N;
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,
@@ -222,4 +212,20 @@ impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
         append: append_vec::<N, L>,
         finish: any_length,
     };
+}
+
+/// How a `LinearMap<K, V, N>`'s entries decode into its shadow, whose slots `at` gives.
+pub(crate) const fn glue<K: Encode + Eq, V, const N: usize>(at: AtFn) -> MapGlue {
+    MapGlue {
+        begin: empty::<Vec<(K, V), N>>,
+        at,
+        key_at: offset_of!((K, V), 0),
+        value_at: offset_of!((K, V), 1),
+        stride: size_of::<(K, V)>(),
+        fresh: fresh::<K, V, N>,
+        drop_key: drop_fn::<K>(),
+        drop_shadow: drop_fn::<Vec<(K, V), N>>(),
+        assemble: assemble_map::<K, V, N>,
+        key_encode: <K as Encode>::ENCODE,
+    }
 }

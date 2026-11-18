@@ -1,0 +1,52 @@
+error[E0080]: evaluation panicked: cbor-static: `max_len` is above the field type's own limit
+ --> tests/ui/max_len_above_capacity.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Encode for Name>::ENCODE::{constant#0}` failed inside this call
+  |
+note: inside `cbor_static::__private::encode_limited::<StringInner<usize, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; 4]>>, 8>`
+ --> src/limits.rs
+  |
+  |     allowed::<T, N>();
+  |     ^^^^^^^^^^^^^^^^^
+note: inside `cbor_static::limits::allowed::<StringInner<usize, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; 4]>>, 8>`
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+  |
+ ::: src/limits.rs
+  |
+  | /     assert!(
+  | |         N <= T::BUILT_IN,
+  | |         "cbor-static: `max_len` is above the field type's own limit"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> tests/ui/max_len_above_capacity.rs:1:10
+  |
+1 | #[derive(cbor_static::Cbor)]
+  |          ^^^^^^^^^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: evaluation panicked: cbor-static: `max_len` is above the field type's own limit
+ --> src/limits.rs
+  |
+  |             allowed::<String<CAP, L>, N>();
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `cbor_static::limits::bounded::<impl cbor_static::__private::LimitedDecode<'_> for cbor_static::__private::Limited<heapless::string::StringInner<usize, heapless::vec::storage::VecStorageInner<[std::mem::MaybeUninit<u8>; 4]>>, 8>>::DECODE` failed inside this call
+  |
+note: inside `cbor_static::limits::allowed::<StringInner<usize, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; 4]>>, 8>`
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+  |
+ ::: src/limits.rs
+  |
+  | /     assert!(
+  | |         N <= T::BUILT_IN,
+  | |         "cbor-static: `max_len` is above the field type's own limit"
+  | |     );
+  | |_____- in this macro invocation

@@ -38,6 +38,10 @@ pub enum Attr {
     Tag(String),
     Content(String),
     Untagged,
+    /// `max_len = N`: the field's `len()` is at most `N` (#5 Q15).
+    MaxLen(Expr),
+    /// `max_encoded_len`: the item implements `MaxEncodedLen` (#5 Q2).
+    MaxEncodedLen,
 }
 
 pub enum KeyLit {
@@ -82,6 +86,7 @@ pub struct FieldAttrs {
     pub bytes: bool,
     /// The lifetimes `borrow` names; empty for every one the field's type has.
     pub borrow: Option<Vec<String>>,
+    pub max_len: Option<Expr>,
 }
 
 /// Whether a field is written under a key of its own, `skip`ped, `flatten`ed into its struct's
@@ -128,6 +133,7 @@ impl StructAttrs {
                 order: Some(ordered(self.order, mode, attr.span)?),
                 ..self
             }),
+            Attr::MaxEncodedLen => Ok(self),
             _ => Err(misplaced(attr.span, "a struct")),
         }
     }
@@ -176,6 +182,7 @@ impl EnumAttrs {
                 order: Some(ordered(self.order, mode, attr.span)?),
                 ..self
             }),
+            Attr::MaxEncodedLen => Ok(self),
             _ => Err(misplaced(attr.span, "an enum")),
         }
     }
@@ -218,6 +225,10 @@ impl FieldAttrs {
             }),
             Attr::Other => Ok(Self {
                 role: role(self.role, Role::Other, attr.span)?,
+                ..self
+            }),
+            Attr::MaxLen(max_len) => Ok(Self {
+                max_len: Some(max_len),
                 ..self
             }),
             _ => Err(misplaced(attr.span, "a field")),
@@ -314,6 +325,8 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("other", true) => Attr::Other,
                     ("deterministic", true) => Attr::Order(Mode::Bytewise),
                     ("length_first", true) => Attr::Order(Mode::LengthFirst),
+                    ("max_len", true) => Attr::MaxLen(meta.value()?.parse::<Expr>()?),
+                    ("max_encoded_len", true) => Attr::MaxEncodedLen,
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }

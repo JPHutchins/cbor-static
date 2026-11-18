@@ -268,7 +268,7 @@ unsafe fn enc_str(src: *const u8, out: &mut Pending) {
     out.tail(text.as_bytes());
 }
 
-unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+pub(super) unsafe fn dec_str(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     match (item.header.major, item.header.indefinite()) {
         (Major::Text, false) => utf8(item.payload).map(unsafe { store::<&str>(dst) }),
         (Major::Text, true) => Err(ErrorKind::IndefiniteString),
@@ -282,7 +282,7 @@ unsafe fn enc_bytes(src: *const u8, out: &mut Pending) {
     out.tail(bytes);
 }
 
-unsafe fn dec_bytes(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+pub(super) unsafe fn dec_bytes(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
     match (item.header.major, item.header.indefinite()) {
         (Major::Bytes, false) => Ok(unsafe { store::<&[u8]>(dst) }(item.payload)),
         (Major::Bytes, true) => Err(ErrorKind::IndefiniteString),
