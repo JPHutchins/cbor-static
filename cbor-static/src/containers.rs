@@ -96,6 +96,7 @@ impl<const N: usize> sealed::ByteString for [u8; N] {}
 
 /// `#[cbor(bytes)]`: a byte string of exactly `N` bytes, which may arrive in chunks.
 impl<const N: usize> ByteString for [u8; N] {
+    const CAPACITY: usize = N;
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,

@@ -125,7 +125,8 @@
 //! struct Meters(#[serde(rename = "m")] u32);
 //! ```
 //!
-//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]` and nothing else.
+//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]`, `max_len` and `borrow`,
+//! and nothing else.
 //!
 //! ```
 //! #[derive(cbor_static::Cbor)]
@@ -273,6 +274,7 @@ mod error;
 mod half;
 mod keys;
 mod lead;
+mod limits;
 mod scalar;
 mod schema;
 mod sizes;
@@ -386,14 +388,17 @@ pub mod __private {
         as_slice, assemble, drop_fn, field_ptr_of, gathered, index_of, index_tag, offset, wraps,
         write_default, write_made, write_tag,
     };
+    pub use crate::keys::item_len as key_len;
     pub use crate::keys::{
         Key, distinct, encode_ops, field, holds_other, map_ops, names, names_len, names_text,
         permuted, sorted,
     };
     pub use crate::lead::Lead;
+    pub use crate::limits::{Limit, Limited, LimitedBytes, LimitedDecode, encode_limited};
     pub use crate::schema::{
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
         Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,
     };
+    pub use crate::sizes::{container_len, head_len, larger};
     pub use crate::stack::{Level, Unlevel, Widest, deeper};
 }

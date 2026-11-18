@@ -236,3 +236,98 @@
 //!     unknown: cbor_static::Skipped,
 //! }
 //! ```
+//!
+//! # `max_len = N`
+//!
+//! `#[cbor(max_len = N)]` bounds a field's `len()`: bytes for `&str`, `&[u8]` and heapless
+//! `String`, elements for heapless `Vec`, entries for `LinearMap`, and an `Option` of any of them
+//! when it is `Some` (#5 Q15). Encoding a longer value fails with `LimitExceeded`, and so does
+//! decoding one: a definite length at its head, before any copy, and an indefinite string at the
+//! chunk that would pass `N`. An indefinite array or map fails with `OutOfRange` at element `N`,
+//! as at capacity.
+//!
+//! ```
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Name<'a> {
+//!     #[cbor(max_len = 4)]
+//!     name: &'a str,
+//! }
+//!
+//! assert_eq!(
+//!     cbor_static::to_slice(&Name { name: "probe" }, &mut [0u8; 16]).map_err(|e| e.kind),
+//!     Err(cbor_static::ErrorKind::LimitExceeded)
+//! );
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! assert_eq!(
+//!     cbor_static::decode_into::<Name>(b"\xa1\x64name\x65probe", &mut slot).map_err(|e| e.kind),
+//!     Err(cbor_static::ErrorKind::LimitExceeded)
+//! );
+//! assert_eq!(
+//!     *cbor_static::decode_into::<Name>(b"\xa1\x64name\x64prob", &mut slot)?,
+//!     Name { name: "prob" }
+//! );
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! A type whose length is fixed, such as `[T; N]`, or that it does not bound yet, such as
+//! [`crate::Chunks`], [`crate::ArrayRef`] and [`crate::MapRef`], takes none:
+//!
+//! ```compile_fail,E0277
+//! #[derive(cbor_static::Cbor)]
+//! struct Key {
+//!     #[cbor(max_len = 2)]
+//!     id: [u8; 4],
+//! }
+//!
+//! let _ = cbor_static::to_slice(&Key { id: [0; 4] }, &mut [0u8; 16]);
+//! ```
+//!
+//! With a limit of its own, such as heapless `String<N>`'s, the smaller one applies, and a
+//! `max_len` above it does not compile.
+//!
+//! # `max_encoded_len`
+//!
+//! `#[cbor(max_encoded_len)]` on a struct or enum implements [`crate::MaxEncodedLen`], which
+//! [`crate::encode_into`] sizes its buffer by (#5 Q2). Every field it writes must be bounded: by
+//! its type, by `#[cbor(bytes)]` over a fixed-capacity byte string, or by `max_len`. A generic
+//! type's parameters must be bounded too.
+//!
+//! ```
+//! use cbor_static::MaxEncodedLen;
+//!
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(max_encoded_len)]
+//! struct Reading<'a> {
+//!     id: u16,
+//!     #[cbor(max_len = 8)]
+//!     name: &'a str,
+//! }
+//!
+//! assert_eq!(Reading::MAX_ENCODED_LEN, 21);
+//! let mut out = [0u8; Reading::MAX_ENCODED_LEN];
+//! let len = cbor_static::encode_into(&Reading { id: 7, name: "probe" }, &mut out)?;
+//! assert_eq!(&out[..len], b"\xa2\x62id\x07\x64name\x65probe");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! An unbounded field does not compile, and rustc names it:
+//!
+//! ```compile_fail,E0277
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(max_encoded_len)]
+//! struct Note<'a> {
+//!     text: &'a str,
+//! }
+//! ```
+//!
+//! The impl goes with `Encode`, so a type deriving `Decode` alone has none:
+//!
+//! ```compile_fail,E0277
+//! #[derive(cbor_static::Decode)]
+//! #[cbor(max_encoded_len)]
+//! struct Ack {
+//!     ok: bool,
+//! }
+//!
+//! let _ = <Ack as cbor_static::MaxEncodedLen>::MAX_ENCODED_LEN;
+//! ```

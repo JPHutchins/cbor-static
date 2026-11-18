@@ -1,0 +1,30 @@
+error[E0080]: evaluation panicked: cbor-static: the buffer is shorter than the type's MAX_ENCODED_LEN
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `cbor_static::encode_into::<Reading, 8>::{constant#1}` failed here
+  |
+ ::: src/sizes.rs
+  |
+  | /         assert!(
+  | |             N >= T::MAX_ENCODED_LEN,
+  | |             "cbor-static: the buffer is shorter than the type's MAX_ENCODED_LEN"
+  | |         );
+  | |_________- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/sizes.rs
+  |
+  | /     const {
+  | |         assert!(
+  | |             N >= T::MAX_ENCODED_LEN,
+  | |             "cbor-static: the buffer is shorter than the type's MAX_ENCODED_LEN"
+  | |         );
+  | |     };
+  | |_____^
+
+note: the above error was encountered while instantiating `fn encode_into::<Reading, 8>`
+ --> tests/ui/encode_into_undersized.rs:8:13
+  |
+8 |     let _ = cbor_static::encode_into(&Reading { id: 1 }, &mut [0u8; 8]);
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

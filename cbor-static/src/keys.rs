@@ -322,7 +322,9 @@ const fn head_len(key: &Key) -> usize {
     }
 }
 
-const fn item_len(key: &Key) -> usize {
+/// The length of a key's encoding.
+#[must_use]
+pub const fn item_len(key: &Key) -> usize {
     head_len(key) + payload(key).len()
 }
 

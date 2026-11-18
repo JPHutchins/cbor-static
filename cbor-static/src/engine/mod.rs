@@ -10,6 +10,7 @@ mod encode;
 mod glue;
 mod input;
 mod leaf;
+mod limited;
 mod pending;
 mod raw;
 mod skip;
@@ -37,14 +38,16 @@ pub use decode::{
     SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 #[cfg(feature = "heapless")]
-pub(crate) use decode::{LINEAR_MAP as DECODE_LINEAR_MAP, SEQ as DECODE_SEQ};
+pub(crate) use decode::{
+    LINEAR_MAP as DECODE_LINEAR_MAP, Limited as DecodeLimited, SEQ as DECODE_SEQ,
+};
 #[cfg(feature = "heapless")]
 pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
 pub use encode::{
     ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, BYTEWISE, CBOR_TAG as ENCODE_CBOR_TAG,
     DeterministicOps, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
-    INDEX as ENCODE_INDEX, INTERNAL as ENCODE_INTERNAL, LENGTH_FIRST, MAP as ENCODE_MAP,
-    MAP_OTHER as ENCODE_MAP_OTHER, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
+    INDEX as ENCODE_INDEX, INTERNAL as ENCODE_INTERNAL, LENGTH_FIRST, LIMITED as ENCODE_LIMITED,
+    MAP as ENCODE_MAP, MAP_OTHER as ENCODE_MAP_OTHER, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
     UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
@@ -62,6 +65,9 @@ pub(crate) use leaf::{
     dec_i128, dec_option, dec_scalar, dec_skipped, dec_tagged, dec_u128, enc_i128, enc_option,
     enc_scalar, enc_u128, none,
 };
+#[cfg(feature = "heapless")]
+pub use limited::{append_string_limited, append_vec_limited, at_limited};
+pub use limited::{bytes_limited, limited, str_limited};
 pub use pending::Pending;
 pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped};
 pub(crate) use skip::Skip;

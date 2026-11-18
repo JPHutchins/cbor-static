@@ -120,6 +120,16 @@ FEATURES: Final = (
 		),
 	),
 	Feature(
+		"`max_len`",
+		"max_len",
+		"strings",
+		(
+			f"{ENCODE}::limited::LIMITED",
+			"cbor_static::engine::limited::dec_limited::<4, true>",
+			"cbor_static::engine::limited::dec_limited::<4, false>",
+		),
+	),
+	Feature(
 		'`default`, `default = "path"`',
 		"default",
 		"struct",

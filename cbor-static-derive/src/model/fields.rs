@@ -4,7 +4,7 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
 use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
-use super::attrs::{self, FieldAttrs, KeyLit, Role, VariantAttrs};
+use super::attrs::{self, Attr, FieldAttrs, KeyLit, Role, VariantAttrs};
 use super::case::Case;
 use super::distinct;
 use super::{Fallback, Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
@@ -115,6 +115,7 @@ pub fn fields_of<'a>(
                     StructForm::Array => is_option,
                 },
                 bytes: attrs.bytes,
+                max_len: attrs.max_len,
             })
         })
         .collect::<syn::Result<Vec<_>>>()?
@@ -171,6 +172,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             skip_if_none: false,
             bytes: false,
             borrow: None,
+            max_len: None,
             role: _,
             default,
         } => Ok(Field {
@@ -183,6 +185,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             },
             omit_if_absent: true,
             bytes: false,
+            max_len: None,
         }),
         _ => Err(syn::Error::new(
             field.span(),
@@ -214,6 +217,7 @@ fn flattened(
                 key: None,
                 bytes: false,
                 borrow: None,
+                max_len: None,
             },
         ) => Ok(Field {
             member: Member::Named(ident),
@@ -222,6 +226,7 @@ fn flattened(
             fallback: Fallback::Type,
             omit_if_absent: false,
             bytes: false,
+            max_len: None,
         }),
         (StructForm::Map { .. }, _) => Err(syn::Error::new(
             field.span(),
@@ -253,6 +258,7 @@ fn other(
                 key: None,
                 bytes: false,
                 borrow: None,
+                max_len: None,
             },
         ) => Ok(Field {
             member: Member::Named(ident),
@@ -261,6 +267,7 @@ fn other(
             fallback: Fallback::Type,
             omit_if_absent: true,
             bytes: false,
+            max_len: None,
         }),
         (StructForm::Map { .. }, _) => Err(syn::Error::new(
             field.span(),
@@ -296,6 +303,7 @@ pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
             key: None,
             bytes,
             borrow,
+            max_len,
         } => borrowed(field, borrow.as_deref()).map(|()| Field {
             member,
             ty: field.ty.clone(),
@@ -303,10 +311,11 @@ pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
             fallback: Fallback::Type,
             omit_if_absent: false,
             bytes,
+            max_len,
         }),
         _ => Err(syn::Error::new(
             field.span(),
-            "cbor-static: a positional field takes only `#[cbor(bytes)]` and `borrow`",
+            "cbor-static: a positional field takes only `#[cbor(bytes)]`, `max_len` and `borrow`",
         )),
     }
 }
@@ -400,14 +409,17 @@ fn within_limit(fields: usize) -> syn::Result<()> {
     Ok(())
 }
 
-/// Rejects every `#[cbor]` and `#[serde]` attribute in `attrs`.
+/// Rejects every `#[cbor]` and `#[serde]` attribute in `attrs` but `max_encoded_len`.
 pub fn bare(attrs: &[Attribute], position: &str) -> syn::Result<()> {
-    attrs::parse(attrs)?.first().map_or(Ok(()), |attr| {
-        Err(syn::Error::new(
-            attr.span,
-            format!("cbor-static: {position} takes no attributes"),
-        ))
-    })
+    attrs::parse(attrs)?
+        .into_iter()
+        .find(|attr| !matches!(attr.value, Attr::MaxEncodedLen))
+        .map_or(Ok(()), |attr| {
+            Err(syn::Error::new(
+                attr.span,
+                format!("cbor-static: {position} takes no attributes"),
+            ))
+        })
 }
 
 /// The `keys = Label` variant a field maps to: its name in `UpperCamelCase`, by Rust's naming

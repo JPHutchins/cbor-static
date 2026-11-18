@@ -179,6 +179,9 @@ pub unsafe trait Decode<'de>: Sized {
 /// }
 /// ```
 pub trait ByteString: sealed::ByteString {
+    /// The most bytes the type holds.
+    #[doc(hidden)]
+    const CAPACITY: usize;
     #[doc(hidden)]
     const ENCODE_BYTES: &'static EncKind;
     #[doc(hidden)]

@@ -211,6 +211,7 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
 impl<const N: usize, L: LenType> sealed::ByteString for Vec<u8, N, L> {}
 
 impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
+    const CAPACITY: usize = N;
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,

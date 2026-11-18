@@ -249,7 +249,7 @@ fn encode_kind(
     let payloads = variants.iter().zip(layouts.payloads).map(|(variant, placed)| match (&variant.payload, placed) {
         (Payload::Newtype(field), _) => {
             let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
-            let kind = field_kind(&field.ty, field.bytes, Trait::Encode, path);
+            let kind = field_kind(&field.ty, field.coding(), Trait::Encode, path);
             quote!(Some({ #check #kind }))
         }
         (Payload::Struct(fields), Some(Placed { reference, .. })) => {
@@ -324,7 +324,7 @@ fn decode_kind(
         let payload = match (&variant.payload, placed) {
             (Payload::Newtype(field), _) => {
                 let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
-                let kind = field_kind(&field.ty, field.bytes, Trait::Decode, path);
+                let kind = field_kind(&field.ty, field.coding(), Trait::Decode, path);
                 quote!(Some({ #check #kind }))
             }
             (Payload::Struct(fields), Some(Placed { reference, .. })) => {

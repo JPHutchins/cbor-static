@@ -24,6 +24,8 @@ pub struct Item {
     /// Every parameter, the lifetime included (R-127).
     pub generics: Generics,
     pub shape: Shape,
+    /// `#[cbor(max_encoded_len)]`: whether the item implements `MaxEncodedLen` (#5 Q2).
+    pub max_encoded_len: bool,
 }
 
 /// The wire shape of a struct follows serde (D-08): a unit struct is `null`, a newtype struct its
@@ -144,6 +146,15 @@ pub struct Field {
     pub omit_if_absent: bool,
     /// `#[cbor(bytes)]`: the type's byte-string encoding, not its own (#12 Q21).
     pub bytes: bool,
+    /// `#[cbor(max_len = N)]`: the bound on the field's `len()` (#5 Q15).
+    pub max_len: Option<Expr>,
+}
+
+impl Field {
+    /// How its type is written: as its byte string under `bytes`, and bounded by `max_len`.
+    pub fn coding(&self) -> (bool, Option<&Expr>) {
+        (self.bytes, self.max_len.as_ref())
+    }
 }
 
 pub struct Variant {
@@ -214,6 +225,9 @@ impl Item {
             lifetime: lifetime(ast)?,
             generics: ast.generics.clone(),
             shape,
+            max_encoded_len: attrs::parse(&ast.attrs)?
+                .iter()
+                .any(|attr| matches!(attr.value, attrs::Attr::MaxEncodedLen)),
         })
     }
 }

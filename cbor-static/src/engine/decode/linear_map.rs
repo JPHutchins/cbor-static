@@ -23,7 +23,7 @@ pub static LINEAR_MAP: DecOps = DecOps {
     drop,
 };
 
-fn value(
+pub(super) fn value(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     _: &mut Input,

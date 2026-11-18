@@ -104,7 +104,9 @@ pub const fn container_len(count: usize, each: usize) -> usize {
     head_len(count as u64) + count * each
 }
 
-const fn larger(a: usize, b: usize) -> usize {
+#[doc(hidden)]
+#[must_use]
+pub const fn larger(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
 }
 

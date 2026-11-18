@@ -1,0 +1,32 @@
+error[E0277]: `&'a str` has no maximum encoded length
+ --> tests/ui/max_encoded_len_unbounded.rs:5:11
+  |
+5 |     text: &'a str,
+  |           ^^^^^^^ unbounded
+  |
+  = help: the trait `MaxEncodedLen` is not implemented for `&'a str`
+  = note: a field bounds an unbounded type with `#[cbor(max_len = N)]`
+  = help: the following other types implement trait `MaxEncodedLen`:
+            ()
+            (A,)
+            (A, B)
+            (A, B, C)
+            (A, B, C, D)
+            Event<'a>
+            F16
+            Note<'a>
+          and $N others
+
+error[E0277]: `&'a [u8]` has no maximum encoded length
+  --> tests/ui/max_encoded_len_unbounded.rs:12:20
+   |
+12 |     Logged { line: &'a [u8] },
+   |                    ^^^^^^^^ unbounded
+   |
+   = help: the trait `MaxEncodedLen` is not implemented for `&'a [u8]`
+   = note: a field bounds an unbounded type with `#[cbor(max_len = N)]`
+help: the trait `MaxEncodedLen` is implemented for `[T; N]`
+  --> src/sizes.rs
+   |
+   | impl<T: MaxEncodedLen, const N: usize> MaxEncodedLen for [T; N] {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
