@@ -13,7 +13,7 @@ mod heap;
 mod index;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 mod limited;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod linear_map;
 mod map;
 mod option;
@@ -37,7 +37,8 @@ pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
 #[cfg(feature = "alloc")]
 pub use heap::{
-    BOXED, BYTES as BYTES_HEAP, Limited as HeapLimited, SEQ as SEQ_HEAP, TEXT as TEXT_HEAP,
+    BOXED, BTREE_MAP, BYTES as BYTES_HEAP, Limited as HeapLimited, SEQ as SEQ_HEAP,
+    TEXT as TEXT_HEAP,
 };
 pub use index::INDEX;
 #[cfg(feature = "heapless")]

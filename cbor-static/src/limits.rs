@@ -12,7 +12,7 @@ use crate::sizes::{MaxEncodedLen, container_len, larger};
 /// entries for maps.
 #[diagnostic::on_unimplemented(
     message = "`max_len` does not bound `{Self}`",
-    note = "it bounds `&str`, `&[u8]`, alloc or heapless `String` and `Vec`, heapless `LinearMap`, and an `Option` of one"
+    note = "it bounds `&str`, `&[u8]`, alloc or heapless `String` and `Vec`, `BTreeMap`, heapless `LinearMap`, and an `Option` of one"
 )]
 pub trait Limit {
     /// The longest `len()` the type itself allows.
@@ -219,18 +219,24 @@ mod bounded {
 
 #[cfg(feature = "alloc")]
 mod allocated {
+    use alloc::collections::BTreeMap;
     use alloc::string::String;
     use alloc::vec::Vec;
 
     use super::{Limited, LimitedBytes, LimitedDecode};
+    use crate::allocated::glue;
     use crate::engine::{
         HeapLimited, any_length, append_bytes_limited, append_text_limited, at_heap_limited,
         drop_fn, empty,
     };
-    use crate::schema::{DecKind, Decode};
+    use crate::schema::{DecKind, Decode, Encode};
     use crate::sizes::{MaxEncodedLen, container_len};
 
-    limit!([] String => usize::MAX, [T] Vec<T> => usize::MAX);
+    limit!(
+        [] String => usize::MAX,
+        [T] Vec<T> => usize::MAX,
+        [K, V] BTreeMap<K, V> => usize::MAX,
+    );
 
     impl<const N: usize> LimitedDecode<'_> for Limited<String, N> {
         const DECODE: &'static DecKind = &DecKind::Owned {
@@ -262,11 +268,32 @@ mod allocated {
         };
     }
 
+    impl<'de, K, V, const N: usize> LimitedDecode<'de> for Limited<BTreeMap<K, V>, N>
+    where
+        BTreeMap<K, V>: Decode<'de>,
+        K: Decode<'de> + Encode + Ord,
+        V: Decode<'de>,
+    {
+        const DECODE: &'static DecKind = &DecKind::Map {
+            ops: &HeapLimited::<N>::BTREE_MAP,
+            key: <K as Decode<'de>>::DECODE,
+            drop: drop_fn::<BTreeMap<K, V>>(),
+            value: V::DECODE,
+            glue: &glue::<K, V>(at_heap_limited::<(K, V), N>),
+        };
+    }
+
     impl<const N: usize> MaxEncodedLen for Limited<String, N> {
         const MAX_ENCODED_LEN: usize = container_len(N, 1);
     }
 
     impl<T: MaxEncodedLen, const N: usize> MaxEncodedLen for Limited<Vec<T>, N> {
         const MAX_ENCODED_LEN: usize = container_len(N, T::MAX_ENCODED_LEN);
+    }
+
+    impl<K: MaxEncodedLen, V: MaxEncodedLen, const N: usize> MaxEncodedLen
+        for Limited<BTreeMap<K, V>, N>
+    {
+        const MAX_ENCODED_LEN: usize = container_len(N, K::MAX_ENCODED_LEN + V::MAX_ENCODED_LEN);
     }
 }

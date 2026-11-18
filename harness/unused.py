@@ -126,15 +126,29 @@ def gate(targets: tuple[str, ...] = (GATE_TARGET,)) -> tuple[Path, ...]:
 	)
 
 
-def control(nightly: bool) -> Path:
-	"""One firmware of every feature that builds on the stable toolchain, or on nightly."""
-	features = tuple(feature for feature in FEATURES if feature.nightly == nightly)
+def control(nightly: bool, excluded: frozenset[str] = frozenset()) -> Path:
+	"""One firmware of every feature that builds on the stable toolchain, or on nightly, but the
+	`excluded` templates.
+
+	>>> control_name(nightly=True, excluded=frozenset()), control_name(False, frozenset({"b", "a"}))
+	('r009-positive-control-nightly', 'r009-positive-control-without-a-b')
+	"""
+	features = tuple(
+		feature for feature in FEATURES if feature.nightly == nightly and feature.template not in excluded
+	)
+	name = control_name(nightly, excluded)
 	return fixture(
-		f"{CONTROL}-nightly" if nightly else CONTROL,
+		name,
 		tuple(feature.template for feature in features),
-		"positive-nightly" if nightly else "positive",
+		name.replace(CONTROL, "positive"),
 		"release",
 		tuple(sorted({cargo for feature in features for cargo in feature.cargo_features})),
+	)
+
+
+def control_name(nightly: bool, excluded: frozenset[str]) -> str:
+	return "-".join(
+		(CONTROL, *(("nightly",) if nightly else ()), *(("without", *sorted(excluded)) if excluded else ()))
 	)
 
 

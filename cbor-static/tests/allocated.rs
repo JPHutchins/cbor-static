@@ -1,4 +1,4 @@
-//! Alloc `Vec`, `String`, `#[cbor(bytes)]` `Vec<u8>`, `Box` and `Bounded` (#5 Q8): round trips at
+//! Alloc `Vec`, `String`, `#[cbor(bytes)]` `Vec<u8>`, `Box`, `BTreeMap` and `Bounded` (#5 Q8): round trips at
 //! every chunk size, indefinite strings (D-13), `max_len` and nested limits (#5 Q15), and the field
 //! an error inside one reports.
 #![cfg(feature = "alloc")]
@@ -7,6 +7,7 @@ mod common;
 
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
+use std::collections::BTreeMap;
 
 use cbor_static::{Bounded, Cbor, Decode, Encode, ErrorKind, MaxEncodedLen, from_slice};
 use common::{encode, golden_released};
@@ -311,4 +312,106 @@ fn to_vec_sizes_its_vector_once_and_fails_as_to_slice_does() {
         Err(ErrorKind::LimitExceeded)
     );
     assert_eq!(cbor_static::to_vec(&()), Ok(vec![0xf6]));
+}
+
+#[derive(Cbor, Debug, PartialEq)]
+struct Indexed {
+    index: BTreeMap<String, Vec<u16>>,
+    #[cbor(max_len = 2)]
+    small: BTreeMap<u8, u8>,
+}
+
+#[derive(Cbor, Debug, PartialEq)]
+#[cbor(deterministic)]
+struct Sorted(BTreeMap<i32, bool>);
+
+#[test]
+fn ordered_maps_round_trip_in_their_keys_order() {
+    golden(
+        &BTreeMap::from([(2u8, String::new()), (1, "a".into())]),
+        b"\xa2\x01\x61a\x02\x60",
+    );
+    golden(&BTreeMap::<u8, u8>::new(), b"\xa0");
+    golden(
+        &Indexed {
+            index: BTreeMap::from([("b".into(), vec![]), ("a".into(), vec![1, 500])]),
+            small: BTreeMap::from([(7, 8)]),
+        },
+        b"\xa2\x65index\xa2\x61a\x82\x01\x19\x01\xf4\x61b\x80\x65small\xa1\x07\x08",
+    );
+    let signed = BTreeMap::from([(10, true), (-1, true), (0, false)]);
+    assert_eq!(encode(&signed), b"\xa3\x20\xf5\x00\xf4\x0a\xf5");
+    golden(&Sorted(signed), b"\xa3\x00\xf4\x0a\xf5\x20\xf5");
+    assert_eq!(
+        from_slice::<BTreeMap<i32, bool>>(b"\xbf\x0a\xf5\x20\xf5\x00\xf4\xff"),
+        Ok(BTreeMap::from([(10, true), (-1, true), (0, false)]))
+    );
+}
+
+#[test]
+fn a_duplicate_key_is_found_when_the_map_closes() {
+    let duplicated = b"\xa3\x01\xf5\x02\xf4\x01\xf4";
+    assert_eq!(
+        from_slice::<BTreeMap<u8, bool>>(duplicated).map_err(|e| (e.kind, e.offset)),
+        Err((ErrorKind::DuplicateKey, 7))
+    );
+    let mut slot = MaybeUninit::uninit();
+    assert_eq!(
+        cbor_static::decode_strict_into::<BTreeMap<u8, bool>>(duplicated, &mut slot)
+            .map(|_| ())
+            .map_err(|e| e.kind),
+        Err(ErrorKind::NotDeterministic)
+    );
+    for longer in [
+        b"\xa2\x65index\xa0\x65small\xa3\x01\x01\x02\x02\x03\x03".as_slice(),
+        b"\xa2\x65index\xa0\x65small\xbf\x01\x01\x02\x02\x03\x03\xff",
+    ] {
+        assert_eq!(
+            from_slice::<Indexed>(longer).map_err(|e| e.kind),
+            Err(ErrorKind::LimitExceeded),
+            "{longer:x?}"
+        );
+    }
+}
+
+/// A key whose comparisons panic once a thread's budget of them is spent.
+#[derive(Cbor, Debug, PartialEq, Eq)]
+struct Touchy(u8);
+
+std::thread_local! {
+    static COMPARISONS: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
+}
+
+impl PartialOrd for Touchy {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Touchy {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        let left = COMPARISONS.with(core::cell::Cell::get);
+        assert!(left > 0, "out of comparisons");
+        COMPARISONS.with(|cell| cell.set(left - 1));
+        self.0.cmp(&other.0)
+    }
+}
+
+/// A key's `Ord` that panics at any comparison while the map is sorted or built leaves the decoder
+/// dropping each entry once, which Miri checks.
+#[test]
+fn a_key_order_that_panics_at_any_comparison_frees_each_entry_once() {
+    let input = b"\xa5\x05\x00\x03\x00\x04\x00\x01\x00\x02\x00";
+    let outcomes: Vec<bool> = (0..40)
+        .map(|budget| {
+            COMPARISONS.with(|cell| cell.set(budget));
+            let decoded = std::panic::catch_unwind(|| {
+                from_slice::<BTreeMap<Touchy, u8>>(input).map(|map| map.len())
+            });
+            COMPARISONS.with(|cell| cell.set(usize::MAX));
+            decoded.is_ok()
+        })
+        .collect();
+    assert!(outcomes.contains(&false));
+    assert!(outcomes.contains(&true));
 }

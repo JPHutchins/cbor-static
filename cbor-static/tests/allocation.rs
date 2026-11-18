@@ -91,6 +91,25 @@ fn a_huge_array_header_reserves_only_slots_its_elements_reached() {
 }
 
 #[test]
+fn a_huge_map_header_reserves_only_entries_it_reached() {
+    for completed in 0..40 {
+        let input = [HUGE_MAP, &[0u8; 80][..2 * completed]].concat();
+        let (live, largest) = measured(usize::MAX, || {
+            assert_eq!(
+                fed::<std::collections::BTreeMap<u8, u8>>(&input),
+                Ok(Fed::NeedInput)
+            );
+        });
+        assert_eq!(live, 0, "{completed} entries");
+        assert!(
+            largest / size_of::<(u8, u8)>()
+                <= min_non_zero_cap::<(u8, u8)>().max(2 * (completed + 1)),
+            "{completed} entries: {largest} bytes"
+        );
+    }
+}
+
+#[test]
 fn a_huge_byte_string_header_reserves_only_what_arrived() {
     #[derive(Cbor, Debug)]
     struct Blob {

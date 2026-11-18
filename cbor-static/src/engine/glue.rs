@@ -18,6 +18,13 @@ pub type FreshFn = unsafe fn(*const u8, usize) -> bool;
 pub type LenFn = unsafe fn(*const u8) -> usize;
 /// A map's entry `index`: its key and value, or nulls past the end.
 pub type EntryFn = unsafe fn(*const u8, usize) -> (*const u8, *const u8);
+/// An ordered map's entry after the one whose key is at the second pointer, or its first after
+/// null: its key and value, or nulls past the end.
+#[cfg(feature = "alloc")]
+pub type AfterFn = unsafe fn(*const u8, *const u8) -> (*const u8, *const u8);
+/// Sorts the shadow in a map's slot, and fails on a duplicate key.
+#[cfg(feature = "alloc")]
+pub type SettleFn = unsafe fn(*mut u8) -> Result<(), crate::error::ErrorKind>;
 
 /// # Safety
 /// `e` points to a valid `E`.

@@ -4,7 +4,7 @@
 
 use core::mem::MaybeUninit;
 
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use super::linear_map;
 #[cfg(feature = "heapless")]
 use super::{Begin, DecOps};
@@ -71,8 +71,8 @@ pub(super) fn sequence<const N: usize>(
     seq::value(state, frames, input, header)
 }
 
-#[cfg(feature = "heapless")]
-fn map<const N: usize>(
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(super) fn map<const N: usize>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,

@@ -340,6 +340,32 @@ FEATURES: Final = (
 		cargo_features=(ALLOC,),
 	),
 	Feature(
+		"alloc `BTreeMap`",
+		"btree_map",
+		"struct",
+		(
+			f"{DECODE}::heap::BTREE_MAP",
+			f"{ENCODE}::btree::BTREE_MAP",
+			*(f"{HEAP}::{name}::<u8, u32>" for name in ("settle", "after", "entry", "len_of", "assemble")),
+		),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"alloc `BTreeMap`, decode-only",
+		"btree_map_decode",
+		"struct_decode",
+		(f"{DECODE}::heap::BTREE_MAP",),
+		DECODE_ONLY,
+		(ALLOC,),
+	),
+	Feature(
+		"`max_len` on alloc `BTreeMap`",
+		"btree_max_len",
+		"struct",
+		(f"{DECODE}::heap::map_entry_limited::<4>", f"{HEAP}::at_limited::<(u8, u32), 4>"),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
 		"heapless `LinearMap`, decode-only",
 		"heapless_map_decode",
 		"struct_decode",
@@ -414,14 +440,17 @@ def fixture_name(template: str, count: int) -> str:
 	return f"r009-{template}-n{count}"
 
 
-def built() -> tuple[Path, ...]:
-	"""The ELFs `cost` built for every feature and its reference, where a run built them."""
+def built(excluded: frozenset[str] = frozenset()) -> tuple[Path, ...]:
+	"""The ELFs `cost` built for every feature but the `excluded` templates, and its reference, where
+	a run built them.
+	"""
 	return tuple(
 		filter(
 			Path.is_file,
 			(
 				elf_path(FEATURES_DIR / feature.template, GATE_TARGET, profile, fixture_name(template, count))
 				for feature in FEATURES
+				if feature.template not in excluded
 				for template in (feature.template, feature.reference)
 				for count in COUNTS
 				for profile in PROFILES

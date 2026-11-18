@@ -40,11 +40,16 @@ pub use decode::{
     SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 #[cfg(feature = "alloc")]
-pub(crate) use decode::{BOXED as DECODE_BOXED, BYTES_HEAP, HeapLimited, SEQ_HEAP, TEXT_HEAP};
+pub(crate) use decode::{
+    BOXED as DECODE_BOXED, BTREE_MAP as DECODE_BTREE_MAP, BYTES_HEAP, HeapLimited, SEQ_HEAP,
+    TEXT_HEAP,
+};
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{
     LINEAR_MAP as DECODE_LINEAR_MAP, Limited as DecodeLimited, SEQ as DECODE_SEQ,
 };
+#[cfg(feature = "alloc")]
+pub(crate) use encode::BTREE_MAP as ENCODE_BTREE_MAP;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
 #[cfg(feature = "heapless")]
@@ -59,6 +64,8 @@ pub use encode::{
     UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
+#[cfg(feature = "alloc")]
+pub use glue::{AfterFn, SettleFn};
 pub use glue::{
     AtFn, EntryFn, FieldPtrFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn, assemble, drop_fn,
     field_ptr_of, index_of, index_tag, offset, some, some_ptr, wraps, write_default, write_made,
@@ -66,6 +73,11 @@ pub use glue::{
 };
 #[cfg(feature = "alloc")]
 pub use heap::AllocateFn;
+#[cfg(feature = "alloc")]
+pub(crate) use heap::{
+    after, assemble as assemble_btree, deferred, entry as entry_btree, len_of as len_btree, settle,
+    shadow_fits as shadow_fits_btree,
+};
 #[cfg(feature = "alloc")]
 pub(crate) use heap::{
     allocate, append_bytes, append_bytes_limited, append_text, append_text_limited, at as at_heap,

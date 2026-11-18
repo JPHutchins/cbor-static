@@ -1,12 +1,16 @@
 //! Containers that allocate (feature `alloc`): strings copied as their payload arrives, under a
 //! frame whose drop frees what the copy had grown when decoding fails partway (D-17), sequences
-//! whose every slot is reserved as its element begins (#5 Q9, Q10), and boxes.
+//! whose every slot is reserved as its element begins (#5 Q9, Q10), boxes, and ordered maps, whose
+//! entries decode in place into a shadow sequence that the map's close sorts and checks for
+//! duplicate keys, so a duplicate is reported at the map's end.
 
 use core::mem::MaybeUninit;
 
-use super::limited::{bytes as bytes_within, past, sequence, text as text_within};
+use super::limited::{bytes as bytes_within, map, past, sequence, text as text_within};
 use super::option::{done, payload_only};
-use super::{After, Begin, DecOps, Flow, State, desc, expect, owned, seq, top, unnamed};
+use super::{
+    After, Begin, DecOps, Flow, State, desc, expect, linear_map, owned, seq, top, unnamed,
+};
 use crate::engine::input::Input;
 use crate::error::ErrorKind;
 use crate::schema::DecKind;
@@ -46,6 +50,15 @@ pub static BOXED: DecOps = DecOps {
     drop: release,
 };
 
+pub static BTREE_MAP: DecOps = DecOps {
+    value: Begin::Header(linear_map::value),
+    entry: map_entry,
+    named: unnamed,
+    child_done: linear_map::child_done,
+    close: settle,
+    drop: linear_map::drop,
+};
+
 /// The forms, each bounded to `N` bytes or elements.
 pub struct Limited<const N: usize>;
 
@@ -62,6 +75,11 @@ impl<const N: usize> Limited<N> {
         value: Begin::Header(sequence::<N>),
         entry: element_limited::<N>,
         ..seq::SEQ
+    };
+    pub const BTREE_MAP: DecOps = DecOps {
+        value: Begin::Header(map::<N>),
+        entry: map_entry_limited::<N>,
+        ..BTREE_MAP
     };
 }
 
@@ -187,6 +205,49 @@ fn element_limited<const N: usize>(
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
     unreserved(past::<N>(seq::entry(state, frames, input), state, frames))
+}
+
+/// [`linear_map::entry`], whose shadow slot is refused only when it cannot be reserved.
+fn map_entry(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    input: &mut Input,
+) -> Result<Flow, ErrorKind> {
+    unreserved(linear_map::entry(state, frames, input))
+}
+
+/// [`map_entry`], whose entry `N` is over the limit.
+fn map_entry_limited<const N: usize>(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    input: &mut Input,
+) -> Result<Flow, ErrorKind> {
+    unreserved(past::<N>(
+        linear_map::entry(state, frames, input),
+        state,
+        frames,
+    ))
+}
+
+/// Builds the map from its shadow, unless two keys are equal.
+fn settle(frame: &mut Frame) -> Result<(), ErrorKind> {
+    use crate::schema::MapGlue;
+
+    let DecKind::Map {
+        glue:
+            MapGlue {
+                settle: Some(settle),
+                assemble,
+                ..
+            },
+        ..
+    } = desc(frame)
+    else {
+        return Err(ErrorKind::Unsupported);
+    };
+    unsafe { settle(frame.base) }?;
+    unsafe { assemble(frame.base) };
+    Ok(())
 }
 
 fn unreserved(step: Result<Flow, ErrorKind>) -> Result<Flow, ErrorKind> {

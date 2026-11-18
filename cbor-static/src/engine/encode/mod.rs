@@ -2,6 +2,8 @@
 //! only through the [`EncOps`] in its descriptor, so a firmware links only the forms it uses (D-22).
 
 mod array;
+#[cfg(feature = "alloc")]
+mod btree;
 mod cbor_tag;
 mod chunks;
 mod deterministic;
@@ -11,7 +13,7 @@ mod entries;
 mod enums;
 mod index;
 mod limited;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod linear_map;
 mod map;
 mod option;
@@ -26,6 +28,8 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use array::ARRAY;
+#[cfg(feature = "alloc")]
+pub use btree::BTREE_MAP;
 pub use cbor_tag::CBOR_TAG;
 pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use deterministic::{BYTEWISE, DeterministicOps, LENGTH_FIRST};
@@ -149,7 +153,7 @@ pub fn resume(
 
 /// The encoding's next byte, or `None` past its end: no output buffer, so no build's drain can
 /// stall it.
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) fn next_byte(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -166,7 +170,7 @@ pub(crate) fn next_byte(
 
 /// The bytewise order of two values' encodings, each encoded a byte at a time on half of `frames`:
 /// how `Strict` checks a map's keys rise (#12 Q29) and a deterministic map sorts them (Q33).
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) fn bytewise(
     kind: &'static EncKind,
     a: *const u8,
@@ -185,7 +189,7 @@ pub(crate) fn bytewise(
 }
 
 /// The length of a value's encoding, encoded a byte at a time on `frames`.
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 fn encoded_len(
     kind: &'static EncKind,
     at: *const u8,
@@ -200,7 +204,7 @@ fn encoded_len(
     Ok(len)
 }
 
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 const fn under(
     kind: &'static EncKind,
     at: *const u8,
@@ -250,6 +254,11 @@ fn emit(
             | EncKind::Tagged { ops, .. }
             | EncKind::Map { ops, .. }
             | EncKind::Select { ops } => match (ops.open)(state, frames, next.kind, next.at)? {
+                Some(child) => next = child,
+                None => return Ok(()),
+            },
+            #[cfg(feature = "alloc")]
+            EncKind::Ordered { ops, .. } => match (ops.open)(state, frames, next.kind, next.at)? {
                 Some(child) => next = child,
                 None => return Ok(()),
             },
@@ -329,6 +338,8 @@ fn ops(kind: &EncKind) -> Result<&'static EncOps, ErrorKind> {
         | EncKind::Tagged { ops, .. }
         | EncKind::Map { ops, .. }
         | EncKind::Select { ops } => Ok(ops),
+        #[cfg(feature = "alloc")]
+        EncKind::Ordered { ops, .. } => Ok(ops),
         EncKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

@@ -380,6 +380,7 @@ mod captured {
 #[cfg(feature = "alloc")]
 mod allocated {
     use std::boxed::Box;
+    use std::collections::BTreeMap;
     use std::string::String;
     use std::vec::Vec;
 
@@ -391,13 +392,18 @@ mod allocated {
         a: Tracked,
         b: Box<(Tracked, Tracked)>,
         g: Tracked,
+        #[expect(
+            clippy::zero_sized_map_values,
+            reason = "each Tracked value counts its drop"
+        )]
+        m: BTreeMap<u8, Tracked>,
         s: String,
         v: Vec<Tracked>,
         w: Vec<String>,
     }
 
     /// `Holding`'s entries, in its keys' bytewise order.
-    const HOLDING: [Entry; 6] = [
+    const HOLDING: [Entry; 7] = [
         Entry {
             key: b"\x61a",
             items: &[(b"\x01", true)],
@@ -411,6 +417,17 @@ mod allocated {
         Entry {
             key: b"\x61g",
             items: &[(b"\x04", true)],
+            default: false,
+        },
+        Entry {
+            key: b"\x61m",
+            items: &[
+                (b"\xa2", false),
+                (b"\x01", false),
+                (b"\x09", true),
+                (b"\x02", false),
+                (b"\x0a", true),
+            ],
             default: false,
         },
         Entry {
@@ -449,7 +466,7 @@ mod allocated {
         drops: usize,
     }
 
-    const PARTIAL: [Partial; 5] = [
+    const PARTIAL: [Partial; 7] = [
         Partial {
             profile: Profile::Default,
             at: (1, 2),
@@ -459,31 +476,45 @@ mod allocated {
         },
         Partial {
             profile: Profile::Default,
-            at: (3, 0),
-            with: b"\x7f\x61x\x61\xff\xff",
-            error: ErrorKind::InvalidUtf8,
-            drops: 4,
-        },
-        Partial {
-            profile: Profile::Default,
-            at: (5, 2),
-            with: b"\x7f\x61q\x41r\xff",
-            error: ErrorKind::NotWellFormed,
-            drops: 6,
-        },
-        Partial {
-            profile: Profile::Default,
-            at: (5, 2),
-            with: b"\x62q\xff",
-            error: ErrorKind::InvalidUtf8,
+            at: (3, 3),
+            with: b"\x01",
+            error: ErrorKind::DuplicateKey,
             drops: 6,
         },
         Partial {
             profile: Profile::Strict,
-            at: (5, 2),
+            at: (3, 3),
+            with: b"\x01",
+            error: ErrorKind::NotDeterministic,
+            drops: 5,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (4, 0),
+            with: b"\x7f\x61x\x61\xff\xff",
+            error: ErrorKind::InvalidUtf8,
+            drops: 6,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (6, 2),
+            with: b"\x7f\x61q\x41r\xff",
+            error: ErrorKind::NotWellFormed,
+            drops: 8,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (6, 2),
+            with: b"\x62q\xff",
+            error: ErrorKind::InvalidUtf8,
+            drops: 8,
+        },
+        Partial {
+            profile: Profile::Strict,
+            at: (6, 2),
             with: b"\x7f\x61q\xff",
             error: ErrorKind::NotDeterministic,
-            drops: 6,
+            drops: 8,
         },
     ];
 

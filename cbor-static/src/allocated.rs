@@ -2,18 +2,21 @@
 //! Containers that allocate, behind feature `alloc` (#5 Q8).
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::mem::offset_of;
 
 use crate::engine::{
-    BYTES_HEAP, DECODE_BOXED, ENCODE_OPTION, ENCODE_SEQ, SEQ_HEAP, TEXT_HEAP, allocate, any_length,
-    append_bytes, append_text, at_heap, drop_fn, empty, enc_text, enc_view, release, unboxed,
-    view_heap,
+    AtFn, BYTES_HEAP, DECODE_BOXED, DECODE_BTREE_MAP, ENCODE_BTREE_MAP, ENCODE_OPTION, ENCODE_SEQ,
+    SEQ_HEAP, TEXT_HEAP, after, allocate, any_length, append_bytes, append_text, assemble_btree,
+    at_heap, deferred, drop_fn, empty, enc_text, enc_view, entry_btree, len_btree, release, settle,
+    shadow_fits_btree, unboxed, view_heap,
 };
 use crate::lead::Lead;
-use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, Order, sealed};
+use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue, Order, sealed};
 use crate::sizes::MaxEncodedLen;
-use crate::stack::Level;
+use crate::stack::{Level, Twice, Widest, deeper};
 
 #[allow(unsafe_code)]
 unsafe impl<T: Encode> Encode for Vec<T> {
@@ -213,4 +216,89 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Box<T> {
 /// ```
 impl<T: MaxEncodedLen> MaxEncodedLen for Box<T> {
     const MAX_ENCODED_LEN: usize = T::MAX_ENCODED_LEN;
+}
+
+#[allow(unsafe_code)]
+unsafe impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
+    const ENCODE: &'static EncKind = &EncKind::Ordered {
+        ops: &ENCODE_BTREE_MAP,
+        key: K::ENCODE,
+        value: V::ENCODE,
+        len: len_btree::<K, V>,
+        entry: entry_btree::<K, V>,
+        after: after::<K, V>,
+    };
+    type Stack = Level<Widest<Widest<K::Stack, V::Stack>, Twice<K::Stack>>>;
+    const MAX_DEPTH: usize = 1 + deeper(deeper(K::MAX_DEPTH, V::MAX_DEPTH), 2 * K::MAX_DEPTH);
+    const ORDER: Order = K::ORDER.join(V::ORDER);
+}
+
+/// A map whose keys differ (D-12), in any order. Its entries decode into a sequence reserved as
+/// each begins, which becomes the map when the map closes: a duplicate key is
+/// [`crate::ErrorKind::DuplicateKey`] at the map's end. Under `Strict`, each key's encoding must
+/// sort after the one before it (Q29), as it arrives.
+///
+/// ```
+/// use std::collections::BTreeMap;
+///
+/// let map: BTreeMap<u8, bool> = cbor_static::from_slice(b"\xa2\x02\xf5\x01\xf4")?;
+/// assert_eq!(map, BTreeMap::from([(1, false), (2, true)]));
+///
+/// let mut out = [0u8; 8];
+/// let len = cbor_static::to_slice(&map, &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x01\xf4\x02\xf5");
+///
+/// assert_eq!(
+///     cbor_static::from_slice::<BTreeMap<u8, bool>>(b"\xa2\x01\xf5\x01\xf4").map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::DuplicateKey)
+/// );
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// assert_eq!(
+///     cbor_static::decode_strict_into::<BTreeMap<u8, bool>>(b"\xa2\x02\xf5\x01\xf4", &mut slot)
+///         .map(|_| ())
+///         .map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::NotDeterministic)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+#[allow(unsafe_code)]
+unsafe impl<'de, K: Decode<'de> + Encode + Ord, V: Decode<'de>> Decode<'de> for BTreeMap<K, V> {
+    const DECODE: &'static DecKind = &DecKind::Map {
+        ops: &DECODE_BTREE_MAP,
+        key: <K as Decode<'de>>::DECODE,
+        drop: drop_fn::<Self>(),
+        value: V::DECODE,
+        glue: &glue::<K, V>(at_heap::<(K, V)>),
+    };
+    type Stack =
+        Level<Widest<Widest<<K as Decode<'de>>::Stack, V::Stack>, Twice<<K as Encode>::Stack>>>;
+    const MAX_DEPTH: usize = 1 + deeper(
+        deeper(<K as Decode<'de>>::MAX_DEPTH, V::MAX_DEPTH),
+        2 * <K as Encode>::MAX_DEPTH,
+    );
+    type OptionStack = Level<Self::Stack>;
+    const LEAD: Lead = Lead::MAP;
+    const CONTIGUOUS: bool = <K as Decode<'de>>::CONTIGUOUS || V::CONTIGUOUS;
+}
+
+/// How a `BTreeMap<K, V>`'s entries decode into its shadow, whose slots `at` gives.
+pub(crate) const fn glue<K: Encode + Ord, V>(at: AtFn) -> MapGlue {
+    assert!(
+        shadow_fits_btree::<K, V>(),
+        "cbor-static: a BTreeMap's slot cannot hold its entries"
+    );
+    MapGlue {
+        begin: empty::<Vec<(K, V)>>,
+        at,
+        key_at: offset_of!((K, V), 0),
+        value_at: offset_of!((K, V), 1),
+        stride: size_of::<(K, V)>(),
+        fresh: deferred,
+        drop_key: drop_fn::<K>(),
+        drop_shadow: drop_fn::<Vec<(K, V)>>(),
+        assemble: assemble_btree::<K, V>,
+        settle: Some(settle::<K, V>),
+        key_encode: <K as Encode>::ENCODE,
+    }
 }

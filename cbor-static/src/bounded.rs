@@ -235,6 +235,8 @@ pub(crate) const fn glue<K: Encode + Eq, V, const N: usize>(at: AtFn) -> MapGlue
         drop_key: drop_fn::<K>(),
         drop_shadow: drop_fn::<Vec<(K, V), N>>(),
         assemble: assemble_map::<K, V, N>,
+        #[cfg(feature = "alloc")]
+        settle: None,
         key_encode: <K as Encode>::ENCODE,
     }
 }

@@ -1,12 +1,12 @@
 #![deny(unsafe_code)]
 //! The descriptors themselves: one variant per form a type's values take on the wire.
 
-#[cfg(feature = "alloc")]
-use crate::engine::AllocateFn;
 use crate::engine::{
     AbsentFn, AppendFn, AtFn, BeginFn, DecOps, DecodeFn, EncOps, EncodeFn, EntryFn, FieldPtrFn,
     FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
 };
+#[cfg(feature = "alloc")]
+use crate::engine::{AfterFn, AllocateFn, SettleFn};
 use crate::schema::Layout;
 
 /// `repr(C, u8)` keeps `ops` (and a leaf's `encode`) at one offset in every variant, and `absent`
@@ -69,6 +69,16 @@ pub enum EncKind {
     },
     /// What a deterministic `Map`'s frame encodes in place of each key: its ops pick the key.
     Select { ops: &'static EncOps },
+    /// A `Map` whose entries `after` also finds in order, each from the key before it.
+    #[cfg(feature = "alloc")]
+    Ordered {
+        ops: &'static EncOps,
+        key: &'static EncKind,
+        value: &'static EncKind,
+        len: LenFn,
+        entry: EntryFn,
+        after: AfterFn,
+    },
 }
 
 impl EncKind {
@@ -86,6 +96,8 @@ impl EncKind {
             | Self::Tagged { .. }
             | Self::Map { .. }
             | Self::Select { .. } => &[],
+            #[cfg(feature = "alloc")]
+            Self::Ordered { .. } => &[],
         }
     }
 
@@ -101,6 +113,8 @@ impl EncKind {
             | Self::Tagged { .. }
             | Self::Map { .. }
             | Self::Select { .. } => None,
+            #[cfg(feature = "alloc")]
+            Self::Ordered { .. } => None,
         }
     }
 
@@ -130,6 +144,8 @@ impl EncKind {
             | Self::Tagged { .. }
             | Self::Map { .. }
             | Self::Select { .. } => None,
+            #[cfg(feature = "alloc")]
+            Self::Ordered { .. } => None,
         }
     }
 }
@@ -235,6 +251,9 @@ pub struct MapGlue {
     pub drop_key: Option<WriteFn>,
     pub drop_shadow: Option<WriteFn>,
     pub assemble: WriteFn,
+    /// What an ordered map's close checks the shadow with before `assemble`.
+    #[cfg(feature = "alloc")]
+    pub settle: Option<SettleFn>,
     /// The key's encoding, which `Strict` compares bytewise (#12 Q29).
     pub key_encode: &'static EncKind,
 }

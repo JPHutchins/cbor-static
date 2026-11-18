@@ -9,7 +9,8 @@ import re
 import sys
 from typing import TYPE_CHECKING, Final, NamedTuple
 
-from harness.features import built
+from harness.features import BY_TEMPLATE, built, fixture_name
+from harness.features import fixture as feature_fixture
 from harness.gate import INFORMATIONAL_TARGET
 from harness.measure import CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_label, elf_path, write_crate
 from harness.symbols import FIXTURES, MACHINERY, fixture, matched, names
@@ -17,15 +18,16 @@ from harness.templates import render
 from harness.unused import allocating, control, gate, tokens
 
 if TYPE_CHECKING:
-	from collections.abc import Callable
+	from collections.abc import Callable, Mapping
 	from pathlib import Path
 
 SOFT_FLOAT: Final = re.compile(r"__aeabi_(?:[fdh]|c[fd]|u?[il]2[fd])\w*|__[a-z]+[sdh]f[a-z0-9]*")
 
 
 class Rule(NamedTuple):
-	"""A requirement's banned symbols, the report it writes, and the control firmwares that must
-	link them.
+	"""A requirement's banned symbols, the report it writes, the control firmwares that must link
+	them, and the R-009 feature templates exempt from it, each of which must link alloc's
+	error panic.
 	"""
 
 	requirement: str
@@ -34,6 +36,15 @@ class Rule(NamedTuple):
 	report: str
 	controls: tuple[str, ...]
 	targets: tuple[str, ...]
+	exempt: Mapping[str, tuple[str, ...]] = {}
+
+	@property
+	def excluded(self) -> frozenset[str]:
+		"""
+		>>> sorted(RULES["panics"].excluded), RULES["soft_float"].excluded
+		(['btree_map', 'btree_map_decode', 'btree_max_len'], frozenset())
+		"""
+		return frozenset(template for templates in self.exempt.values() for template in templates)
 
 
 def panicking(symbol: str) -> bool:
@@ -58,6 +69,9 @@ def soft_float(symbol: str) -> bool:
 	return bool(SOFT_FLOAT.fullmatch(symbol.rsplit("::", 1)[-1])) or "compiler_builtins::float::" in symbol
 
 
+EXEMPT_FROM_PANICS: Final = {"BTreeMap": ("btree_map", "btree_map_decode", "btree_max_len")}
+ALLOC_ERROR_PANIC: Final = "core::panicking::panic_nounwind_fmt"
+
 RULES: Final = {
 	"panics": Rule(
 		"R-132",
@@ -66,6 +80,7 @@ RULES: Final = {
 		"panicking",
 		("panicking", "alloc_panicking"),
 		(GATE_TARGET,),
+		EXEMPT_FROM_PANICS,
 	),
 	"soft_float": Rule(
 		"R-135",
@@ -82,10 +97,13 @@ def main(rule: Rule) -> int:
 	groups = {
 		"gate": gate(rule.targets),
 		"R-006 fixtures": tuple(fixture(name, target) for name in FIXTURES for target in rule.targets),
-		"R-009 positive controls": (control(nightly=False), control(nightly=True)),
+		"R-009 positive controls": (
+			control(nightly=False, excluded=rule.excluded),
+			control(nightly=True, excluded=rule.excluded),
+		),
 		"token control": (tokens(),),
 		"alloc control": (allocating(),),
-		"R-009 feature cost fixtures (when built)": built(),
+		"R-009 feature cost fixtures (when built)": built(rule.excluded),
 	}
 	read = {elf: names(elf) for elfs in groups.values() for elf in elfs}
 	linked = sorted(
@@ -101,7 +119,19 @@ def main(rule: Rule) -> int:
 		for control in rule.controls
 		for elf in controls_of(control, target)
 	}
-	passed = bool(groups["gate"]) and not linked and not blind and all(controls.values())
+	exempt = {
+		f"{name}: {elf_label(elf)}": sorted(filter(rule.banned, names(elf)))
+		for name, templates in rule.exempt.items()
+		for template in templates
+		for elf in exempt_elfs(template)
+	}
+	passed = (
+		bool(groups["gate"])
+		and not linked
+		and not blind
+		and all(controls.values())
+		and all(ALLOC_ERROR_PANIC in found for found in exempt.values())
+	)
 	text = "\n".join(
 		(
 			f"## {rule.requirement}, {rule.what}: {'PASS' if passed else 'FAIL'}",
@@ -118,11 +148,25 @@ def main(rule: Rule) -> int:
 				f"| {rule.what} in the control {name} | {', '.join(found) or 'none ❌'} |"
 				for name, found in controls.items()
 			),
+			*(
+				f"| {rule.what} in exempt {name}, which must link `{ALLOC_ERROR_PANIC}`, where "
+				f"`handle_alloc_error` ends | {', '.join(found) if ALLOC_ERROR_PANIC in found else 'missing ❌'} |"
+				for name, found in exempt.items()
+			),
 		)
 	)
 	(HARNESS / f"{rule.report}.md").write_text(text + "\n")
 	print(text)
 	return 0 if passed else 1
+
+
+def exempt_elfs(template: str) -> tuple[Path, ...]:
+	"""An exempt feature's one-type fixture at every profile."""
+	feature = BY_TEMPLATE[template]
+	return tuple(
+		feature_fixture(fixture_name(template, 1), (template,), template, profile, feature.cargo_features)
+		for profile in PROFILES
+	)
 
 
 def controls_of(control: str, target: str) -> tuple[Path, ...]:

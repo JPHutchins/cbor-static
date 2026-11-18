@@ -5,6 +5,7 @@
 )]
 
 use alloc::alloc::Layout;
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::ptr;
 
@@ -176,6 +177,78 @@ pub unsafe fn release<T>(slot: *mut u8) {
 /// `boxed` points to a valid `Box<T>`.
 pub unsafe fn unboxed<T>(boxed: *const u8) -> *const u8 {
     ptr::from_ref::<T>(unsafe { &*boxed.cast::<alloc::boxed::Box<T>>() }).cast()
+}
+
+/// # Safety
+/// `map` points to a valid `BTreeMap<K, V>`.
+pub unsafe fn len_of<K, V>(map: *const u8) -> usize {
+    unsafe { &*map.cast::<BTreeMap<K, V>>() }.len()
+}
+
+/// The entry `index` places in, found by walking the map: what a deterministic encoding, which
+/// compares every key, needs.
+///
+/// # Safety
+/// As [`len_of`].
+pub unsafe fn entry<K, V>(map: *const u8, index: usize) -> (*const u8, *const u8) {
+    pair(unsafe { &*map.cast::<BTreeMap<K, V>>() }.iter().nth(index))
+}
+
+/// # Safety
+/// As [`len_of`], and `before` is null or points to a `K`.
+pub unsafe fn after<K: Ord, V>(map: *const u8, before: *const u8) -> (*const u8, *const u8) {
+    use core::ops::Bound;
+
+    let map = unsafe { &*map.cast::<BTreeMap<K, V>>() };
+    pair(match unsafe { before.cast::<K>().as_ref() } {
+        None => map.first_key_value(),
+        Some(before) => map
+            .range((Bound::Excluded(before), Bound::Unbounded))
+            .next(),
+    })
+}
+
+fn pair<K, V>(entry: Option<(&K, &V)>) -> (*const u8, *const u8) {
+    entry.map_or((ptr::null(), ptr::null()), |(key, value)| {
+        (ptr::from_ref(key).cast(), ptr::from_ref(value).cast())
+    })
+}
+
+/// A shadow's keys are checked once the map closes.
+pub const fn deferred(_: *const u8, _: usize) -> bool {
+    true
+}
+
+/// Sorts the shadow `Vec<(K, V)>` in `slot` by key, and fails if two keys are equal.
+///
+/// # Safety
+/// `slot` holds a valid `Vec<(K, V)>`, and can hold a `BTreeMap<K, V>`.
+pub unsafe fn settle<K: Ord, V>(slot: *mut u8) -> Result<(), ErrorKind> {
+    let shadow = unsafe { &mut *slot.cast::<Vec<(K, V)>>() };
+    shadow.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+    if shadow.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        Err(ErrorKind::DuplicateKey)
+    } else {
+        Ok(())
+    }
+}
+
+/// Takes the sorted shadow `Vec<(K, V)>` out of `slot`, leaving an empty one there while the map is
+/// built, then writes the `BTreeMap<K, V>` in its place.
+///
+/// # Safety
+/// As [`settle`], once it has passed.
+pub unsafe fn assemble<K: Ord, V>(slot: *mut u8) {
+    let mut map = BTreeMap::new();
+    map.extend(core::mem::take(unsafe { &mut *slot.cast::<Vec<(K, V)>>() }));
+    unsafe { slot.cast::<BTreeMap<K, V>>().write(map) };
+}
+
+/// Whether a `BTreeMap<K, V>`'s slot can hold its shadow `Vec<(K, V)>`.
+#[must_use]
+pub const fn shadow_fits<K, V>() -> bool {
+    size_of::<Vec<(K, V)>>() <= size_of::<BTreeMap<K, V>>()
+        && align_of::<Vec<(K, V)>>() <= align_of::<BTreeMap<K, V>>()
 }
 
 #[cfg(test)]

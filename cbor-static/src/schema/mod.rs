@@ -11,7 +11,7 @@ use crate::engine::{
 use crate::lead::Lead;
 
 pub use flat::{Concat, Flat, Run, Storage, entries, flattened};
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub use kinds::MapGlue;
 pub use kinds::{DecKind, DecVariant, EncKind};
 pub use order::Order;
