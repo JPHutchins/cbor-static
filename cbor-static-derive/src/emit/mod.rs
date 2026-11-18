@@ -275,12 +275,17 @@ fn child(ty: &impl ToTokens, path: &TokenStream) -> (TokenStream, TokenStream) {
     )
 }
 
-/// A field's stack and depth: a `#[cbor(bytes)]` field's byte string opens no frame.
-fn field_child(ty: &impl ToTokens, bytes: bool, path: &TokenStream) -> (TokenStream, TokenStream) {
-    if bytes {
-        (quote!(()), quote!(0))
-    } else {
-        child(ty, path)
+/// A field's stack and depth under `which` trait: a `#[cbor(bytes)]` field's byte string opens no
+/// frame to encode, and its own to decode.
+fn field_child(
+    ty: &impl ToTokens,
+    bytes: bool,
+    (which, path): (Trait, &TokenStream),
+) -> (TokenStream, TokenStream) {
+    match (bytes, which) {
+        (false, _) => child(ty, path),
+        (true, Trait::Encode) => (quote!(()), quote!(0)),
+        (true, Trait::Decode) => child(ty, &quote!(::cbor_static::ByteString)),
     }
 }
 
@@ -326,7 +331,7 @@ fn field_stack(field: &Field, which: Trait, path: &TokenStream) -> (TokenStream,
             quote!(<#ty as #path>::MAX_DEPTH - 1),
         ),
         (Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position, _) => {
-            field_child(ty, field.bytes, path)
+            field_child(ty, field.bytes, (which, path))
         }
     }
 }

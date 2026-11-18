@@ -128,8 +128,9 @@ fn tracked_before(entries: &[&Entry], (entry, item): (usize, usize)) -> usize {
         .count()
 }
 
-fn every_item() -> impl Iterator<Item = (usize, usize)> {
-    WIDE.iter()
+fn every_item(table: &[Entry]) -> impl Iterator<Item = (usize, usize)> {
+    table
+        .iter()
         .enumerate()
         .flat_map(|(index, entry)| (0..entry.items.len()).map(move |item| (index, item)))
 }
@@ -140,13 +141,25 @@ fn all() -> Vec<&'static Entry> {
 
 #[test]
 fn a_mismatch_at_any_item_drops_what_came_before() {
+    mismatch_anywhere::<Wide>(&WIDE);
+}
+
+#[test]
+fn input_cut_anywhere_drops_what_was_complete() {
+    cut_anywhere::<Wide>(&WIDE);
+}
+
+/// A `T` whose map's entries are `table`, with `false` in place of any one item, under either
+/// profile, drops the `Tracked` items before it.
+fn mismatch_anywhere<T: for<'de> Decode<'de>>(table: &[Entry]) {
+    let entries: Vec<&Entry> = table.iter().collect();
     for profile in [Profile::Default, Profile::Strict] {
-        for at in every_item() {
-            let bytes = map(&all(), Some(at), b"\xf5");
+        for at in every_item(table) {
+            let bytes = map(&entries, Some(at), b"\xf5");
             for chunk in CHUNKS {
                 assert_eq!(
-                    outcome::<Wide>(profile, &bytes, chunk),
-                    (Some(ErrorKind::TypeMismatch), tracked_before(&all(), at)),
+                    outcome::<T>(profile, &bytes, chunk),
+                    (Some(ErrorKind::TypeMismatch), tracked_before(&entries, at)),
                     "{at:?} in chunks of {chunk}"
                 );
             }
@@ -154,10 +167,10 @@ fn a_mismatch_at_any_item_drops_what_came_before() {
     }
 }
 
-#[test]
-fn input_cut_anywhere_drops_what_was_complete() {
-    let bytes = map(&all(), None, b"");
-    let ends: Vec<(usize, bool)> = WIDE
+/// A `T` whose map's entries are `table`, cut at any byte, drops the `Tracked` items complete.
+fn cut_anywhere<T: for<'de> Decode<'de>>(table: &[Entry]) {
+    let bytes = map(&table.iter().collect::<Vec<_>>(), None, b"");
+    let ends: Vec<(usize, bool)> = table
         .iter()
         .flat_map(|entry| {
             core::iter::once((entry.key.len(), false)).chain(
@@ -179,7 +192,7 @@ fn input_cut_anywhere_drops_what_was_complete() {
             .count();
         for chunk in CHUNKS {
             assert_eq!(
-                outcome::<Wide>(Profile::Default, &bytes[..cut], chunk),
+                outcome::<T>(Profile::Default, &bytes[..cut], chunk),
                 (None, complete),
                 "cut at {cut} in chunks of {chunk}"
             );
@@ -358,6 +371,170 @@ mod captured {
                 (error, if error.is_none() { 2 } else { 1 }),
                 "{bytes:x?} in chunks of {chunk}"
             );
+        }
+    }
+}
+
+/// Fields that allocate drop exactly what was decoded, a partial element's allocation included,
+/// which Miri checks frees every allocation (R-114, #5 Q20).
+#[cfg(feature = "alloc")]
+mod allocated {
+    use std::boxed::Box;
+    use std::collections::BTreeMap;
+    use std::string::String;
+    use std::vec::Vec;
+
+    use super::{Entry, Profile, Tracked, cut_anywhere, map, mismatch_anywhere, outcome};
+    use crate::error::ErrorKind;
+
+    #[derive(crate::Decode)]
+    struct Holding {
+        a: Tracked,
+        b: Box<(Tracked, Tracked)>,
+        g: Tracked,
+        #[expect(
+            clippy::zero_sized_map_values,
+            reason = "each Tracked value counts its drop"
+        )]
+        m: BTreeMap<u8, Tracked>,
+        s: String,
+        v: Vec<Tracked>,
+        w: Vec<String>,
+    }
+
+    /// `Holding`'s entries, in its keys' bytewise order.
+    const HOLDING: [Entry; 7] = [
+        Entry {
+            key: b"\x61a",
+            items: &[(b"\x01", true)],
+            default: false,
+        },
+        Entry {
+            key: b"\x61b",
+            items: &[(b"\x82", false), (b"\x02", true), (b"\x03", true)],
+            default: false,
+        },
+        Entry {
+            key: b"\x61g",
+            items: &[(b"\x04", true)],
+            default: false,
+        },
+        Entry {
+            key: b"\x61m",
+            items: &[
+                (b"\xa2", false),
+                (b"\x01", false),
+                (b"\x09", true),
+                (b"\x02", false),
+                (b"\x0a", true),
+            ],
+            default: false,
+        },
+        Entry {
+            key: b"\x61s",
+            items: &[(b"\x62xy", false)],
+            default: false,
+        },
+        Entry {
+            key: b"\x61v",
+            items: &[(b"\x82", false), (b"\x05", true), (b"\x06", true)],
+            default: false,
+        },
+        Entry {
+            key: b"\x61w",
+            items: &[(b"\x82", false), (b"\x61p", false), (b"\x62qr", false)],
+            default: false,
+        },
+    ];
+
+    #[test]
+    fn a_mismatch_at_any_item_drops_what_came_before() {
+        mismatch_anywhere::<Holding>(&HOLDING);
+    }
+
+    #[test]
+    fn input_cut_anywhere_drops_what_was_complete() {
+        cut_anywhere::<Holding>(&HOLDING);
+    }
+
+    /// Item `at`, read as `with`, stops a decode under `profile` with `error`, after `drops`.
+    struct Partial {
+        profile: Profile,
+        at: (usize, usize),
+        with: &'static [u8],
+        error: ErrorKind,
+        drops: usize,
+    }
+
+    const PARTIAL: [Partial; 7] = [
+        Partial {
+            profile: Profile::Default,
+            at: (1, 2),
+            with: b"\x80",
+            error: ErrorKind::TypeMismatch,
+            drops: 2,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (3, 3),
+            with: b"\x01",
+            error: ErrorKind::DuplicateKey,
+            drops: 6,
+        },
+        Partial {
+            profile: Profile::Strict,
+            at: (3, 3),
+            with: b"\x01",
+            error: ErrorKind::NotDeterministic,
+            drops: 5,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (4, 0),
+            with: b"\x7f\x61x\x61\xff\xff",
+            error: ErrorKind::InvalidUtf8,
+            drops: 6,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (6, 2),
+            with: b"\x7f\x61q\x41r\xff",
+            error: ErrorKind::NotWellFormed,
+            drops: 8,
+        },
+        Partial {
+            profile: Profile::Default,
+            at: (6, 2),
+            with: b"\x62q\xff",
+            error: ErrorKind::InvalidUtf8,
+            drops: 8,
+        },
+        Partial {
+            profile: Profile::Strict,
+            at: (6, 2),
+            with: b"\x7f\x61q\xff",
+            error: ErrorKind::NotDeterministic,
+            drops: 8,
+        },
+    ];
+
+    #[test]
+    fn a_failure_inside_a_partial_element_drops_what_came_before() {
+        let entries: Vec<&Entry> = HOLDING.iter().collect();
+        for partial in PARTIAL {
+            for chunk in super::CHUNKS {
+                assert_eq!(
+                    outcome::<Holding>(
+                        partial.profile,
+                        &map(&entries, Some(partial.at), partial.with),
+                        chunk
+                    ),
+                    (Some(partial.error), partial.drops),
+                    "{at:?} as {with:x?} in chunks of {chunk}",
+                    at = partial.at,
+                    with = partial.with
+                );
+            }
         }
     }
 }

@@ -3,17 +3,17 @@
 //! compile time; these ops cover what only the encoder sees, so firmware without a deterministic
 //! type links none of them (D-22).
 
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use core::cmp::Ordering;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use core::mem::MaybeUninit;
 
 use crate::engine::pending::Pending;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use crate::error::ErrorKind;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use crate::schema::EncKind;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use crate::stack::Frame;
 use crate::wire::{Head, float};
 
@@ -21,16 +21,16 @@ pub struct DeterministicOps {
     /// Writes a float's shortest head, with every NaN as [`float::CANONICAL_NAN`].
     pub(crate) float: fn(&mut Pending, (u8, u64)),
     /// What a `LinearMap`'s frame encodes in place of its next key.
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     pub(crate) select: &'static EncKind,
     /// The order of two values' encodings.
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     pub(crate) order: Order,
 }
 
 /// The order of the encodings of two values of one kind, each encoded on half the free frames,
 /// under the root's deterministic encoding.
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) type Order = fn(
     &'static EncKind,
     *const u8,
@@ -41,16 +41,16 @@ pub(crate) type Order = fn(
 
 pub static BYTEWISE: DeterministicOps = DeterministicOps {
     float: canonical,
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     select: &super::linear_map::SELECT,
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     order: |kind, a, b, frames, ops| super::bytewise(kind, a, b, frames, Some(ops)),
 };
 pub static LENGTH_FIRST: DeterministicOps = DeterministicOps {
     float: canonical,
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     select: &super::linear_map::SELECT,
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     order: length_first,
 };
 
@@ -66,7 +66,7 @@ fn canonical(out: &mut Pending, shortest: (u8, u64)) {
 }
 
 /// RFC 8949 §4.2.3: the shorter encoding first, then bytewise.
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 fn length_first(
     kind: &'static EncKind,
     a: *const u8,

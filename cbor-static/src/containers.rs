@@ -11,6 +11,7 @@ use crate::lead::Lead;
 use crate::schema::{
     ByteString, DecKind, Decode, EncKind, Encode, FieldLayout, Layout, Order, sealed,
 };
+use crate::sizes::ByteCapacity;
 use crate::stack::{Level, Widest, deeper};
 
 /// A tuple element `at` bytes in: positional, so it has no name and is never omitted.
@@ -98,7 +99,6 @@ impl<const N: usize> sealed::ByteString for [u8; N] {}
 
 /// `#[cbor(bytes)]`: a byte string of exactly `N` bytes, which may arrive in chunks.
 impl<const N: usize> ByteString for [u8; N] {
-    const CAPACITY: usize = N;
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,
@@ -110,6 +110,12 @@ impl<const N: usize> ByteString for [u8; N] {
         append: within::<N>,
         finish: exactly::<N>,
     };
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+}
+
+impl<const N: usize> ByteCapacity for [u8; N] {
+    const CAPACITY: usize = N;
 }
 
 tuple!(A 0);

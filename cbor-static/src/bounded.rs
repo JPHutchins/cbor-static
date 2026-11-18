@@ -12,6 +12,7 @@ use crate::engine::{
 };
 use crate::lead::Lead;
 use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, MapGlue, Order, sealed};
+use crate::sizes::ByteCapacity;
 use crate::stack::{Level, Twice, Widest, deeper};
 
 #[allow(unsafe_code)]
@@ -203,7 +204,6 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
 impl<const N: usize, L: LenType> sealed::ByteString for Vec<u8, N, L> {}
 
 impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
-    const CAPACITY: usize = N;
     const ENCODE_BYTES: &'static EncKind = &EncKind::Leaf {
         encode: enc_view::<Self>,
         absent: None,
@@ -215,6 +215,12 @@ impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
         append: append_vec::<N, L>,
         finish: any_length,
     };
+    type Stack = ();
+    const MAX_DEPTH: usize = 0;
+}
+
+impl<const N: usize, L: LenType> ByteCapacity for Vec<u8, N, L> {
+    const CAPACITY: usize = N;
 }
 
 /// How a `LinearMap<K, V, N>`'s entries decode into its shadow, whose slots `at` gives.
@@ -229,6 +235,8 @@ pub(crate) const fn glue<K: Encode + Eq, V, const N: usize>(at: AtFn) -> MapGlue
         drop_key: drop_fn::<K>(),
         drop_shadow: drop_fn::<Vec<(K, V), N>>(),
         assemble: assemble_map::<K, V, N>,
+        #[cfg(feature = "alloc")]
+        settle: None,
         key_encode: <K as Encode>::ENCODE,
     }
 }

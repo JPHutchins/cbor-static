@@ -6,14 +6,20 @@
 use core::cmp::Ordering;
 use core::mem::MaybeUninit;
 
-use super::{Child, EncOps, Part, State, desc, opened};
+#[cfg(feature = "heapless")]
+use super::opened;
+use super::{Child, EncOps, Part, State, desc};
 use crate::engine::pending::Pending;
+#[cfg(feature = "heapless")]
 use crate::engine::push;
+use crate::engine::{EntryFn, LenFn};
 use crate::error::ErrorKind;
 use crate::schema::EncKind;
 use crate::stack::{Frame, Phase};
+#[cfg(feature = "heapless")]
 use crate::wire::Major;
 
+#[cfg(feature = "heapless")]
 pub static LINEAR_MAP: EncOps = EncOps { open, next };
 
 /// The select kind, whose one user is a deterministic map (Q33): its frame encodes this in place of
@@ -27,6 +33,7 @@ pub(super) static SELECT: EncKind = EncKind::Select {
     },
 };
 
+#[cfg(feature = "heapless")]
 fn open(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -43,13 +50,9 @@ fn open(
     push(frames, &mut state.depth, opened(kind, at, 0, Phase::Key)).map(|()| None)
 }
 
-fn next(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
-    let EncKind::Map {
-        key, value, entry, ..
-    } = desc(frame)
-    else {
-        return Err(ErrorKind::Unsupported);
-    };
+/// The next part of a map's entries, by index.
+pub(super) fn next(pending: &mut Pending, frame: &mut Frame) -> Result<Part, ErrorKind> {
+    let (key, value, _, entry) = parts(desc(frame))?;
     if frame.phase == Phase::Value {
         frame.phase = Phase::Key;
         frame.seen += 1;
@@ -93,12 +96,7 @@ fn select(
         .and_then(<[_]>::split_first_mut)
         .ok_or(ErrorKind::Unsupported)?;
     let map = unsafe { map.assume_init_mut() };
-    let EncKind::Map {
-        key, len, entry, ..
-    } = desc(map)
-    else {
-        return Err(ErrorKind::Unsupported);
-    };
+    let (key, _, len, entry) = parts(desc(map))?;
     let base = map.base.cast_const();
     let key_at = |at: usize| unsafe { entry(base, at) }.0;
     let last = match map.seen {
@@ -129,6 +127,38 @@ fn select(
         kind: key,
         at: key_at(chosen),
     }))
+}
+
+/// A map kind's key and value kinds, its length, and its entries by index.
+fn parts(
+    kind: &'static EncKind,
+) -> Result<(&'static EncKind, &'static EncKind, LenFn, EntryFn), ErrorKind> {
+    match kind {
+        EncKind::Map {
+            key,
+            value,
+            len,
+            entry,
+            ..
+        } => Ok((key, value, *len, *entry)),
+        #[cfg(feature = "alloc")]
+        EncKind::Ordered {
+            key,
+            value,
+            len,
+            entry,
+            ..
+        } => Ok((key, value, *len, *entry)),
+        EncKind::Leaf { .. }
+        | EncKind::Struct { .. }
+        | EncKind::Enum { .. }
+        | EncKind::Array { .. }
+        | EncKind::Option { .. }
+        | EncKind::Chunks { .. }
+        | EncKind::Seq { .. }
+        | EncKind::Tagged { .. }
+        | EncKind::Select { .. } => Err(ErrorKind::Unsupported),
+    }
 }
 
 fn index(at: u64) -> Result<usize, ErrorKind> {

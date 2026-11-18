@@ -8,17 +8,19 @@ mod described;
 mod elements;
 mod entries;
 mod enums;
+#[cfg(feature = "alloc")]
+mod heap;
 mod index;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod limited;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod linear_map;
 mod map;
 mod option;
 mod other;
 mod owned;
 mod raw;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod seq;
 mod steps;
 mod tagged;
@@ -33,6 +35,11 @@ pub use defaulted::DEFAULTED;
 pub use described::SELF_DESCRIBED;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
+#[cfg(feature = "alloc")]
+pub use heap::{
+    BOXED, BTREE_MAP, BYTES as BYTES_HEAP, Limited as HeapLimited, SEQ as SEQ_HEAP,
+    TEXT as TEXT_HEAP,
+};
 pub use index::INDEX;
 #[cfg(feature = "heapless")]
 pub use limited::Limited;
@@ -319,6 +326,8 @@ fn value(
             Begin::Header(on_header) => on_header(state, frames, input, header),
             Begin::Peek(_) => Err(ErrorKind::Unsupported),
         },
+        #[cfg(feature = "alloc")]
+        DecKind::Boxed { .. } => Err(ErrorKind::Unsupported),
     }
 }
 
@@ -415,6 +424,8 @@ fn ops(kind: &DecKind) -> Result<&'static DecOps, ErrorKind> {
         | DecKind::Raw { ops, .. }
         | DecKind::Described { ops, .. }
         | DecKind::Map { ops, .. } => Ok(ops),
+        #[cfg(feature = "alloc")]
+        DecKind::Boxed { ops, .. } => Ok(ops),
         DecKind::Leaf { .. } => Err(ErrorKind::Unsupported),
     }
 }

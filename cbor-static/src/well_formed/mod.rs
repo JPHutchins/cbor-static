@@ -52,7 +52,8 @@ impl From<ErrorKind> for Class {
             | ErrorKind::BufferTooSmall
             | ErrorKind::TrailingInput
             | ErrorKind::UnknownField
-            | ErrorKind::NotDeterministic => panic!("{kind:?} is not a well-formedness error"),
+            | ErrorKind::NotDeterministic
+            | ErrorKind::OutOfMemory => panic!("{kind:?} is not a well-formedness error"),
         }
     }
 }

@@ -7,13 +7,16 @@ use core::mem::MaybeUninit;
 
 use super::array::{Element, element};
 use super::seq::{commit, index, slot};
-use super::{After, Begin, DecOps, Flow, State, desc, end, entries, expect, open, top, unnamed};
+use super::{After, Flow, State, desc, end, entries, expect, open, top};
+#[cfg(feature = "heapless")]
+use super::{Begin, DecOps, unnamed};
 use crate::engine::input::Input;
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, MapGlue};
 use crate::stack::{Frame, Phase};
 use crate::wire::{Header, Major};
 
+#[cfg(feature = "heapless")]
 pub static LINEAR_MAP: DecOps = DecOps {
     value: Begin::Header(value),
     entry,
@@ -100,7 +103,7 @@ fn distinct(
     }
 }
 
-fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
+pub(super) fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
     let DecKind::Map { glue, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
     };
@@ -113,6 +116,7 @@ fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
     Ok(After::Entry)
 }
 
+#[cfg(feature = "heapless")]
 fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
     let DecKind::Map { glue, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
@@ -122,7 +126,7 @@ fn close(frame: &mut Frame) -> Result<(), ErrorKind> {
 }
 
 /// Drops the entries committed so far, and a complete key whose value was still to come.
-fn drop(frame: &Frame) {
+pub(super) fn drop(frame: &Frame) {
     let DecKind::Map { glue, .. } = desc(frame) else {
         return;
     };

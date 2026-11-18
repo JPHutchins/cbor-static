@@ -260,13 +260,19 @@
 //! `borrow`, `flatten`) and the entries no field claims (`other`) are described in [`attributes`],
 //! and deterministic encoding in [`deterministic`].
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
 extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(feature = "alloc")]
+mod allocated;
 pub mod attributes;
 #[cfg(feature = "heapless")]
 mod bounded;
+#[cfg(feature = "alloc")]
+mod bounded_len;
 mod containers;
 pub mod deterministic;
 mod engine;
@@ -283,12 +289,16 @@ mod slices;
 mod stack;
 mod tags;
 mod token;
+#[cfg(feature = "alloc")]
+mod vectors;
 #[cfg(test)]
 mod well_formed;
 mod wire;
 
 use core::mem::MaybeUninit;
 
+#[cfg(feature = "alloc")]
+pub use bounded_len::Bounded;
 pub use cbor_static_derive::{Cbor, Decode, Encode};
 pub use engine::{
     ArrayIter, ArrayRef, Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, MapIter, MapRef,
@@ -301,6 +311,8 @@ pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
 pub use slices::{from_slice, from_slice_partial};
 pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
+#[cfg(feature = "alloc")]
+pub use vectors::{to_vec, to_vec_in};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.
 ///
@@ -431,6 +443,6 @@ pub mod __private {
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
         Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,
     };
-    pub use crate::sizes::{container_len, head_len, larger};
+    pub use crate::sizes::{ByteCapacity, container_len, head_len, larger};
     pub use crate::stack::{Level, Unlevel, Widest, deeper};
 }

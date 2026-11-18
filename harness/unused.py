@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 from harness.backends.backend import ROOT, path_dependency
 from harness.backends.cbor_static import VARIANTS
-from harness.features import FEATURES, fixture
+from harness.features import ALLOC, FEATURES, fixture
 from harness.gate import load
 from harness.measure import (
 	CRATES,
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 CONTROL: Final = "r009-positive-control"
 TOKENS: Final = "tokens-control"
+ALLOCATING: Final = "allocating-control"
 
 
 class Anchored(NamedTuple):
@@ -125,15 +126,29 @@ def gate(targets: tuple[str, ...] = (GATE_TARGET,)) -> tuple[Path, ...]:
 	)
 
 
-def control(nightly: bool) -> Path:
-	"""One firmware of every feature that builds on the stable toolchain, or on nightly."""
-	features = tuple(feature for feature in FEATURES if feature.nightly == nightly)
+def control(nightly: bool, excluded: frozenset[str] = frozenset()) -> Path:
+	"""One firmware of every feature that builds on the stable toolchain, or on nightly, but the
+	`excluded` templates.
+
+	>>> control_name(nightly=True, excluded=frozenset()), control_name(False, frozenset({"b", "a"}))
+	('r009-positive-control-nightly', 'r009-positive-control-without-a-b')
+	"""
+	features = tuple(
+		feature for feature in FEATURES if feature.nightly == nightly and feature.template not in excluded
+	)
+	name = control_name(nightly, excluded)
 	return fixture(
-		f"{CONTROL}-nightly" if nightly else CONTROL,
+		name,
 		tuple(feature.template for feature in features),
-		"positive-nightly" if nightly else "positive",
+		name.replace(CONTROL, "positive"),
 		"release",
 		tuple(sorted({cargo for feature in features for cargo in feature.cargo_features})),
+	)
+
+
+def control_name(nightly: bool, excluded: frozenset[str]) -> str:
+	return "-".join(
+		(CONTROL, *(("nightly",) if nightly else ()), *(("without", *sorted(excluded)) if excluded else ()))
 	)
 
 
@@ -156,6 +171,28 @@ def tokens() -> Path:
 		HARNESS / TOKENS,
 	)
 	return elf_path(HARNESS / TOKENS, GATE_TARGET, "release", TOKENS)
+
+
+def allocating() -> Path:
+	"""A firmware that decodes every alloc type and encodes it back with `to_vec` and `to_vec_in`."""
+	build(
+		write_crate(
+			CRATES / ALLOCATING,
+			{
+				"Cargo.toml": render(
+					"Cargo.toml",
+					name=ALLOCATING,
+					dependencies=path_dependency("cbor-static", ROOT / "cbor-static", (ALLOC,)),
+				),
+				"src/main.rs": render("allocating.rs", allocator=render("allocator.rs")),
+			},
+		),
+		GATE_TARGET,
+		"release",
+		(),
+		HARNESS / ALLOCATING,
+	)
+	return elf_path(HARNESS / ALLOCATING, GATE_TARGET, "release", ALLOCATING)
 
 
 ANCHORED: Final = (

@@ -42,6 +42,9 @@ help: the following other types implement trait `cbor_static::Other`
 ...
    |     impl<'de, const N: usize, L: LenType> Other for Vec<RawEntry<'de>, N, L> {
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `heapless::vec::VecInner<RawEntry<'de>, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<RawEntry<'de>>; N]>>`
+...
+   |     impl<'de> Other for Vec<RawEntry<'de>> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Vec<RawEntry<'de>>`
    = note: this error originates in the derive macro `cbor_static::Cbor` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `u32: cbor_static::Other` is not satisfied
@@ -58,3 +61,6 @@ help: the following other types implement trait `cbor_static::Other`
 ...
    |     impl<'de, const N: usize, L: LenType> Other for Vec<RawEntry<'de>, N, L> {
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `heapless::vec::VecInner<RawEntry<'de>, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<RawEntry<'de>>; N]>>`
+...
+   |     impl<'de> Other for Vec<RawEntry<'de>> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Vec<RawEntry<'de>>`

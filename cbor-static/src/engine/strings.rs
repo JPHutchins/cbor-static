@@ -36,6 +36,16 @@ pub unsafe fn enc_view<T: AsRef<[u8]>>(src: *const u8, out: &mut Pending) {
     write(out, Major::Bytes, unsafe { &*src.cast::<T>() }.as_ref());
 }
 
+/// A text string of `T`'s text.
+#[cfg(feature = "alloc")]
+pub unsafe fn enc_text<T: AsRef<str>>(src: *const u8, out: &mut Pending) {
+    write(
+        out,
+        Major::Text,
+        unsafe { &*src.cast::<T>() }.as_ref().as_bytes(),
+    );
+}
+
 fn write(out: &mut Pending, major: Major, payload: &[u8]) {
     out.head(major, u64::try_from(payload.len()).unwrap_or(u64::MAX));
     out.tail(payload);
@@ -91,13 +101,28 @@ unsafe fn one_char(
 }
 
 #[cfg(feature = "heapless")]
-pub use bounded::{any_length, append_string, append_vec, empty, enc_string};
+pub use bounded::{append_string, append_vec, enc_string};
+
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub unsafe fn empty<T: Default>(dst: *mut u8) {
+    unsafe { dst.cast::<T>().write(T::default()) };
+}
+
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+#[expect(clippy::unnecessary_wraps, reason = "a FinishFn can fail")]
+pub const fn any_length(
+    _: *mut u8,
+    _: usize,
+    _: Option<&'static StrictOps>,
+) -> Result<(), ErrorKind> {
+    Ok(())
+}
 
 #[cfg(feature = "heapless")]
 mod bounded {
     use heapless::{LenType, String, Vec};
 
-    use super::{Major, Pending, StrictOps, write};
+    use super::{Major, Pending, write};
     use crate::error::ErrorKind;
 
     pub unsafe fn enc_string<const N: usize, L: LenType>(src: *const u8, out: &mut Pending) {
@@ -106,10 +131,6 @@ mod bounded {
             Major::Text,
             unsafe { &*src.cast::<String<N, L>>() }.as_bytes(),
         );
-    }
-
-    pub unsafe fn empty<T: Default>(dst: *mut u8) {
-        unsafe { dst.cast::<T>().write(T::default()) };
     }
 
     /// Copies the next segment of text, which may end inside a character until the copy form
@@ -132,15 +153,6 @@ mod bounded {
         unsafe { &mut *dst.cast::<Vec<u8, N, L>>() }
             .extend_from_slice(segment)
             .map_err(|_| ErrorKind::OutOfRange)
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "a FinishFn can fail")]
-    pub const fn any_length(
-        _: *mut u8,
-        _: usize,
-        _: Option<&'static StrictOps>,
-    ) -> Result<(), ErrorKind> {
-        Ok(())
     }
 }
 

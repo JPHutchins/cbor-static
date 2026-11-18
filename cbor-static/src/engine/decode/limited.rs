@@ -4,7 +4,11 @@
 
 use core::mem::MaybeUninit;
 
-use super::{Begin, DecOps, Flow, State, linear_map, owned, seq, top};
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+use super::linear_map;
+#[cfg(feature = "heapless")]
+use super::{Begin, DecOps};
+use super::{Flow, State, owned, seq, top};
 use crate::engine::input::Input;
 use crate::engine::limited::fits;
 use crate::error::ErrorKind;
@@ -12,8 +16,10 @@ use crate::stack::Frame;
 use crate::wire::{Header, Major};
 
 /// The forms, each bounded to `N` bytes, elements or entries.
+#[cfg(feature = "heapless")]
 pub struct Limited<const N: usize>;
 
+#[cfg(feature = "heapless")]
 impl<const N: usize> Limited<N> {
     pub const TEXT: DecOps = DecOps {
         value: Begin::Header(text::<N>),
@@ -35,7 +41,7 @@ impl<const N: usize> Limited<N> {
     };
 }
 
-fn text<const N: usize>(
+pub(super) fn text<const N: usize>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
@@ -45,7 +51,7 @@ fn text<const N: usize>(
     owned::text(state, frames, input, header)
 }
 
-fn bytes<const N: usize>(
+pub(super) fn bytes<const N: usize>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
@@ -55,7 +61,7 @@ fn bytes<const N: usize>(
     owned::bytes(state, frames, input, header)
 }
 
-fn sequence<const N: usize>(
+pub(super) fn sequence<const N: usize>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
@@ -65,7 +71,8 @@ fn sequence<const N: usize>(
     seq::value(state, frames, input, header)
 }
 
-fn map<const N: usize>(
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(super) fn map<const N: usize>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
@@ -76,6 +83,7 @@ fn map<const N: usize>(
 }
 
 /// [`seq::entry`], whose element `N` is over the limit, not past the capacity.
+#[cfg(feature = "heapless")]
 fn element<const N: usize>(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -84,6 +92,7 @@ fn element<const N: usize>(
     past::<N>(seq::entry(state, frames, input), state, frames)
 }
 
+#[cfg(feature = "heapless")]
 /// [`linear_map::entry`], whose entry `N` is over the limit, not past the capacity.
 fn entry<const N: usize>(
     state: &mut State,
@@ -95,7 +104,7 @@ fn entry<const N: usize>(
 
 /// `step`, but a slot refused once the top frame holds `N` items is over the limit: `at_limited`
 /// refuses no earlier one.
-fn past<const N: usize>(
+pub(super) fn past<const N: usize>(
     step: Result<Flow, ErrorKind>,
     state: &State,
     frames: &mut [MaybeUninit<Frame>],

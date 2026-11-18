@@ -42,7 +42,7 @@ pub union Widest<A, B> {
 }
 
 /// Two stacks side by side: room to encode two values at once.
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 #[repr(C)]
 pub struct Twice<S> {
     _first: MaybeUninit<S>,

@@ -11,7 +11,7 @@ use crate::engine::{
 use crate::lead::Lead;
 
 pub use flat::{Concat, Flat, Run, Storage, entries, flattened};
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub use kinds::MapGlue;
 pub use kinds::{DecKind, DecVariant, EncKind};
 pub use order::Order;
@@ -145,7 +145,7 @@ pub unsafe trait Decode<'de>: Sized {
 }
 
 /// A byte array or vector's byte-string encoding, which a field selects with `#[cbor(bytes)]`;
-/// without it, these are arrays of integers, as in serde (#12 Q21). Neither kind opens a frame.
+/// without it, these are arrays of integers, as in serde (#12 Q21).
 ///
 /// ```
 /// #[derive(cbor_static::Cbor, Debug, PartialEq)]
@@ -184,17 +184,19 @@ pub unsafe trait Decode<'de>: Sized {
 /// }
 /// ```
 pub trait ByteString: sealed::ByteString {
-    /// The most bytes the type holds.
-    #[doc(hidden)]
-    const CAPACITY: usize;
     #[doc(hidden)]
     const ENCODE_BYTES: &'static EncKind;
     #[doc(hidden)]
     const DECODE_BYTES: &'static DecKind;
+    /// The frames `DECODE_BYTES` reaches.
+    #[doc(hidden)]
+    type Stack;
+    #[doc(hidden)]
+    const MAX_DEPTH: usize;
 }
 
 /// What a map-form struct's `#[cbor(other)]` field may be (R-128): [`crate::Skipped`], which counts
-/// the entries no field claims, or with feature `heapless`, a `heapless::Vec` of
+/// the entries no field claims, or with feature `alloc` or `heapless`, a `Vec` of
 /// [`crate::RawEntry`], which captures them. The engine trusts these kinds, so the trait is sealed.
 ///
 /// ```compile_fail,E0277

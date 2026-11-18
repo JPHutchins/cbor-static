@@ -34,6 +34,32 @@ pub enum ErrorKind {
     /// # Ok::<(), cbor_static::Error>(())
     /// ```
     NotDeterministic,
+    /// An allocation the allocator refused (feature `alloc`).
+    #[cfg_attr(
+        feature = "alloc",
+        doc = r"
+```
+use core::alloc::{AllocError, Allocator, Layout};
+use core::ptr::NonNull;
+
+struct Refusing;
+
+unsafe impl Allocator for Refusing {
+    fn allocate(&self, _: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        Err(AllocError)
+    }
+
+    unsafe fn deallocate(&self, _: NonNull<u8>, _: Layout) {}
+}
+
+assert_eq!(
+    cbor_static::to_vec_in(&[1u8, 2], Refusing).map_err(|e| e.kind),
+    Err(cbor_static::ErrorKind::OutOfMemory)
+);
+```
+"
+    )]
+    OutOfMemory,
 }
 
 /// An [`ErrorKind`], the index of the field being processed, and the byte offset reached.

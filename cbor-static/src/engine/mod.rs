@@ -8,6 +8,8 @@ mod chunks;
 mod decode;
 mod encode;
 mod glue;
+#[cfg(feature = "alloc")]
+mod heap;
 mod input;
 mod leaf;
 mod limited;
@@ -37,12 +39,23 @@ pub use decode::{
     MAP_OTHER as DECODE_MAP_OTHER, Next, OPTION as DECODE_OPTION, RAW as DECODE_RAW,
     SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
+#[cfg(feature = "alloc")]
+pub(crate) use decode::{
+    BOXED as DECODE_BOXED, BTREE_MAP as DECODE_BTREE_MAP, BYTES_HEAP, HeapLimited, SEQ_HEAP,
+    TEXT_HEAP,
+};
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{
     LINEAR_MAP as DECODE_LINEAR_MAP, Limited as DecodeLimited, SEQ as DECODE_SEQ,
 };
-#[cfg(feature = "heapless")]
+#[cfg(feature = "alloc")]
+pub(crate) use encode::BTREE_MAP as ENCODE_BTREE_MAP;
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
+#[cfg(feature = "heapless")]
+pub(crate) use encode::LINEAR_MAP as ENCODE_LINEAR_MAP;
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(crate) use encode::SEQ as ENCODE_SEQ;
 pub use encode::{
     ADJACENT as ENCODE_ADJACENT, ARRAY as ENCODE_ARRAY, BYTEWISE, CBOR_TAG as ENCODE_CBOR_TAG,
     DeterministicOps, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
@@ -51,12 +64,24 @@ pub use encode::{
     UNTAGGED as ENCODE_UNTAGGED,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
-#[cfg(feature = "heapless")]
-pub(crate) use encode::{LINEAR_MAP as ENCODE_LINEAR_MAP, SEQ as ENCODE_SEQ};
+#[cfg(feature = "alloc")]
+pub use glue::{AfterFn, SettleFn};
 pub use glue::{
     AtFn, EntryFn, FieldPtrFn, FreshFn, IndexFn, LenFn, SomeFn, ViewFn, WriteFn, assemble, drop_fn,
     field_ptr_of, index_of, index_tag, offset, some, some_ptr, wraps, write_default, write_made,
     write_tag,
+};
+#[cfg(feature = "alloc")]
+pub use heap::AllocateFn;
+#[cfg(feature = "alloc")]
+pub(crate) use heap::{
+    after, assemble as assemble_btree, deferred, entry as entry_btree, len_of as len_btree, settle,
+    shadow_fits as shadow_fits_btree,
+};
+#[cfg(feature = "alloc")]
+pub(crate) use heap::{
+    allocate, append_bytes, append_bytes_limited, append_text, append_text_limited, at as at_heap,
+    at_limited as at_heap_limited, push as push_heap, release, unboxed, view as view_heap, zeroed,
 };
 pub(crate) use input::Input;
 pub use leaf::ENC_SKIPPED as ENCODE_SKIPPED;
@@ -76,9 +101,13 @@ pub(crate) use skip::item_len;
 pub use storage::{as_slice, filled, gathered, get, set};
 use strict::STRICT;
 pub(crate) use strict::StrictOps;
+#[cfg(feature = "alloc")]
+pub(crate) use strings::enc_text;
 pub(crate) use strings::{DEC_CHAR, ENC_CHAR, enc_view, exactly, nothing, within};
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(crate) use strings::{any_length, empty};
 #[cfg(feature = "heapless")]
-pub(crate) use strings::{any_length, append_string, append_vec, empty, enc_string};
+pub(crate) use strings::{append_string, append_vec, enc_string};
 pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};

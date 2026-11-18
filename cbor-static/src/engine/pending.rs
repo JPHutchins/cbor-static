@@ -26,7 +26,7 @@ impl Pending {
     }
 
     /// The deterministic encoding the root selects, if any (D-11b).
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     pub(crate) const fn deterministic(&self) -> Option<&'static DeterministicOps> {
         self.deterministic
     }
@@ -79,7 +79,7 @@ impl Pending {
     }
 
     /// The next byte, in every build: a key comparison reads two encodings a byte at a time.
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     pub(crate) fn pop(&mut self) -> Option<u8> {
         let mut one = [0];
         (self.take(&mut one) == 1)

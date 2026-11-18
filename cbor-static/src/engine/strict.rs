@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 
 use super::decode::claim_tag;
 use crate::error::ErrorKind;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 use crate::schema::EncKind;
 use crate::schema::Layout;
 use crate::stack::Frame;
@@ -29,11 +29,11 @@ pub struct StrictOps {
     pub(super) raw: fn(&[u8]) -> Result<(), ErrorKind>,
     /// Two keys a map decoded, of one kind, whose encodings must rise bytewise; with the frames
     /// free above the map, which encoding them needs (#12 Q29).
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     pub(super) keys: Keys,
 }
 
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 type Keys =
     fn(&'static EncKind, *const u8, *const u8, &mut [MaybeUninit<Frame>]) -> Result<(), ErrorKind>;
 
@@ -44,7 +44,7 @@ pub static STRICT: StrictOps = StrictOps {
     unknown: claim_tag,
     sorted,
     raw,
-    #[cfg(feature = "heapless")]
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
     keys,
 };
 
@@ -116,7 +116,7 @@ fn raw(item: &[u8]) -> Result<(), ErrorKind> {
 }
 
 /// Encodes both keys a byte at a time, each on half the free frames, and compares as they go.
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 fn keys(
     kind: &'static EncKind,
     earlier: *const u8,

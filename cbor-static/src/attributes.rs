@@ -222,8 +222,8 @@
 //! # `other`
 //!
 //! `#[cbor(other)]` on one field of a map-form struct, a flattened struct's included, takes the
-//! entries no field claims (R-128): [`crate::Skipped`] counts them, and with feature `heapless`, a
-//! `heapless::Vec` of [`crate::RawEntry`] captures each whole and writes it back in its place. It
+//! entries no field claims (R-128): [`crate::Skipped`] counts them, and with feature `alloc` or
+//! `heapless`, a `Vec` of [`crate::RawEntry`] captures each whole and writes it back in its place. It
 //! is a cbor-static attribute; serde's variant-level `other` is unsupported. `Strict` still rejects
 //! an unknown entry, and `deny_unknown_fields` beside it is a compile error:
 //!
@@ -239,9 +239,9 @@
 //!
 //! # `max_len = N`
 //!
-//! `#[cbor(max_len = N)]` bounds a field's `len()`: bytes for `&str`, `&[u8]` and heapless
-//! `String`, elements for heapless `Vec`, entries for `LinearMap`, and an `Option` of any of them
-//! when it is `Some` (#5 Q15). Encoding a longer value fails with `LimitExceeded`, and so does
+//! `#[cbor(max_len = N)]` bounds a field's `len()`: bytes for `&str`, `&[u8]` and a `String`,
+//! elements for a `Vec`, entries for `BTreeMap` and `LinearMap`, alloc's and heapless's alike, and an `Option` of
+//! any of them when it is `Some` (#5 Q15). Encoding a longer value fails with `LimitExceeded`, and so does
 //! decoding one: a definite length at its head, before any copy, and an indefinite one at the
 //! chunk or element that would pass `N`. A borrowed `&str` or `&[u8]` copies nothing and is
 //! checked once its payload is in one chunk, so a truncated one is `UnexpectedEnd`, and one split

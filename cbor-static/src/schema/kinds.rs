@@ -5,6 +5,8 @@ use crate::engine::{
     AbsentFn, AppendFn, AtFn, BeginFn, DecOps, DecodeFn, EncOps, EncodeFn, EntryFn, FieldPtrFn,
     FinishFn, FreshFn, IndexFn, LenFn, SomeFn, StoreFn, ViewFn, WriteFn,
 };
+#[cfg(feature = "alloc")]
+use crate::engine::{AfterFn, AllocateFn, SettleFn};
 use crate::schema::Layout;
 
 /// `repr(C, u8)` keeps `ops` (and a leaf's `encode`) at one offset in every variant, and `absent`
@@ -67,6 +69,16 @@ pub enum EncKind {
     },
     /// What a deterministic `Map`'s frame encodes in place of each key: its ops pick the key.
     Select { ops: &'static EncOps },
+    /// A `Map` whose entries `after` also finds in order, each from the key before it.
+    #[cfg(feature = "alloc")]
+    Ordered {
+        ops: &'static EncOps,
+        key: &'static EncKind,
+        value: &'static EncKind,
+        len: LenFn,
+        entry: EntryFn,
+        after: AfterFn,
+    },
 }
 
 impl EncKind {
@@ -84,6 +96,8 @@ impl EncKind {
             | Self::Tagged { .. }
             | Self::Map { .. }
             | Self::Select { .. } => &[],
+            #[cfg(feature = "alloc")]
+            Self::Ordered { .. } => &[],
         }
     }
 
@@ -99,6 +113,8 @@ impl EncKind {
             | Self::Tagged { .. }
             | Self::Map { .. }
             | Self::Select { .. } => None,
+            #[cfg(feature = "alloc")]
+            Self::Ordered { .. } => None,
         }
     }
 
@@ -128,6 +144,8 @@ impl EncKind {
             | Self::Tagged { .. }
             | Self::Map { .. }
             | Self::Select { .. } => None,
+            #[cfg(feature = "alloc")]
+            Self::Ordered { .. } => None,
         }
     }
 }
@@ -207,6 +225,15 @@ pub enum DecKind {
         value: &'static DecKind,
         glue: &'static MapGlue,
     },
+    /// `inner`, decoded into the room `allocate` makes, which `release` frees should it fail.
+    #[cfg(feature = "alloc")]
+    Boxed {
+        ops: &'static DecOps,
+        inner: &'static DecKind,
+        drop: Option<WriteFn>,
+        allocate: AllocateFn,
+        release: WriteFn,
+    },
 }
 
 /// How a map's entries decode in place: into a shadow sequence of `(K, V)` in the map's slot, which
@@ -224,6 +251,9 @@ pub struct MapGlue {
     pub drop_key: Option<WriteFn>,
     pub drop_shadow: Option<WriteFn>,
     pub assemble: WriteFn,
+    /// What an ordered map's close checks the shadow with before `assemble`.
+    #[cfg(feature = "alloc")]
+    pub settle: Option<SettleFn>,
     /// The key's encoding, which `Strict` compares bytewise (#12 Q29).
     pub key_encode: &'static EncKind,
 }
@@ -236,6 +266,10 @@ pub struct DecVariant {
 impl DecKind {
     /// This kind for a type that holds exactly the one it describes and drops through `drop`.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per kind, rebuilding it with `drop`"
+    )]
     pub const fn dropped_by(&self, drop: Option<WriteFn>) -> Self {
         match *self {
             Self::Leaf {
@@ -331,6 +365,20 @@ impl DecKind {
                 value,
                 glue,
             },
+            #[cfg(feature = "alloc")]
+            Self::Boxed {
+                ops,
+                inner,
+                allocate,
+                release,
+                ..
+            } => Self::Boxed {
+                ops,
+                inner,
+                drop,
+                allocate,
+                release,
+            },
         }
     }
 
@@ -376,6 +424,8 @@ impl DecKind {
             | Self::Raw { .. }
             | Self::Described { .. }
             | Self::Map { .. } => &[],
+            #[cfg(feature = "alloc")]
+            Self::Boxed { .. } => &[],
         }
     }
 
@@ -390,6 +440,8 @@ impl DecKind {
             | Self::Raw { .. }
             | Self::Described { .. }
             | Self::Map { .. } => None,
+            #[cfg(feature = "alloc")]
+            Self::Boxed { .. } => None,
             Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
         }
     }
@@ -406,6 +458,8 @@ impl DecKind {
             | Self::Raw { drop, .. }
             | Self::Described { drop, .. }
             | Self::Map { drop, .. } => *drop,
+            #[cfg(feature = "alloc")]
+            Self::Boxed { drop, .. } => *drop,
         }
     }
 
@@ -420,6 +474,8 @@ impl DecKind {
             | Self::Raw { .. }
             | Self::Described { .. }
             | Self::Map { .. } => None,
+            #[cfg(feature = "alloc")]
+            Self::Boxed { .. } => None,
         }
     }
 }

@@ -149,7 +149,8 @@ fn value(field: &Field) -> TokenStream {
     match (field.bytes, &field.max_len) {
         (true, Some(max_len)) => quote!(__p::container_len({ #max_len }, 1)),
         (true, None) => {
-            quote!(__p::container_len(<#ty as ::cbor_static::ByteString>::CAPACITY, 1))
+            let capacity = quote_spanned!(field.ty.span()=> <#ty as __p::ByteCapacity>::CAPACITY);
+            quote!(__p::container_len(#capacity, 1))
         }
         (false, Some(max_len)) => bound(&quote!(__p::Limited<#ty, { #max_len }>), field),
         (false, None) => bound(&quote!(#ty), field),

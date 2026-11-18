@@ -4,7 +4,7 @@ error[E0277]: `max_len` does not bound `[u8; 4]`
 4 |     id: [u8; 4],
   |         ^^^^^^^ the trait `cbor_static::__private::Limit` is not implemented for `[u8; 4]`
   |
-  = note: it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one
+  = note: it bounds `&str`, `&[u8]`, alloc or heapless `String` and `Vec`, `BTreeMap`, heapless `LinearMap`, and an `Option` of one
 help: the trait `cbor_static::__private::Limit` is implemented for `&[u8]`
  --> src/limits.rs
   |
@@ -29,7 +29,10 @@ error[E0277]: `max_len` does not bound this field's type
   = help: the following other types implement trait `cbor_static::__private::LimitedDecode<'de>`:
             cbor_static::__private::Limited<&[u8], N>
             cbor_static::__private::Limited<&str, N>
+            cbor_static::__private::Limited<BTreeMap<K, V>, N>
             cbor_static::__private::Limited<Option<T>, N>
+            cbor_static::__private::Limited<String, N>
+            cbor_static::__private::Limited<Vec<T>, N>
             cbor_static::__private::Limited<heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>, N>
             cbor_static::__private::Limited<heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>, N>
             cbor_static::__private::Limited<heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>, N>
@@ -41,11 +44,14 @@ error[E0277]: `max_len` does not bound `u32`
 10 |     n: u32,
    |        ^^^ the trait `cbor_static::__private::Limit` is not implemented for `u32`
    |
-   = note: it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one
+   = note: it bounds `&str`, `&[u8]`, alloc or heapless `String` and `Vec`, `BTreeMap`, heapless `LinearMap`, and an `Option` of one
    = help: the following other types implement trait `cbor_static::__private::Limit`:
              &[u8]
              &str
+             BTreeMap<K, V>
              Option<T>
+             String
+             Vec<T>
              heapless::linear_map::LinearMapInner<K, V, heapless::vec::storage::VecStorageInner<[MaybeUninit<(K, V)>; CAP]>>
              heapless::string::StringInner<L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; CAP]>>
              heapless::vec::VecInner<T, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<T>; CAP]>>
