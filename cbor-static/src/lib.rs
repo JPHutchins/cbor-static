@@ -275,6 +275,7 @@ mod keys;
 mod lead;
 mod scalar;
 mod schema;
+mod sizes;
 mod stack;
 mod tags;
 mod token;
@@ -292,6 +293,7 @@ pub use engine::{
 pub use error::{Error, ErrorKind};
 pub use half::F16;
 pub use schema::{ByteString, Decode, Encode, Other};
+pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
 pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
