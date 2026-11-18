@@ -7,9 +7,7 @@ use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::sync::LazyLock;
 
-use cbor_static::{
-    Decode, Encode, ErrorKind, Token, TokenWriter, Tokens, decode_into, encode_into,
-};
+use cbor_static::{Decode, Encode, ErrorKind, Token, TokenWriter, Tokens, decode_into, to_slice};
 use common::{float_bits, float_encoded, halves};
 use proptest::prelude::*;
 
@@ -77,7 +75,7 @@ fn tokens(bytes: &[u8]) -> Vec<Token<'_>> {
 
 fn round_trip<T: Encode + for<'de> Decode<'de> + Copy>(value: T) -> (Vec<u8>, T) {
     let mut out = [0u8; 160];
-    let len = encode_into(&value, &mut out).expect("encodes");
+    let len = to_slice(&value, &mut out).expect("encodes");
     let mut slot = MaybeUninit::uninit();
     let decoded = *decode_into::<T>(&out[..len], &mut slot).expect("decodes");
     (out[..len].to_vec(), decoded)

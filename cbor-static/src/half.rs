@@ -21,7 +21,7 @@ use crate::wire::float;
 /// assert_eq!(F16::from_bits(0x7e01), F16::from_bits(0x7e01));
 ///
 /// let mut out = [0u8; 3];
-/// assert_eq!(cbor_static::encode_into(&half, &mut out)?, 3);
+/// assert_eq!(cbor_static::to_slice(&half, &mut out)?, 3);
 /// assert_eq!(&out, b"\xf9\x3e\x00");
 ///
 /// let mut slot = core::mem::MaybeUninit::uninit();

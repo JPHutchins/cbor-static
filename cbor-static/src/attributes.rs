@@ -36,13 +36,13 @@
 //! }
 //!
 //! let mut out = [0u8; 32];
-//! let len = cbor_static::encode_into(&Header { key_ops: 1, alg_id: -7 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Header { key_ops: 1, alg_id: -7 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x66keyOps\x01\x63Alg\x26");
-//! let len = cbor_static::encode_into(&Command::ReadAll, &mut out)?;
+//! let len = cbor_static::to_slice(&Command::ReadAll, &mut out)?;
 //! assert_eq!(&out[..len], b"\x68read_all");
-//! let len = cbor_static::encode_into(&Params { base_iv: 2 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Params { base_iv: 2 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa1\x66BaseIv\x02");
-//! let len = cbor_static::encode_into(&Mode::WriteThrough, &mut out)?;
+//! let len = cbor_static::to_slice(&Mode::WriteThrough, &mut out)?;
 //! assert_eq!(&out[..len], b"\x6dwrite-through");
 //! let mut slot = core::mem::MaybeUninit::uninit();
 //! assert_eq!(
@@ -108,7 +108,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&Reading { id: 1, cache: Cache(9) }, &mut out)?;
+//! let len = cbor_static::to_slice(&Reading { id: 1, cache: Cache(9) }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa1\x62id\x01");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -131,7 +131,7 @@
 //! }
 //!
 //! let mut out = [0u8; 4];
-//! let len = cbor_static::encode_into(&Meters { value: 1000 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Meters { value: 1000 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\x19\x03\xe8");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -180,7 +180,7 @@
 //!
 //! let header = Header { id: 1, labels: Labels { alg: -7 }, seq: 2 };
 //! let mut out = [0u8; 16];
-//! let len = cbor_static::encode_into(&header, &mut out)?;
+//! let len = cbor_static::to_slice(&header, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa3\x62id\x01\x01\x26\x63seq\x02");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -206,7 +206,7 @@
 //!     labels: Labels,
 //! }
 //!
-//! let _ = cbor_static::encode_into(&Header { id: 1, labels: Labels { id: 2 } }, &mut [0u8; 16]);
+//! let _ = cbor_static::to_slice(&Header { id: 1, labels: Labels { id: 2 } }, &mut [0u8; 16]);
 //! ```
 //!
 //! And the field's type must be a struct encoded as a map:

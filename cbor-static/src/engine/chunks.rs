@@ -36,7 +36,7 @@ use crate::wire::Major;
 /// assert!(note.data.into_iter().eq([[1u8, 2].as_slice()]));
 ///
 /// let mut out = [0u8; 32];
-/// let len = cbor_static::encode_into(&*note, &mut out)?;
+/// let len = cbor_static::to_slice(&*note, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x64text\x63abc\x64data\x42\x01\x02");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```

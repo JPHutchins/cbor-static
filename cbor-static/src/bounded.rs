@@ -36,7 +36,7 @@ unsafe impl<T: Encode, const N: usize, L: LenType> Encode for Vec<T, N, L> {
 /// assert_eq!(values, &[1, 256]);
 ///
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&*values, &mut out)?;
+/// let len = cbor_static::to_slice(&*values, &mut out)?;
 /// assert_eq!(&out[..len], b"\x82\x01\x19\x01\x00");
 ///
 /// let mut slot = core::mem::MaybeUninit::<heapless::Vec<u16, 1>>::uninit();
@@ -74,9 +74,9 @@ unsafe impl<'de, T: Decode<'de>, const N: usize, L: LenType> Decode<'de> for Vec
 ///
 /// let map: LinearMap<u16, bool, 4> = [(1000, true), (5, false)].into_iter().collect();
 /// let mut out = [0u8; 8];
-/// let len = cbor_static::encode_into(&map, &mut out)?;
+/// let len = cbor_static::to_slice(&map, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x19\x03\xe8\xf5\x05\xf4");
-/// let len = cbor_static::encode_into(&Sorted(map), &mut out)?;
+/// let len = cbor_static::to_slice(&Sorted(map), &mut out)?;
 /// assert_eq!(&out[..len], b"\xa2\x05\xf4\x19\x03\xe8\xf5");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
@@ -204,7 +204,7 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
 /// assert_eq!(frame.payload, [1, 2, 3]);
 ///
 /// let mut out = [0u8; 16];
-/// let len = cbor_static::encode_into(&*frame, &mut out)?;
+/// let len = cbor_static::to_slice(&*frame, &mut out)?;
 /// assert_eq!(&out[..len], b"\xa1\x67payload\x43\x01\x02\x03");
 /// # Ok::<(), cbor_static::Error>(())
 /// ```

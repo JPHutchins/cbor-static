@@ -10,5 +10,5 @@ enum Event {
 }
 
 fn main() {
-    let _ = cbor_static::encode_into(&Event::Data(Payload { t: 1 }), &mut [0u8; 16]);
+    let _ = cbor_static::to_slice(&Event::Data(Payload { t: 1 }), &mut [0u8; 16]);
 }

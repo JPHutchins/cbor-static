@@ -185,7 +185,7 @@ fn item(oracle: impl for<'e, 'b> Fn(&'e mut Oracle<'b>) -> Built<'e, 'b>) -> Vec
 fn written<T: Encode>(value: &T, expected: &[u8]) {
     let mut whole = [0u8; 1024];
     assert_eq!(
-        cbor_static::encode_into(value, &mut whole).map(|len| whole[..len].to_vec()),
+        cbor_static::to_slice(value, &mut whole).map(|len| whole[..len].to_vec()),
         Ok(expected.to_vec()),
         "whole"
     );

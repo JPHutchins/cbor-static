@@ -28,8 +28,8 @@ struct HoldsConflict {
 }
 
 fn main() {
-    let _ = cbor_static::encode_into(&HoldsDeclared { part: [Declared { a: 1 }] }, &mut [0u8; 16]);
-    let _ = cbor_static::encode_into(
+    let _ = cbor_static::to_slice(&HoldsDeclared { part: [Declared { a: 1 }] }, &mut [0u8; 16]);
+    let _ = cbor_static::to_slice(
         &HoldsConflict {
             pair: (Bytewise { a: 1 }, LengthFirst { a: 2 }),
         },

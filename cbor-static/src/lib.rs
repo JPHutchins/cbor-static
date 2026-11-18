@@ -13,7 +13,7 @@
 //! }
 //!
 //! let mut out = [0u8; 32];
-//! let len = cbor_static::encode_into(&Reading { id: 7, rssi: None, name: "a" }, &mut out)?;
+//! let len = cbor_static::to_slice(&Reading { id: 7, rssi: None, name: "a" }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x62id\x07\x64name\x61a");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -39,7 +39,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&Key { alg: -7, crv: 1 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Key { alg: -7, crv: 1 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x01\x26\x20\x01");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -94,7 +94,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&Point { at: (1, -2), label: None }, &mut out)?;
+//! let len = cbor_static::to_slice(&Point { at: (1, -2), label: None }, &mut out)?;
 //! assert_eq!(&out[..len], b"\x81\x82\x01\x21");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -113,7 +113,7 @@
 //! struct Span(u32, Option<u32>);
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&(Ping, Meters(1000), Span(1, None)), &mut out)?;
+//! let len = cbor_static::to_slice(&(Ping, Meters(1000), Span(1, None)), &mut out)?;
 //! assert_eq!(&out[..len], b"\x83\xf6\x19\x03\xe8\x82\x01\xf6");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -134,7 +134,7 @@
 //! }
 //!
 //! let mut out = [0u8; 16];
-//! let len = cbor_static::encode_into(&Frame::Raw([1, 2, 3, 4]), &mut out)?;
+//! let len = cbor_static::to_slice(&Frame::Raw([1, 2, 3, 4]), &mut out)?;
 //! assert_eq!(&out[..len], b"\xa1\x63Raw\x44\x01\x02\x03\x04");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -155,7 +155,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&[Some(Inner { x: 1 }), None], &mut out)?;
+//! let len = cbor_static::to_slice(&[Some(Inner { x: 1 }), None], &mut out)?;
 //! assert_eq!(&out[..len], b"\x82\xa1\x61x\x01\xf6");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -194,7 +194,7 @@
 //! }
 //!
 //! let mut out = [0u8; 8];
-//! let len = cbor_static::encode_into(&(Command::Set(5), Envelope::Maced(1)), &mut out)?;
+//! let len = cbor_static::to_slice(&(Command::Set(5), Envelope::Maced(1)), &mut out)?;
 //! assert_eq!(&out[..len], b"\x82\x82\x01\x05\xd1\x01");
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
@@ -230,7 +230,7 @@
 //! }
 //!
 //! let mut out = [0u8; 32];
-//! let len = cbor_static::encode_into(&Event::Move { x: 1 }, &mut out)?;
+//! let len = cbor_static::to_slice(&Event::Move { x: 1 }, &mut out)?;
 //! assert_eq!(&out[..len], b"\xa2\x64type\x64Move\x61x\x01");
 //!
 //! let mut slot = core::mem::MaybeUninit::uninit();
@@ -299,7 +299,7 @@ pub use token::{Token, TokenWriter, Tokens};
 ///
 /// # Errors
 /// [`ErrorKind::BufferTooSmall`] when `out` cannot hold the whole encoding.
-pub fn encode_into<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
+pub fn to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
     match Encoder::new(value).resume(out)? {
         Progress::Done(written) => Ok(written),
         Progress::NeedSpace(written) => Err(Error::new(ErrorKind::BufferTooSmall, 0, written)),

@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 
 use cbor_static::{
     Decode, Decoder, Encode, Encoder, ErrorKind, Fed, Progress, decode_into, decode_strict_into,
-    encode_into,
+    to_slice,
 };
 
 /// R-009's correctness criterion for an owned type: `value` encodes to exactly `bytes`, whole and
@@ -86,7 +86,7 @@ where
 
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = [0u8; 512];
-    let len = encode_into(value, &mut out).expect("encodes");
+    let len = to_slice(value, &mut out).expect("encodes");
     out[..len].to_vec()
 }
 
