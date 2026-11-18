@@ -34,6 +34,7 @@ pub enum ErrorKind {
     /// # Ok::<(), cbor_static::Error>(())
     /// ```
     NotDeterministic,
+    OutOfMemory,
 }
 
 /// An [`ErrorKind`], the index of the field being processed, and the byte offset reached.

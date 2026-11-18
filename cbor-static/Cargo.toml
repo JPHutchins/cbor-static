@@ -9,8 +9,10 @@ repository.workspace = true
 publish = false
 
 [features]
+alloc = []
 heapless = ["dep:heapless"]
 nightly = []
+std = ["alloc"]
 
 [dependencies]
 cbor-static-derive = { path = "../cbor-static-derive", version = "=0.0.0" }

@@ -260,6 +260,8 @@
 //! `borrow`, `flatten`) and the entries no field claims (`other`) are described in [`attributes`],
 //! and deterministic encoding in [`deterministic`].
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
 extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
