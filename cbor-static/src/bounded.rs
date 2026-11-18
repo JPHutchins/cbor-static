@@ -59,6 +59,7 @@ unsafe impl<'de, T: Decode<'de>, const N: usize, L: LenType> Decode<'de> for Vec
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::ARRAY;
+    const CONTIGUOUS: bool = T::CONTIGUOUS;
 }
 
 /// A map of its entries in their order; under a deterministic root (D-11b), in their keys' order,
@@ -137,6 +138,7 @@ unsafe impl<'de, K: Decode<'de> + Encode + Eq, V: Decode<'de>, const N: usize> D
     );
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::MAP;
+    const CONTIGUOUS: bool = <K as Decode<'de>>::CONTIGUOUS || V::CONTIGUOUS;
 }
 
 #[allow(unsafe_code)]
@@ -177,6 +179,7 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
+    const CONTIGUOUS: bool = false;
 }
 
 /// `#[cbor(bytes)]`: any byte string of at most `N` bytes; without it, an array.

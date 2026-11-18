@@ -275,6 +275,7 @@ mod half;
 mod keys;
 mod lead;
 mod limits;
+mod resumable;
 mod scalar;
 mod schema;
 mod sizes;
@@ -406,6 +407,7 @@ pub mod __private {
     };
     pub use crate::lead::Lead;
     pub use crate::limits::{Limit, Limited, LimitedBytes, LimitedDecode, encode_limited};
+    pub use crate::resumable::resumable;
     pub use crate::schema::{
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
         Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,

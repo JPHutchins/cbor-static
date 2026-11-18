@@ -56,6 +56,7 @@ macro_rules! tuple {
             const MAX_DEPTH: usize = 1 + tuple!(@deepest $($T::MAX_DEPTH),+);
             type OptionStack = Level<Self::Stack>;
             const LEAD: Lead = Lead::ARRAY;
+            const CONTIGUOUS: bool = false $(|| $T::CONTIGUOUS)+;
         }
     };
     (@widest $first:ty $(, $rest:ty)*) => { Widest<$first, tuple!(@widest $($rest),*)> };
@@ -90,6 +91,7 @@ unsafe impl<'de, T: Decode<'de>, const N: usize> Decode<'de> for [T; N] {
     const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::ARRAY;
+    const CONTIGUOUS: bool = T::CONTIGUOUS;
 }
 
 impl<const N: usize> sealed::ByteString for [u8; N] {}

@@ -38,6 +38,7 @@ unsafe impl Decode<'_> for Tracked {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+    const CONTIGUOUS: bool = false;
 }
 
 /// A text leaf that knows nothing of indefinite strings: it takes any text payload whole.
@@ -68,6 +69,7 @@ unsafe impl Decode<'_> for Naive {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+    const CONTIGUOUS: bool = false;
 }
 
 unsafe impl Decode<'_> for Greedy {
@@ -79,6 +81,7 @@ unsafe impl Decode<'_> for Greedy {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+    const CONTIGUOUS: bool = false;
 }
 
 fn kind_of<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<ErrorKind> {

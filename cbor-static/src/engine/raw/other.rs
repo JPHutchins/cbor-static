@@ -74,6 +74,7 @@ impl Other for Skipped {
     const ORDER: Order = Order::Any;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
+    const CONTIGUOUS: bool = false;
 }
 
 /// Counts one more entry, which its map then skips.
@@ -147,6 +148,7 @@ mod captured {
         const ORDER: Order = Order::Conflict;
         type Stack = Level<()>;
         const MAX_DEPTH: usize = 1;
+        const CONTIGUOUS: bool = true;
     }
 
     /// Captures the entry the payload holds whole, key then value; an empty payload is an entry this
