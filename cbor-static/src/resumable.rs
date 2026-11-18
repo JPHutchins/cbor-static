@@ -39,6 +39,19 @@ use crate::schema::Decode;
 ///
 /// cbor_static::__private::resumable::<Reading<'static>>();
 /// ```
+///
+/// So does any type with a lifetime parameter, even when no field it decodes borrows:
+///
+/// ```compile_fail
+/// #[derive(cbor_static::Decode)]
+/// struct Reading<'a> {
+///     id: u32,
+///     #[serde(skip)]
+///     name: &'a str,
+/// }
+///
+/// cbor_static::__private::resumable::<Reading<'static>>();
+/// ```
 pub const fn resumable<T: for<'de> Decode<'de>>() {
     const {
         assert!(
