@@ -4,7 +4,17 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      save-cache:
+        description: Save this branch's Nix binary-cache entry (the cache's 10 GB cap evicts main's)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -15,6 +25,7 @@ env:
 
 jobs:
   discover:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -75,7 +86,7 @@ jobs:
 
   nix:
     needs: [ci, miri]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.save-cache) }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
