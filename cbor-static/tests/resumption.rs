@@ -6,9 +6,8 @@
 mod common;
 
 use core::fmt::Debug;
-use core::mem::MaybeUninit;
 
-use cbor_static::{Cbor, Decode, Decoder, Encode, Encoder, Fed, Progress, Tagged};
+use cbor_static::{Cbor, Decode, Encode, Tagged};
 use proptest::prelude::*;
 
 #[derive(Cbor, Clone, Copy, Debug, PartialEq)]
@@ -74,6 +73,10 @@ fn decoded_across_every_split<T>(value: &T, bytes: &[u8])
 where
     T: for<'de> Decode<'de> + PartialEq + Debug,
 {
+    use core::mem::MaybeUninit;
+
+    use cbor_static::{Decoder, Fed};
+
     for split in 1..bytes.len() {
         let (first, second) = bytes.split_at(split);
         let mut slot = MaybeUninit::uninit();
@@ -89,6 +92,8 @@ where
 }
 
 fn encoded_across_every_split<T: Encode>(value: &T, bytes: &[u8]) {
+    use cbor_static::{Encoder, Progress};
+
     for split in 1..bytes.len() {
         let mut out = vec![0u8; bytes.len()];
         let (first, second) = out.split_at_mut(split);

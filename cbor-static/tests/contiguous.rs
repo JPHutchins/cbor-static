@@ -2,7 +2,7 @@
 //! `Decode::CONTIGUOUS` (#5 Q5): borrowed types, internally and adjacently tagged enums, and
 //! anything holding one need contiguous input; everything else decodes chunk by chunk.
 
-use cbor_static::{ArrayRef, Cbor, Chunks, Decode, MapRef, RawCbor, Skipped, Tagged};
+use cbor_static::{Cbor, Decode, Skipped, Tagged};
 
 fn contiguous<'de, T: Decode<'de>>() -> bool {
     T::CONTIGUOUS
@@ -44,6 +44,59 @@ enum External<'a> {
 enum Plain {
     Count(u32),
     Pair { a: u8, b: Option<u8> },
+}
+
+#[derive(Cbor)]
+#[serde(untagged)]
+enum Untagged<'a> {
+    Count(u64),
+    Name(&'a str),
+}
+
+#[derive(Cbor)]
+#[serde(untagged)]
+enum OwnedUntagged {
+    Count(u64),
+    Flag(bool),
+}
+
+#[derive(Cbor)]
+#[cbor(index)]
+enum Index<'a> {
+    Ping,
+    Name(&'a str),
+}
+
+#[derive(Cbor)]
+#[cbor(index)]
+enum OwnedIndex {
+    Ping,
+    Set(u32),
+}
+
+#[derive(Cbor)]
+enum Envelope<'a> {
+    #[cbor(cbor_tag = 18)]
+    Signed(&'a [u8]),
+    #[cbor(cbor_tag = 17)]
+    Maced(u32),
+}
+
+#[derive(Cbor)]
+enum OwnedEnvelope {
+    #[cbor(cbor_tag = 18)]
+    Signed(u32),
+}
+
+#[derive(Cbor)]
+enum Frame {
+    Raw(#[cbor(bytes)] [u8; 4]),
+}
+
+#[derive(Cbor)]
+struct Limited<'a> {
+    #[cbor(max_len = 4)]
+    name: &'a str,
 }
 
 #[derive(Cbor)]
@@ -89,10 +142,28 @@ fn owned_types_decode_in_chunks() {
     assert!(!contiguous::<Plain>());
     assert!(!contiguous::<Holds<u32>>());
     assert!(!contiguous::<Unit>());
+    assert!(!contiguous::<OwnedUntagged>());
+    assert!(!contiguous::<OwnedIndex>());
+    assert!(!contiguous::<OwnedEnvelope>());
+    assert!(!contiguous::<Frame>());
+}
+
+#[test]
+fn every_enum_form_but_internal_and_adjacent_takes_its_variants() {
+    assert!(contiguous::<Untagged<'_>>());
+    assert!(contiguous::<Index<'_>>());
+    assert!(contiguous::<Envelope<'_>>());
+}
+
+#[test]
+fn a_length_limit_keeps_its_field_borrowed() {
+    assert!(contiguous::<Limited<'_>>());
 }
 
 #[test]
 fn borrowed_types_need_contiguous_input() {
+    use cbor_static::{ArrayRef, Chunks, MapRef, RawCbor};
+
     assert!(contiguous::<&str>());
     assert!(contiguous::<&[u8]>());
     assert!(contiguous::<RawCbor<'_>>());

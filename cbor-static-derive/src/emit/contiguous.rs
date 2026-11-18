@@ -1,5 +1,4 @@
-//! `Decode::CONTIGUOUS` (#5 Q5): an internally or adjacently tagged enum's own, or else whether
-//! any field it decodes is.
+//! `Decode::CONTIGUOUS` (#5 Q5), from an item's form and the fields it decodes.
 
 use proc_macro2::TokenStream;
 use quote::quote;

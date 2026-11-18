@@ -138,7 +138,7 @@ pub unsafe trait Decode<'de>: Sized {
     /// (D-10).
     #[doc(hidden)]
     const LEAD: Lead = Lead::ANY;
-    /// Whether decoding needs the whole item in one chunk: borrowed types, internally and
+    /// Whether decoding needs contiguous input rather than chunks: borrowed types, internally and
     /// adjacently tagged enums (D-10, D-16), and anything holding one.
     #[doc(hidden)]
     const CONTIGUOUS: bool;
@@ -216,7 +216,7 @@ pub trait Other: sealed::Other {
     type Stack;
     #[doc(hidden)]
     const MAX_DEPTH: usize;
-    /// Whether decoding needs the whole map in one chunk: captured entries borrow the input.
+    /// Whether decoding needs contiguous input rather than chunks: captured entries borrow it.
     #[doc(hidden)]
     const CONTIGUOUS: bool;
 }

@@ -63,8 +63,7 @@ fn rfc_8742_an_item_not_well_formed_stops_the_sequence() {
 
 #[test]
 fn items_of_a_sequence_borrow_from_it() {
-    let input = b"\x61a\x62bc\x01";
-    let (first, rest) = from_slice_partial::<&str>(input).expect("first");
+    let (first, rest) = from_slice_partial::<&str>(b"\x61a\x62bc\x01").expect("first");
     let (second, rest) = from_slice_partial::<&str>(rest).expect("second");
     assert_eq!((first, second, rest), ("a", "bc", b"\x01".as_slice()));
 }

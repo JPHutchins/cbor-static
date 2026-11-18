@@ -2,7 +2,7 @@
 //! By-value decoding of a slice (R-203, R-205): convenience over [`crate::decode_into`], which
 //! returns the value where a caller's slot already holds it (D-15).
 
-use crate::engine::{Decoder, Fed, by_value};
+use crate::engine::by_value;
 use crate::error::Error;
 use crate::schema::Decode;
 
@@ -47,6 +47,8 @@ pub fn from_slice<'de, T: Decode<'de>>(input: &'de [u8]) -> Result<T, Error> {
 /// As [`crate::decode_into`], save [`crate::ErrorKind::TrailingInput`]: a truncated item, or an
 /// empty `input`, is [`crate::ErrorKind::UnexpectedEnd`].
 pub fn from_slice_partial<'de, T: Decode<'de>>(input: &'de [u8]) -> Result<(T, &'de [u8]), Error> {
+    use crate::engine::{Decoder, Fed};
+
     by_value(|slot| {
         let mut decoder = Decoder::new(slot);
         match decoder.feed(input) {
