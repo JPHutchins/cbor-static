@@ -459,6 +459,33 @@ impl DecKind {
         }
     }
 
+    /// Whether a value of this kind keeps bytes of the chunk it was decoded from, and so needs
+    /// contiguous input: the `CONTIGUOUS` of every leaf and view.
+    #[must_use]
+    pub const fn takes_payload(&self) -> bool {
+        match self {
+            Self::Leaf {
+                payload: Payload::Taken,
+                ..
+            }
+            | Self::Raw { .. } => true,
+            Self::Leaf {
+                payload: Payload::Refused,
+                ..
+            }
+            | Self::Struct { .. }
+            | Self::Enum { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Owned { .. }
+            | Self::Seq { .. }
+            | Self::Described { .. }
+            | Self::Map { .. } => false,
+            #[cfg(feature = "alloc")]
+            Self::Boxed { .. } => false,
+        }
+    }
+
     pub(crate) const fn drop_fn(&self) -> Option<WriteFn> {
         match self {
             Self::Leaf { drop, .. }

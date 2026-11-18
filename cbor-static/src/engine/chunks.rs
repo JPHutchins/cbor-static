@@ -220,7 +220,7 @@ unsafe impl<'de: 'a, 'a, T: ?Sized + Chunk> Decode<'de> for Chunks<'a, T> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = <T as sealed::Chunk>::LEAD;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 unsafe fn decode<T: ?Sized + Chunk>(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {

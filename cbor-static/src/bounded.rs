@@ -180,7 +180,7 @@ unsafe impl<const N: usize, L: LenType> Decode<'_> for String<N, L> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 /// `#[cbor(bytes)]`: any byte string of at most `N` bytes; without it, an array.

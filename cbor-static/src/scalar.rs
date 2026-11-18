@@ -186,7 +186,7 @@ macro_rules! scalar {
 			};
 			type OptionStack = ();
 			const LEAD: Lead = <$ty as Scalar>::LEAD;
-			const CONTIGUOUS: bool = false;
+			const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 		}
 	)+};
 }
@@ -208,7 +208,7 @@ macro_rules! leaf {
             const MAX_DEPTH: usize = 0;
             type OptionStack = Level<()>;
             const LEAD: Lead = $lead;
-            const CONTIGUOUS: bool = false;
+            const CONTIGUOUS: bool = Self::DECODE.takes_payload();
         }
     };
 }
@@ -260,7 +260,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 /// A one-character text string, which may arrive in chunks.
@@ -278,7 +278,7 @@ unsafe impl Decode<'_> for char {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 #[allow(unsafe_code)]
@@ -295,7 +295,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::BYTES;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 #[allow(unsafe_code)]

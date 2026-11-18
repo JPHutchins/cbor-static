@@ -75,7 +75,7 @@ impl Other for Skipped {
     const ORDER: Order = Order::Any;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE_OTHER.takes_payload();
 }
 
 /// Counts one more entry, which its map then skips.
@@ -175,7 +175,7 @@ mod captured {
         const ORDER: Order = Order::Conflict;
         type Stack = Level<()>;
         const MAX_DEPTH: usize = 1;
-        const CONTIGUOUS: bool = true;
+        const CONTIGUOUS: bool = Self::DECODE_OTHER.takes_payload();
     }
 
     unsafe fn capture<const N: usize, L: LenType>(
@@ -244,7 +244,7 @@ mod allocated {
         const ORDER: Order = Order::Conflict;
         type Stack = Level<()>;
         const MAX_DEPTH: usize = 1;
-        const CONTIGUOUS: bool = true;
+        const CONTIGUOUS: bool = Self::DECODE_OTHER.takes_payload();
     }
 
     unsafe fn capture(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {

@@ -180,5 +180,5 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Embedded<T> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::tagged(ENCODED_CBOR);
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }

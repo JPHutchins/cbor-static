@@ -136,7 +136,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for RawCbor<'a> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::ANY;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 unsafe impl<T> Encode for ArrayRef<'_, T> {
@@ -155,7 +155,7 @@ unsafe impl<'de: 'a, 'a, T: Decode<'a>> Decode<'de> for ArrayRef<'a, T> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::ARRAY;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 unsafe impl<K, V> Encode for MapRef<'_, K, V> {
@@ -174,7 +174,7 @@ unsafe impl<'de: 'a, 'a, K: Decode<'a>, V: Decode<'a>> Decode<'de> for MapRef<'a
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::MAP;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 static ENC_RAW: EncKind = EncKind::Leaf {

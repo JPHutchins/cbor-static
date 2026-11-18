@@ -39,7 +39,7 @@ unsafe impl Decode<'_> for Tracked {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 /// A text leaf that knows nothing of indefinite strings: it takes any text payload whole.
@@ -71,7 +71,7 @@ unsafe impl Decode<'_> for Naive {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 unsafe impl Decode<'_> for Greedy {
@@ -84,13 +84,28 @@ unsafe impl Decode<'_> for Greedy {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 fn kind_of<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<ErrorKind> {
     crate::decode_into(bytes, &mut MaybeUninit::<T>::uninit())
         .err()
         .map(|e| e.kind)
+}
+
+#[test]
+fn only_a_leaf_that_takes_its_payload_or_a_view_keeps_the_chunk() {
+    use super::{DEC_CHAR, DEC_STR, RawCbor};
+
+    const {
+        assert!(<Naive as Decode>::CONTIGUOUS);
+        assert!(<Greedy as Decode>::CONTIGUOUS);
+        assert!(!<Tracked as Decode>::CONTIGUOUS);
+    };
+    assert!(DEC_STR.takes_payload());
+    assert!(<RawCbor as Decode>::DECODE.takes_payload());
+    assert!(!DEC_CHAR.takes_payload());
+    assert!(!<u32 as Decode>::DECODE.takes_payload());
 }
 
 #[test]
