@@ -43,7 +43,7 @@ pub(super) fn value(
 
 /// A key, counted against the map's length; or, once that key is complete and differs from every
 /// earlier one, its value.
-fn entry(
+pub(super) fn entry(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,

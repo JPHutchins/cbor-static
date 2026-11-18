@@ -242,9 +242,8 @@
 //! `#[cbor(max_len = N)]` bounds a field's `len()`: bytes for `&str`, `&[u8]` and heapless
 //! `String`, elements for heapless `Vec`, entries for `LinearMap`, and an `Option` of any of them
 //! when it is `Some` (#5 Q15). Encoding a longer value fails with `LimitExceeded`, and so does
-//! decoding one: a definite length at its head, before any copy, and an indefinite string at the
-//! chunk that would pass `N`. An indefinite array or map fails with `OutOfRange` at element `N`,
-//! as at capacity.
+//! decoding one: a definite length at its head, before any copy, and an indefinite one at the
+//! chunk or element that would pass `N`.
 //!
 //! ```
 //! #[derive(cbor_static::Cbor, Debug, PartialEq)]

@@ -237,7 +237,7 @@ mod bounded {
     }
 
     /// An indefinite string fails at the chunk that would pass the limit, and an indefinite array
-    /// or map at the element past it.
+    /// or map at the element past it, in every split of the input.
     #[test]
     fn a_longer_indefinite_length_fails_as_it_arrives() {
         for (bytes, error) in [
@@ -249,10 +249,13 @@ mod bounded {
                 b"\xa1\x63raw\x5f\x42\x01\x02\x42\x03\x04\xff",
                 ErrorKind::LimitExceeded,
             ),
-            (b"\xa1\x66values\x9f\x01\x02\x03\xff", ErrorKind::OutOfRange),
+            (
+                b"\xa1\x66values\x9f\x01\x02\x03\xff",
+                ErrorKind::LimitExceeded,
+            ),
             (
                 b"\xa1\x63map\xbf\x01\xf5\x02\xf4\xff",
-                ErrorKind::OutOfRange,
+                ErrorKind::LimitExceeded,
             ),
         ] {
             for chunk in 1..=bytes.len() {
@@ -262,6 +265,28 @@ mod bounded {
                     "{bytes:x?} in chunks of {chunk}"
                 );
             }
+        }
+    }
+
+    /// A capacity overflow is still `OutOfRange` where no `max_len` applies.
+    #[test]
+    fn capacity_overflow_is_still_out_of_range() {
+        #[derive(cbor_static::Cbor, Debug, PartialEq)]
+        struct Plain {
+            values: Vec<u16, 2>,
+            map: LinearMap<u8, bool, 1>,
+        }
+
+        for bytes in [
+            &b"\xa1\x66values\x9f\x01\x02\x03\xff"[..],
+            b"\xa1\x66values\x83\x01\x02\x03",
+            b"\xa1\x63map\xbf\x01\xf5\x02\xf4\xff",
+        ] {
+            assert_eq!(
+                fails_after::<Plain>(bytes, bytes.len()).map(|(_, kind)| kind),
+                Some(ErrorKind::OutOfRange),
+                "{bytes:x?}"
+            );
         }
     }
 

@@ -4,7 +4,7 @@
 
 use core::mem::MaybeUninit;
 
-use super::{Begin, DecOps, Flow, State, linear_map, owned, seq};
+use super::{Begin, DecOps, Flow, State, linear_map, owned, seq, top};
 use crate::engine::input::Input;
 use crate::engine::limited::fits;
 use crate::error::ErrorKind;
@@ -25,10 +25,12 @@ impl<const N: usize> Limited<N> {
     };
     pub const SEQ: DecOps = DecOps {
         value: Begin::Header(sequence::<N>),
+        entry: element::<N>,
         ..seq::SEQ
     };
     pub const LINEAR_MAP: DecOps = DecOps {
         value: Begin::Header(map::<N>),
+        entry: entry::<N>,
         ..linear_map::LINEAR_MAP
     };
 }
@@ -71,4 +73,41 @@ fn map<const N: usize>(
 ) -> Result<Flow, ErrorKind> {
     fits::<N>(header)?;
     linear_map::value(state, frames, input, header)
+}
+
+/// [`seq::entry`], whose element `N` is over the limit, not past the capacity.
+fn element<const N: usize>(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    input: &mut Input,
+) -> Result<Flow, ErrorKind> {
+    let step = seq::entry(state, frames, input);
+    past::<N>(step, state, frames)
+}
+
+/// [`linear_map::entry`], whose entry `N` is over the limit, not past the capacity.
+fn entry<const N: usize>(
+    state: &mut State,
+    frames: &mut [MaybeUninit<Frame>],
+    input: &mut Input,
+) -> Result<Flow, ErrorKind> {
+    let step = linear_map::entry(state, frames, input);
+    past::<N>(step, state, frames)
+}
+
+/// `step`, but a slot refused once the top frame holds `N` items is over the limit: `at_limited`
+/// refuses no earlier one.
+fn past<const N: usize>(
+    step: Result<Flow, ErrorKind>,
+    state: &State,
+    frames: &mut [MaybeUninit<Frame>],
+) -> Result<Flow, ErrorKind> {
+    match step {
+        Err(ErrorKind::OutOfRange)
+            if top(state.depth, frames).is_ok_and(|frame| seq::index(frame.seen) >= N) =>
+        {
+            Err(ErrorKind::LimitExceeded)
+        }
+        step => step,
+    }
 }

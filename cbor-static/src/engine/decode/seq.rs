@@ -41,7 +41,7 @@ pub(super) fn value(
     }
 }
 
-fn entry(
+pub(super) fn entry(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
