@@ -8,13 +8,17 @@ error[E0277]: `max_len` does not bound `[u8; 4]`
 help: the trait `cbor_static::__private::Limit` is implemented for `&[u8]`
  --> src/limits.rs
   |
-  | impl Limit for &[u8] {
-  | ^^^^^^^^^^^^^^^^^^^^
+  |         impl<$($generics)*> $crate::limits::Limit for $ty {
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+  | limit!([] &str => usize::MAX, [] &[u8] => usize::MAX);
+  | ----------------------------------------------------- in this macro invocation
 note: required by a bound in `cbor_static::__private::encode_limited`
  --> src/limits.rs
   |
   | pub const fn encode_limited<T: Limit, const N: usize>(inner: &'static EncKind) -> EncKind {
   |                                ^^^^^ required by this bound in `encode_limited`
+  = note: this error originates in the macro `limit` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: `max_len` does not bound this field's type
  --> tests/ui/max_len_unbounded_type.rs:1:10
@@ -22,7 +26,6 @@ error[E0277]: `max_len` does not bound this field's type
 1 | #[derive(cbor_static::Cbor)]
   |          ^^^^^^^^^^^^^^^^^ the trait `cbor_static::__private::LimitedDecode<'de>` is not implemented for `cbor_static::__private::Limited<[u8; 4], 2>`
   |
-  = note: it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one
   = help: the following other types implement trait `cbor_static::__private::LimitedDecode<'de>`:
             cbor_static::__private::Limited<&[u8], N>
             cbor_static::__private::Limited<&str, N>

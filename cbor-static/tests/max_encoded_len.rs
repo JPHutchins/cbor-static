@@ -151,6 +151,27 @@ struct Flattening {
 
 #[derive(cbor_static::Encode)]
 #[cbor(max_encoded_len)]
+struct Meta<T> {
+    tag: T,
+}
+
+#[derive(cbor_static::Encode)]
+#[cbor(max_encoded_len)]
+struct GenericFlattening<T> {
+    id: u8,
+    #[serde(flatten)]
+    meta: Meta<T>,
+}
+
+#[derive(cbor_static::Encode)]
+#[serde(tag = "type")]
+#[cbor(max_encoded_len)]
+enum GenericInternal<T> {
+    Held(Meta<T>),
+}
+
+#[derive(cbor_static::Encode)]
+#[cbor(max_encoded_len)]
 struct Counting {
     id: u8,
     #[cbor(other)]
@@ -166,6 +187,11 @@ fn flattened_entries_join_the_map_and_skipped_ones_add_none() {
             y: Some(u32::MAX),
         },
     });
+    widest(&GenericFlattening {
+        id: u8::MAX,
+        meta: Meta { tag: i64::MIN },
+    });
+    widest(&GenericInternal::Held(Meta { tag: i64::MIN }));
     widest(&Counting {
         id: u8::MAX,
         unknown: cbor_static::Skipped::default(),

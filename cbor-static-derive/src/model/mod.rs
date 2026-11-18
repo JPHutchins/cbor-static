@@ -377,8 +377,8 @@ fn tuple_attrs(attrs: &[Attribute]) -> syn::Result<(bool, Option<Mode>)> {
         } => Ok((transparent, order)),
         _ => Err(syn::Error::new(
             Span::call_site(),
-            "cbor-static: a tuple struct takes only `transparent`, `deterministic` or \
-             `length_first`",
+            "cbor-static: a tuple struct takes only `transparent`, `deterministic`, \
+             `length_first` or `max_encoded_len`",
         )),
     }
 }

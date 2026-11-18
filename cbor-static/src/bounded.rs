@@ -6,7 +6,7 @@ use core::mem::offset_of;
 use heapless::{LenType, LinearMap, String, Vec};
 
 use crate::engine::{
-    BYTES_OWNED, DECODE_LINEAR_MAP, DECODE_SEQ, ENCODE_LINEAR_MAP, ENCODE_SEQ, TEXT_OWNED,
+    AtFn, BYTES_OWNED, DECODE_LINEAR_MAP, DECODE_SEQ, ENCODE_LINEAR_MAP, ENCODE_SEQ, TEXT_OWNED,
     any_length, append_string, append_vec, assemble_map, at, drop_fn, empty, enc_string, enc_view,
     entry, fresh, len_of, shadow_fits, view,
 };
@@ -126,18 +126,7 @@ unsafe impl<'de, K: Decode<'de> + Encode + Eq, V: Decode<'de>, const N: usize> D
             key: <K as Decode<'de>>::DECODE,
             drop: drop_fn::<Self>(),
             value: V::DECODE,
-            glue: &MapGlue {
-                begin: empty::<Vec<(K, V), N>>,
-                at: at::<(K, V), N, usize>,
-                key_at: offset_of!((K, V), 0),
-                value_at: offset_of!((K, V), 1),
-                stride: size_of::<(K, V)>(),
-                fresh: fresh::<K, V, N>,
-                drop_key: drop_fn::<K>(),
-                drop_shadow: drop_fn::<Vec<(K, V), N>>(),
-                assemble: assemble_map::<K, V, N>,
-                key_encode: <K as Encode>::ENCODE,
-            },
+            glue: &glue::<K, V, N>(at::<(K, V), N, usize>),
         }
     };
     type Stack =
@@ -223,4 +212,20 @@ impl<const N: usize, L: LenType> ByteString for Vec<u8, N, L> {
         append: append_vec::<N, L>,
         finish: any_length,
     };
+}
+
+/// How a `LinearMap<K, V, N>`'s entries decode into its shadow, whose slots `at` gives.
+pub(crate) const fn glue<K: Encode + Eq, V, const N: usize>(at: AtFn) -> MapGlue {
+    MapGlue {
+        begin: empty::<Vec<(K, V), N>>,
+        at,
+        key_at: offset_of!((K, V), 0),
+        value_at: offset_of!((K, V), 1),
+        stride: size_of::<(K, V)>(),
+        fresh: fresh::<K, V, N>,
+        drop_key: drop_fn::<K>(),
+        drop_shadow: drop_fn::<Vec<(K, V), N>>(),
+        assemble: assemble_map::<K, V, N>,
+        key_encode: <K as Encode>::ENCODE,
+    }
 }

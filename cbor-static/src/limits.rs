@@ -24,10 +24,7 @@ pub trait Limit {
 pub struct Limited<T, const N: usize>(PhantomData<T>);
 
 /// A `Limited` field's kind for decoding.
-#[diagnostic::on_unimplemented(
-    message = "`max_len` does not bound this field's type",
-    note = "it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one"
-)]
+#[diagnostic::on_unimplemented(message = "`max_len` does not bound this field's type")]
 pub trait LimitedDecode<'de> {
     const DECODE: &'static DecKind;
 }
@@ -40,19 +37,19 @@ pub const fn encode_limited<T: Limit, const N: usize>(inner: &'static EncKind) -
     EncKind::limited(inner, limited::<T, N>)
 }
 
-impl Limit for &str {
-    const BUILT_IN: usize = usize::MAX;
-    fn length(&self) -> usize {
-        self.len()
-    }
+/// `len()` itself, under the type's own limit.
+macro_rules! limit {
+    ($([$($generics:tt)*] $ty:ty => $built_in:expr),+ $(,)?) => {$(
+        impl<$($generics)*> $crate::limits::Limit for $ty {
+            const BUILT_IN: usize = $built_in;
+            fn length(&self) -> usize {
+                self.len()
+            }
+        }
+    )+};
 }
 
-impl Limit for &[u8] {
-    const BUILT_IN: usize = usize::MAX;
-    fn length(&self) -> usize {
-        self.len()
-    }
-}
+limit!([] &str => usize::MAX, [] &[u8] => usize::MAX);
 
 /// A `None` is no longer than any limit.
 impl<T: Limit> Limit for Option<T> {
@@ -126,34 +123,20 @@ const fn allowed<T: Limit, const N: usize>() {
 mod bounded {
     use heapless::{LenType, LinearMap, String, Vec};
 
-    use super::{Limit, Limited, LimitedBytes, LimitedDecode, allowed};
+    use super::{Limited, LimitedBytes, LimitedDecode, allowed};
+    use crate::bounded::glue;
     use crate::engine::{
         DecodeLimited, any_length, append_string_limited, append_vec_limited, at_limited, drop_fn,
         empty,
     };
-    use crate::schema::{DecKind, Decode, MapGlue};
+    use crate::schema::{DecKind, Decode, Encode};
     use crate::sizes::{MaxEncodedLen, container_len};
 
-    impl<const CAP: usize, L: LenType> Limit for String<CAP, L> {
-        const BUILT_IN: usize = CAP;
-        fn length(&self) -> usize {
-            self.len()
-        }
-    }
-
-    impl<T, const CAP: usize, L: LenType> Limit for Vec<T, CAP, L> {
-        const BUILT_IN: usize = CAP;
-        fn length(&self) -> usize {
-            self.len()
-        }
-    }
-
-    impl<K: Eq, V, const CAP: usize> Limit for LinearMap<K, V, CAP> {
-        const BUILT_IN: usize = CAP;
-        fn length(&self) -> usize {
-            self.len()
-        }
-    }
+    limit!(
+        [const CAP: usize, L: LenType] String<CAP, L> => CAP,
+        [T, const CAP: usize, L: LenType] Vec<T, CAP, L> => CAP,
+        [K: Eq, V, const CAP: usize] LinearMap<K, V, CAP> => CAP,
+    );
 
     impl<const CAP: usize, L: LenType, const N: usize> LimitedDecode<'_>
         for Limited<String<CAP, L>, N>
@@ -189,28 +172,17 @@ mod bounded {
         for Limited<LinearMap<K, V, CAP>, N>
     where
         LinearMap<K, V, CAP>: Decode<'de>,
-        K: Eq,
+        K: Decode<'de> + Encode + Eq,
+        V: Decode<'de>,
     {
         const DECODE: &'static DecKind = &{
             allowed::<LinearMap<K, V, CAP>, N>();
-            match <LinearMap<K, V, CAP> as Decode<'de>>::DECODE {
-                DecKind::Map {
-                    key,
-                    drop,
-                    value,
-                    glue,
-                    ..
-                } => DecKind::Map {
-                    ops: &DecodeLimited::<N>::LINEAR_MAP,
-                    key,
-                    drop: *drop,
-                    value,
-                    glue: &MapGlue {
-                        at: at_limited::<(K, V), CAP, usize, N>,
-                        ..**glue
-                    },
-                },
-                _ => panic!("cbor-static: a LinearMap decodes as a map"),
+            DecKind::Map {
+                ops: &DecodeLimited::<N>::LINEAR_MAP,
+                key: <K as Decode<'de>>::DECODE,
+                drop: drop_fn::<LinearMap<K, V, CAP>>(),
+                value: V::DECODE,
+                glue: &glue::<K, V, CAP>(at_limited::<(K, V), CAP, usize, N>),
             }
         };
     }

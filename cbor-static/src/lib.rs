@@ -312,7 +312,8 @@ pub use token::{Token, TokenWriter, Tokens};
 /// ```
 ///
 /// # Errors
-/// [`ErrorKind::BufferTooSmall`] when `out` cannot hold the whole encoding.
+/// [`ErrorKind::BufferTooSmall`] when `out` cannot hold the whole encoding, and
+/// [`ErrorKind::LimitExceeded`] when a field is longer than its `#[cbor(max_len = N)]`.
 pub fn to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
     match Encoder::new(value).resume(out)? {
         Progress::Done(written) => Ok(written),

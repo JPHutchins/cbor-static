@@ -6,7 +6,7 @@ use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned as _;
 
-use super::params::{bounded, params};
+use super::params::bounded;
 use super::{Trait, derives, forms, key};
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Key, Payload, Shape, StructForm, Variant};
@@ -36,13 +36,61 @@ pub fn max_encoded_len(item: &Item, directions: Directions) -> TokenStream {
         ),
     };
     let ident = &item.ident;
-    let named = params(item).named;
-    let generics = bounded(item, &quote!(::cbor_static::MaxEncodedLen), None);
-    let (generics, _, bounds) = generics.split_for_impl();
+    let generics = bounded(
+        item,
+        &quote!(::cbor_static::MaxEncodedLen + ::cbor_static::Encode),
+        None,
+    );
+    let (generics, named, bounds) = generics.split_for_impl();
     quote! {
         #[automatically_derived]
         impl #generics ::cbor_static::MaxEncodedLen for #ident #named #bounds {
             const MAX_ENCODED_LEN: usize = #len;
+        }
+    }
+}
+
+/// The largest of `lens`, nested two at a time.
+fn largest(lens: impl Iterator<Item = TokenStream>) -> TokenStream {
+    lens.reduce(|a, b| quote!(__p::larger(#a, #b)))
+        .unwrap_or_else(null)
+}
+
+/// A variant's longest encoding under `form`, whose encoded identifier is `name`.
+fn variant_len(form: &EnumForm, variant: &Variant, name: &TokenStream) -> TokenStream {
+    let payload = match &variant.payload {
+        Payload::Unit => None,
+        Payload::Newtype(field) => Some(value(field)),
+        Payload::Struct(fields) => Some(map(fields, &[])),
+    };
+    match (form, payload) {
+        (EnumForm::External | EnumForm::Index | EnumForm::CborTag, None) => name.clone(),
+        (EnumForm::External | EnumForm::Index, Some(payload)) => {
+            quote!(__p::head_len(1) + #name + #payload)
+        }
+        (EnumForm::CborTag, Some(payload)) => quote!(#name + #payload),
+        (EnumForm::Untagged, None) => null(),
+        (EnumForm::Untagged, Some(payload)) => payload,
+        (EnumForm::Adjacent { tag, content }, payload) => {
+            let tagged = quote!(__p::key_len(&__p::Key::Text(#tag)) + #name);
+            payload.map_or_else(
+                || quote!(__p::head_len(1) + #tagged),
+                |payload| {
+                    quote!(__p::head_len(2) + #tagged + __p::key_len(&__p::Key::Text(#content)) + #payload)
+                },
+            )
+        }
+        (EnumForm::Internal { tag }, _) => {
+            let tagged = quote!(__p::key_len(&__p::Key::Text(#tag)) + #name);
+            match &variant.payload {
+                Payload::Unit => quote!(__p::head_len(1) + #tagged),
+                Payload::Struct(fields) => map(fields, &[tagged]),
+                Payload::Newtype(field) => {
+                    let ty = &field.ty;
+                    let (count, entries) = flattened(&quote!(#ty), field);
+                    quote!(__p::head_len((1 + #count) as u64) + #tagged + #entries)
+                }
+            }
         }
     }
 }
@@ -111,49 +159,4 @@ fn value(field: &Field) -> TokenStream {
 /// `ty`'s `MaxEncodedLen`, which rustc reports missing at `field`'s type.
 fn bound(ty: &TokenStream, field: &Field) -> TokenStream {
     quote_spanned!(field.ty.span()=> <#ty as ::cbor_static::MaxEncodedLen>::MAX_ENCODED_LEN)
-}
-
-/// A variant's longest encoding under `form`, whose encoded identifier is `name`.
-fn variant_len(form: &EnumForm, variant: &Variant, name: &TokenStream) -> TokenStream {
-    let payload = match &variant.payload {
-        Payload::Unit => None,
-        Payload::Newtype(field) => Some(value(field)),
-        Payload::Struct(fields) => Some(map(fields, &[])),
-    };
-    match (form, payload) {
-        (EnumForm::External | EnumForm::Index | EnumForm::CborTag, None) => name.clone(),
-        (EnumForm::External | EnumForm::Index, Some(payload)) => {
-            quote!(__p::head_len(1) + #name + #payload)
-        }
-        (EnumForm::CborTag, Some(payload)) => quote!(#name + #payload),
-        (EnumForm::Untagged, None) => null(),
-        (EnumForm::Untagged, Some(payload)) => payload,
-        (EnumForm::Adjacent { tag, content }, payload) => {
-            let tagged = quote!(__p::key_len(&__p::Key::Text(#tag)) + #name);
-            payload.map_or_else(
-                || quote!(__p::head_len(1) + #tagged),
-                |payload| {
-                    quote!(__p::head_len(2) + #tagged + __p::key_len(&__p::Key::Text(#content)) + #payload)
-                },
-            )
-        }
-        (EnumForm::Internal { tag }, _) => {
-            let tagged = quote!(__p::key_len(&__p::Key::Text(#tag)) + #name);
-            match &variant.payload {
-                Payload::Unit => quote!(__p::head_len(1) + #tagged),
-                Payload::Struct(fields) => map(fields, &[tagged]),
-                Payload::Newtype(field) => {
-                    let ty = &field.ty;
-                    let (count, entries) = flattened(&quote!(#ty), field);
-                    quote!(__p::head_len((1 + #count) as u64) + #tagged + #entries)
-                }
-            }
-        }
-    }
-}
-
-/// The largest of `lens`, nested two at a time.
-fn largest(lens: impl Iterator<Item = TokenStream>) -> TokenStream {
-    lens.reduce(|a, b| quote!(__p::larger(#a, #b)))
-        .unwrap_or_else(null)
 }

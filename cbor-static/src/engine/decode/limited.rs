@@ -9,7 +9,7 @@ use crate::engine::input::Input;
 use crate::engine::limited::fits;
 use crate::error::ErrorKind;
 use crate::stack::Frame;
-use crate::wire::Header;
+use crate::wire::{Header, Major};
 
 /// The forms, each bounded to `N` bytes, elements or entries.
 pub struct Limited<const N: usize>;
@@ -41,7 +41,7 @@ fn text<const N: usize>(
     input: &mut Input,
     header: Header,
 ) -> Result<Flow, ErrorKind> {
-    fits::<N>(header)?;
+    fits::<N>(header, Major::Text)?;
     owned::text(state, frames, input, header)
 }
 
@@ -51,7 +51,7 @@ fn bytes<const N: usize>(
     input: &mut Input,
     header: Header,
 ) -> Result<Flow, ErrorKind> {
-    fits::<N>(header)?;
+    fits::<N>(header, Major::Bytes)?;
     owned::bytes(state, frames, input, header)
 }
 
@@ -61,7 +61,7 @@ fn sequence<const N: usize>(
     input: &mut Input,
     header: Header,
 ) -> Result<Flow, ErrorKind> {
-    fits::<N>(header)?;
+    fits::<N>(header, Major::Array)?;
     seq::value(state, frames, input, header)
 }
 
@@ -71,7 +71,7 @@ fn map<const N: usize>(
     input: &mut Input,
     header: Header,
 ) -> Result<Flow, ErrorKind> {
-    fits::<N>(header)?;
+    fits::<N>(header, Major::Map)?;
     linear_map::value(state, frames, input, header)
 }
 
@@ -81,8 +81,7 @@ fn element<const N: usize>(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
-    let step = seq::entry(state, frames, input);
-    past::<N>(step, state, frames)
+    past::<N>(seq::entry(state, frames, input), state, frames)
 }
 
 /// [`linear_map::entry`], whose entry `N` is over the limit, not past the capacity.
@@ -91,8 +90,7 @@ fn entry<const N: usize>(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
-    let step = linear_map::entry(state, frames, input);
-    past::<N>(step, state, frames)
+    past::<N>(linear_map::entry(state, frames, input), state, frames)
 }
 
 /// `step`, but a slot refused once the top frame holds `N` items is over the limit: `at_limited`

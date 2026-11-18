@@ -6,7 +6,7 @@ use core::ptr;
 use super::{DecodeFn, Item, Next, leaf};
 use crate::error::ErrorKind;
 use crate::limits::Limit;
-use crate::wire::Header;
+use crate::wire::{Header, Major};
 
 /// The value at `at`, or null when it is longer than `N`.
 ///
@@ -20,12 +20,16 @@ pub unsafe fn limited<T: Limit, const N: usize>(at: *const u8) -> *const u8 {
     }
 }
 
-/// Whether `header`'s declared length is at most `N`; an indefinite one declares none.
+/// Whether a `major` item's declared length is at most `N`. An indefinite one declares none, and
+/// an item of another major type is its form's to reject.
 ///
 /// # Errors
 /// [`ErrorKind::LimitExceeded`] for a longer one.
-pub fn fits<const N: usize>(header: Header) -> Result<(), ErrorKind> {
-    if header.indefinite() || usize::try_from(header.arg).is_ok_and(|len| len <= N) {
+pub fn fits<const N: usize>(header: Header, major: Major) -> Result<(), ErrorKind> {
+    if header.major != major
+        || header.indefinite()
+        || usize::try_from(header.arg).is_ok_and(|len| len <= N)
+    {
         Ok(())
     } else {
         Err(ErrorKind::LimitExceeded)
@@ -46,7 +50,7 @@ unsafe fn dec_limited<const N: usize, const TEXT: bool>(
     dst: *mut u8,
     item: &Item<'_>,
 ) -> Result<Next, ErrorKind> {
-    fits::<N>(item.header)?;
+    fits::<N>(item.header, if TEXT { Major::Text } else { Major::Bytes })?;
     if TEXT {
         unsafe { leaf::dec_str(dst, item) }
     } else {

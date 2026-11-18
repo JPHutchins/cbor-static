@@ -120,6 +120,19 @@ fn encoding_past_the_limit_fails_in_chunks() {
     }
 }
 
+/// An item of another type is the field's type mismatch, whatever its argument.
+#[test]
+fn another_type_is_a_mismatch_not_a_limit() {
+    for bytes in [
+        &b"\xa2\x64name\x01\x63raw\x40"[..],
+        b"\xa2\x64name\x19\x03\xe8\x63raw\x40",
+        b"\xa2\x64name\xf6\x63raw\x40",
+        b"\xa2\x64name\x60\x63raw\x65abcde",
+    ] {
+        assert_eq!(decode::<Borrowed>(bytes), Err(ErrorKind::TypeMismatch), "{bytes:x?}");
+    }
+}
+
 #[test]
 fn decoding_past_the_limit_fails_whole_and_in_chunks() {
     for bytes in [
@@ -265,6 +278,22 @@ mod bounded {
                     "{bytes:x?} in chunks of {chunk}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn another_type_is_a_mismatch_not_a_limit() {
+        for bytes in [
+            &b"\xa1\x64name\x19\x03\xe8"[..],
+            b"\xa1\x66values\x65abcde",
+            b"\xa1\x63raw\x9f\xff",
+            b"\xa1\x63map\x85\x01\x02\x03\x04\x05",
+        ] {
+            assert_eq!(
+                fails_after::<Owned>(bytes, bytes.len()).map(|(_, kind)| kind),
+                Some(ErrorKind::TypeMismatch),
+                "{bytes:x?}"
+            );
         }
     }
 
