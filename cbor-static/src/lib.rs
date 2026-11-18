@@ -326,6 +326,16 @@ pub fn to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
 
 /// Decodes exactly one item spanning all of `input` into `slot`.
 ///
+/// ```
+/// let mut slot = core::mem::MaybeUninit::<[u16; 2]>::uninit();
+/// assert_eq!(*cbor_static::decode_into(b"\x82\x01\x19\x01\xf4", &mut slot)?, [1, 500]);
+/// assert_eq!(
+///     cbor_static::decode_into(b"\x82\x01\x19\x01", &mut slot).map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::UnexpectedEnd)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
 /// # Errors
 /// Any [`ErrorKind`]: malformed or truncated input, a type or range mismatch, a missing or
 /// duplicate field, or bytes left over after the item.
