@@ -6,7 +6,7 @@ import sys
 from typing import TYPE_CHECKING, Final
 
 from harness.backends import BACKENDS
-from harness.measure import GATE_TARGET, HARNESS, PROFILES, Measurement, measure
+from harness.measure import COUNTS, GATE_TARGET, HARNESS, PROFILES, Measurement, measure
 from harness.model import SHAPES
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ def main(argv: Sequence[str]) -> int:
 	parser.add_argument("--backend", choices=list(BACKENDS), required=True)
 	parser.add_argument("--shape", choices=list(SHAPES), required=True)
 	parser.add_argument("--target", default=GATE_TARGET)
-	parser.add_argument("--counts", nargs="+", type=int, default=[1, 2, 4, 8, 16, 32])
+	parser.add_argument("--counts", nargs="+", type=int, default=list(COUNTS))
 	args = parser.parse_args(argv)
 	rows = [
 		measure(BACKENDS[args.backend], args.shape, args.target, profile, count)
