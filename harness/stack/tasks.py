@@ -1,4 +1,4 @@
-"""R-208: the checked-in stack frames of the engine and the rich fixture, on the pinned nightly."""
+"""R-208: the stack-size baseline and its check."""
 
 from camas import Config, Task
 

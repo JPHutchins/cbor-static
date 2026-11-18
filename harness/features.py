@@ -438,17 +438,22 @@ def dependencies(cargo_features: tuple[str, ...]) -> str:
 
 
 def pinned(cargo_features: tuple[str, ...]) -> dict[str, str]:
-	"""The `rust-toolchain.toml` that selects the nightly toolchain, for a crate that needs it: the
-	toolchain proxy takes the one nearest the crate.
+	"""The `rust-toolchain.toml` that selects the nightly toolchain, for a crate that needs it.
 
-	>>> pinned(()), "channel" in pinned((NIGHTLY,))["rust-toolchain.toml"]
+	>>> pinned(()), pinned((NIGHTLY,)) == nightly_pin()
 	({}, True)
 	"""
-	return (
-		{"rust-toolchain.toml": (ROOT / NIGHTLY / "rust-toolchain.toml").read_text()}
-		if NIGHTLY in cargo_features
-		else {}
-	)
+	return nightly_pin() if NIGHTLY in cargo_features else {}
+
+
+def nightly_pin() -> dict[str, str]:
+	"""The pinned nightly's `rust-toolchain.toml`, for a crate: the toolchain proxy takes the one
+	nearest the crate.
+
+	>>> "channel" in nightly_pin()["rust-toolchain.toml"]
+	True
+	"""
+	return {"rust-toolchain.toml": (ROOT / NIGHTLY / "rust-toolchain.toml").read_text()}
 
 
 def load() -> list[Cost]:

@@ -6,7 +6,7 @@ import sys
 from typing import TYPE_CHECKING, Final
 
 from harness.backends import BACKENDS
-from harness.measure import GATE_TARGET, HARNESS, PROFILES, Measurement, measure
+from harness.measure import COUNTS, GATE_TARGET, HARNESS, PROFILES, Measurement, measure
 from harness.model import SHAPES
 
 if TYPE_CHECKING:
@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 	from pathlib import Path
 
 RESULTS: Final = HARNESS / "results"
-COUNTS: Final = (1, 2, 4, 8, 16, 32)
 
 
 def main(argv: Sequence[str]) -> int:
