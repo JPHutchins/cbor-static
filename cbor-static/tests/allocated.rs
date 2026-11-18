@@ -288,3 +288,27 @@ proptest! {
         golden(&record, &encode(&record));
     }
 }
+
+#[test]
+fn to_vec_sizes_its_vector_once_and_fails_as_to_slice_does() {
+    let record = Record {
+        id: 7,
+        name: "a".repeat(300),
+        tags: vec!["x".into(); 40],
+        blob: vec![1; 70_000],
+        note: Some("n".into()),
+    };
+    let encoded = cbor_static::to_vec(&record).expect("encodes");
+    assert_eq!(encoded.capacity(), encoded.len());
+    assert_eq!(from_slice::<Record>(&encoded), Ok(record));
+    assert_eq!(
+        cbor_static::to_vec(&Limited {
+            name: "abc".into(),
+            values: vec![],
+            blob: vec![],
+        })
+        .map_err(|e| e.kind),
+        Err(ErrorKind::LimitExceeded)
+    );
+    assert_eq!(cbor_static::to_vec(&()), Ok(vec![0xf6]));
+}

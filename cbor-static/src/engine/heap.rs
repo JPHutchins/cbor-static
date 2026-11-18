@@ -40,6 +40,27 @@ pub fn push<T>(vec: &mut Vec<T>, item: T) -> Result<(), ErrorKind> {
     Ok(())
 }
 
+/// `len` zeroed bytes appended to `vec`, which reserves exactly them.
+///
+/// # Errors
+/// [`ErrorKind::OutOfMemory`] when they cannot be reserved.
+pub fn zeroed<A: alloc::alloc::Allocator>(
+    vec: &mut Vec<u8, A>,
+    len: usize,
+) -> Result<&mut [u8], ErrorKind> {
+    vec.try_reserve_exact(len)
+        .map_err(|_| ErrorKind::OutOfMemory)?;
+    vec.spare_capacity_mut()
+        .iter_mut()
+        .take(len)
+        .for_each(|byte| {
+            byte.write(0);
+        });
+    let start = vec.len();
+    unsafe { vec.set_len(start + len) };
+    vec.get_mut(start..).ok_or(ErrorKind::Unsupported)
+}
+
 /// [`at`], with no slot past element `N`, which it refuses before reserving.
 ///
 /// # Safety
@@ -155,4 +176,18 @@ pub unsafe fn release<T>(slot: *mut u8) {
 /// `boxed` points to a valid `Box<T>`.
 pub unsafe fn unboxed<T>(boxed: *const u8) -> *const u8 {
     ptr::from_ref::<T>(unsafe { &*boxed.cast::<alloc::boxed::Box<T>>() }).cast()
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec::Vec;
+
+    use super::zeroed;
+
+    #[test]
+    fn zeroed_appends_and_returns_only_the_new_bytes() {
+        let mut vec = Vec::from([1u8, 2]);
+        assert_eq!(zeroed(&mut vec, 3).map(|new| new.len()), Ok(3));
+        assert_eq!(vec, [1, 2, 0, 0, 0]);
+    }
 }

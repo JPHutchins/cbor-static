@@ -8,7 +8,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::mem::MaybeUninit;
 
-use cbor_static::{Cbor, Decoder, ErrorKind, Fed, from_slice};
+use cbor_static::{Cbor, Decoder, ErrorKind, Fed, from_slice, to_vec};
 
 struct Counting;
 
@@ -227,6 +227,27 @@ fn a_refused_reservation_is_out_of_memory_and_frees_the_rest() {
         measured(0, || {
             assert_eq!(
                 from_slice::<Record>(input).map(|_| ()).map_err(|e| e.kind),
+                Err(ErrorKind::OutOfMemory)
+            );
+        }),
+        (0, 0)
+    );
+}
+
+#[test]
+fn to_vec_allocates_its_encoding_once_or_fails_with_nothing_allocated() {
+    let value = (String::from("hello"), vec![1u32; 100]);
+    let (live, largest) = measured(usize::MAX, || {
+        assert_eq!(
+            to_vec(&value).map(|encoded| encoded.len()),
+            Ok(1 + 6 + 2 + 100)
+        );
+    });
+    assert_eq!((live, largest), (0, 1 + 6 + 2 + 100));
+    assert_eq!(
+        measured(0, || {
+            assert_eq!(
+                to_vec(&value).map_err(|e| e.kind),
                 Err(ErrorKind::OutOfMemory)
             );
         }),

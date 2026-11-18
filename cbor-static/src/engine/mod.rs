@@ -69,7 +69,7 @@ pub use heap::AllocateFn;
 #[cfg(feature = "alloc")]
 pub(crate) use heap::{
     allocate, append_bytes, append_bytes_limited, append_text, append_text_limited, at as at_heap,
-    at_limited as at_heap_limited, push as push_heap, release, unboxed, view as view_heap,
+    at_limited as at_heap_limited, push as push_heap, release, unboxed, view as view_heap, zeroed,
 };
 pub(crate) use input::Input;
 pub use leaf::ENC_SKIPPED as ENCODE_SKIPPED;
