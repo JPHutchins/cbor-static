@@ -34,6 +34,7 @@ MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
 nightly_miri = partial(Task, cwd=TOOLCHAIN["nightly"]["DIR"], env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"})
 
 harness = Project("harness")
+stack = Project("harness/stack")
 
 rust_fmt = Task("cargo fmt --all", mutates=True)
 tasks_fix = Task("uv run ruff check --fix --exit-zero {paths}", paths="tasks.py", mutates=True) + Task(
@@ -113,7 +114,7 @@ diagnostics = Task(
 	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
 )
 kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
-ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake
+ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake | stack
 ci = ci_jobs | miri
 all = fix + check
 

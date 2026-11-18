@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 	from pathlib import Path
 
 RESULTS: Final = HARNESS / "results"
+COUNTS: Final = (1, 2, 4, 8, 16, 32)
 
 
 def main(argv: Sequence[str]) -> int:
@@ -21,7 +22,7 @@ def main(argv: Sequence[str]) -> int:
 	parser.add_argument("--backend", choices=list(BACKENDS), required=True)
 	parser.add_argument("--shape", choices=list(SHAPES), required=True)
 	parser.add_argument("--target", default=GATE_TARGET)
-	parser.add_argument("--counts", nargs="+", type=int, default=[1, 2, 4, 8, 16, 32])
+	parser.add_argument("--counts", nargs="+", type=int, default=list(COUNTS))
 	args = parser.parse_args(argv)
 	rows = [
 		measure(BACKENDS[args.backend], args.shape, args.target, profile, count)
