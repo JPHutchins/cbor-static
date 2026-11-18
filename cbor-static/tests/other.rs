@@ -286,3 +286,88 @@ mod captured {
         assert_eq!(encode(&*parent), b"\xa3\x62id\x01\x63tag\x02\x61z\x03");
     }
 }
+
+#[cfg(feature = "alloc")]
+mod allocated {
+    use core::mem::MaybeUninit;
+
+    use cbor_static::{Cbor, Decode, Decoder, ErrorKind, RawEntry, from_slice};
+
+    use super::UNKNOWN;
+    use super::common::{chunked_encode, encode};
+
+    #[derive(Cbor, Debug, PartialEq)]
+    struct Header<'a> {
+        id: u8,
+        #[cbor(other)]
+        rest: Vec<RawEntry<'a>>,
+        seq: u8,
+    }
+
+    #[derive(Cbor, Debug, PartialEq)]
+    struct Extra<'a> {
+        tag: u8,
+        #[cbor(other)]
+        rest: Vec<RawEntry<'a>>,
+    }
+
+    #[derive(Cbor, Debug, PartialEq)]
+    struct Parent<'a> {
+        id: u8,
+        #[serde(flatten)]
+        extra: Extra<'a>,
+    }
+
+    #[test]
+    fn every_unknown_entry_is_captured_and_written_in_its_fields_place() {
+        let header: Header = from_slice(UNKNOWN).expect("decodes");
+        assert_eq!(
+            header
+                .rest
+                .iter()
+                .map(|entry| (entry.key.as_bytes(), entry.value.as_bytes()))
+                .collect::<Vec<_>>(),
+            [
+                (b"\x05".as_slice(), b"\x06".as_slice()),
+                (b"\x81\x01", b"\x61v"),
+                (b"\x61x", b"\xf5"),
+            ]
+        );
+        let written = b"\xa5\x62id\x01\x05\x06\x81\x01\x61v\x61x\xf5\x63seq\x02";
+        for chunk in 1..=written.len() {
+            assert_eq!(chunked_encode(&header, chunk), written, "chunks of {chunk}");
+        }
+        assert_eq!(
+            from_slice::<Header>(written).as_ref().map(encode),
+            Ok(written.to_vec())
+        );
+        let many: Header = from_slice(b"\xa6\x62id\x01\x63seq\x02\x00\x00\x01\x00\x02\x00\x03\x00")
+            .expect("decodes");
+        assert_eq!(many.rest.len(), 4);
+    }
+
+    #[test]
+    fn a_captured_entry_split_across_chunks_needs_contiguous_input() {
+        const { assert!(<Header<'_> as Decode<'_>>::CONTIGUOUS) };
+        let mut slot = MaybeUninit::<Header>::uninit();
+        let mut decoder = Decoder::new(&mut slot);
+        assert_eq!(
+            decoder.feed(&UNKNOWN[..6]).map_err(|e| e.kind),
+            Err(ErrorKind::NeedContiguous)
+        );
+    }
+
+    #[test]
+    fn a_flattened_structs_other_field_takes_its_parents_unknown_entries() {
+        let parent: Parent =
+            from_slice(b"\xa4\x62id\x01\x61z\x03\x63tag\x02\x61y\x04").expect("decodes");
+        assert_eq!(
+            (parent.id, parent.extra.tag, parent.extra.rest.len()),
+            (1, 2, 2)
+        );
+        assert_eq!(
+            encode(&parent),
+            b"\xa4\x62id\x01\x63tag\x02\x61z\x03\x61y\x04"
+        );
+    }
+}

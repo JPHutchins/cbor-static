@@ -45,7 +45,7 @@ pub(crate) use decode::{BOXED as DECODE_BOXED, BYTES_HEAP, HeapLimited, SEQ_HEAP
 pub(crate) use decode::{
     LINEAR_MAP as DECODE_LINEAR_MAP, Limited as DecodeLimited, SEQ as DECODE_SEQ,
 };
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
 #[cfg(feature = "heapless")]
 pub(crate) use encode::LINEAR_MAP as ENCODE_LINEAR_MAP;
@@ -69,7 +69,7 @@ pub use heap::AllocateFn;
 #[cfg(feature = "alloc")]
 pub(crate) use heap::{
     allocate, append_bytes, append_bytes_limited, append_text, append_text_limited, at as at_heap,
-    at_limited as at_heap_limited, release, unboxed, view as view_heap,
+    at_limited as at_heap_limited, push as push_heap, release, unboxed, view as view_heap,
 };
 pub(crate) use input::Input;
 pub use leaf::ENC_SKIPPED as ENCODE_SKIPPED;

@@ -73,6 +73,7 @@ const fn min_non_zero_cap<T>() -> usize {
 const HUGE_ARRAY: &[u8] = b"\x9b\x00\x00\x00\x01\x00\x00\x00\x00";
 const HUGE_TEXT: &[u8] = b"\x7b\x00\x00\x00\x01\x00\x00\x00\x00";
 const HUGE_BYTES: &[u8] = b"\x5b\x00\x00\x00\x01\x00\x00\x00\x00";
+const HUGE_MAP: &[u8] = b"\xbb\x00\x00\x00\x01\x00\x00\x00\x00";
 
 #[test]
 fn a_huge_array_header_reserves_only_slots_its_elements_reached() {
@@ -111,6 +112,32 @@ fn a_huge_byte_string_header_reserves_only_what_arrived() {
         assert!(
             largest <= min_non_zero_cap::<u8>().max(2 * delivered),
             "{delivered} bytes: {largest} reserved"
+        );
+    }
+}
+
+#[test]
+fn a_huge_map_of_unclaimed_entries_reserves_only_entries_it_reached() {
+    #[derive(Cbor, Debug)]
+    struct Captured<'a> {
+        #[cbor(other)]
+        rest: Vec<cbor_static::RawEntry<'a>>,
+    }
+
+    for completed in 0..40 {
+        let input = [HUGE_MAP, &[0u8; 80][..2 * completed]].concat();
+        let (live, largest) = measured(usize::MAX, || {
+            let mut slot = MaybeUninit::<Captured>::uninit();
+            assert_eq!(
+                Decoder::new(&mut slot).feed(&input).map_err(|e| e.kind),
+                Ok(Fed::NeedInput)
+            );
+        });
+        assert_eq!(live, 0, "{completed} entries");
+        assert!(
+            largest / size_of::<cbor_static::RawEntry>()
+                <= min_non_zero_cap::<cbor_static::RawEntry>().max(2 * (completed + 1)),
+            "{completed} entries: {largest} bytes"
         );
     }
 }

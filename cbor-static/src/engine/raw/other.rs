@@ -87,13 +87,38 @@ unsafe fn count(dst: *mut u8, _: &Item<'_>) -> Result<Next, ErrorKind> {
     Ok(Next::Done)
 }
 
+/// The entry the payload holds whole, key then value, and its length; an empty payload is an entry
+/// this chunk does not hold whole.
+///
+/// # Safety
+/// As [`borrowed`]: the payload outlives the entry.
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+unsafe fn whole<'de>(item: &Item<'_>) -> Result<(RawEntry<'de>, usize), ErrorKind> {
+    use super::codec::borrowed;
+    use crate::engine::skip::item_len;
+
+    let entry = unsafe { borrowed(item.payload) };
+    if entry.is_empty() {
+        return Err(ErrorKind::NeedContiguous);
+    }
+    let (key, value) = entry
+        .split_at_checked(item_len(entry)?)
+        .ok_or(ErrorKind::Unsupported)?;
+    Ok((
+        RawEntry {
+            key: RawCbor { bytes: key },
+            value: RawCbor { bytes: value },
+        },
+        entry.len(),
+    ))
+}
+
 #[cfg(feature = "heapless")]
 mod captured {
     use heapless::{LenType, Vec};
 
     use super::super::RawCbor;
-    use super::super::codec::borrowed;
-    use super::RawEntry;
+    use super::{RawEntry, whole};
     use crate::engine::{ENCODE_ENTRIES, Item, Next, drop_fn, view, write_default};
     use crate::error::ErrorKind;
     use crate::schema::{DecKind, EncKind, Encode, Order, Other, sealed};
@@ -151,28 +176,78 @@ mod captured {
         const CONTIGUOUS: bool = true;
     }
 
-    /// Captures the entry the payload holds whole, key then value; an empty payload is an entry this
-    /// chunk does not hold whole.
     unsafe fn capture<const N: usize, L: LenType>(
         dst: *mut u8,
         item: &Item<'_>,
     ) -> Result<Next, ErrorKind> {
-        use crate::engine::skip::item_len;
-
-        let entry = unsafe { borrowed(item.payload) };
-        if entry.is_empty() {
-            return Err(ErrorKind::NeedContiguous);
-        }
-        let (key, value) = entry
-            .split_at_checked(item_len(entry)?)
-            .ok_or(ErrorKind::Unsupported)?;
+        let (entry, len) = unsafe { whole(item) }?;
         unsafe { &mut *dst.cast::<Vec<RawEntry<'_>, N, L>>() }
-            .push(RawEntry {
-                key: RawCbor { bytes: key },
-                value: RawCbor { bytes: value },
-            })
+            .push(entry)
             .map_err(|_| ErrorKind::LimitExceeded)?;
-        Ok(Next::Took(entry.len()))
+        Ok(Next::Took(len))
+    }
+}
+
+#[cfg(feature = "alloc")]
+mod allocated {
+    use alloc::vec::Vec;
+
+    use super::super::RawCbor;
+    use super::{RawEntry, whole};
+    use crate::engine::{ENCODE_ENTRIES, Item, Next, drop_fn, push_heap, view_heap, write_default};
+    use crate::error::ErrorKind;
+    use crate::schema::{DecKind, EncKind, Encode, Order, Other, sealed};
+    use crate::stack::Level;
+
+    impl sealed::Other for Vec<RawEntry<'_>> {}
+
+    /// Every entry no field claims, each taken whole from the chunk that holds it: an entry split
+    /// across chunks is [`ErrorKind::NeedContiguous`]. They encode back in their field's place,
+    /// verbatim; so under deterministic encoding, which they cannot be sorted for, they are a
+    /// compile error.
+    ///
+    /// ```
+    /// use cbor_static::RawEntry;
+    ///
+    /// #[derive(cbor_static::Cbor, Debug)]
+    /// struct Header<'a> {
+    ///     id: u8,
+    ///     #[cbor(other)]
+    ///     rest: Vec<RawEntry<'a>>,
+    /// }
+    ///
+    /// let input = b"\xa4\x62id\x07\x01\x02\x61z\xf5\x03\x80";
+    /// let header: Header = cbor_static::from_slice(input)?;
+    /// assert_eq!(header.rest.len(), 3);
+    /// assert_eq!(header.rest[1].key.as_bytes(), b"\x61z");
+    ///
+    /// let mut out = [0u8; 16];
+    /// let len = cbor_static::to_slice(&header, &mut out)?;
+    /// assert_eq!(&out[..len], input);
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    impl<'de> Other for Vec<RawEntry<'de>> {
+        const ENCODE_OTHER: &'static EncKind = &EncKind::Seq {
+            ops: &ENCODE_ENTRIES,
+            elem: <RawCbor<'de> as Encode>::ENCODE,
+            stride: size_of::<RawEntry<'de>>(),
+            view: view_heap::<RawEntry<'de>>,
+        };
+        const DECODE_OTHER: &'static DecKind = &DecKind::Leaf {
+            decode: capture,
+            default: Some(write_default::<Self>),
+            drop: drop_fn::<Self>(),
+        };
+        const ORDER: Order = Order::Conflict;
+        type Stack = Level<()>;
+        const MAX_DEPTH: usize = 1;
+        const CONTIGUOUS: bool = true;
+    }
+
+    unsafe fn capture(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
+        let (entry, len) = unsafe { whole(item) }?;
+        push_heap(unsafe { &mut *dst.cast::<Vec<RawEntry<'_>>>() }, entry)?;
+        Ok(Next::Took(len))
     }
 }
 

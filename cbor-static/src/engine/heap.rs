@@ -26,6 +26,20 @@ pub unsafe fn at<T>(vec: *mut u8, len: usize) -> *mut u8 {
     unsafe { vec.as_mut_ptr().add(len) }.cast()
 }
 
+/// Appends `item`, reserving its slot first.
+///
+/// # Errors
+/// [`ErrorKind::OutOfMemory`] when the slot cannot be reserved.
+pub fn push<T>(vec: &mut Vec<T>, item: T) -> Result<(), ErrorKind> {
+    vec.try_reserve(1).map_err(|_| ErrorKind::OutOfMemory)?;
+    vec.spare_capacity_mut()
+        .first_mut()
+        .ok_or(ErrorKind::OutOfMemory)?
+        .write(item);
+    unsafe { vec.set_len(vec.len() + 1) };
+    Ok(())
+}
+
 /// [`at`], with no slot past element `N`, which it refuses before reserving.
 ///
 /// # Safety

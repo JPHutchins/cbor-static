@@ -196,7 +196,7 @@ pub trait ByteString: sealed::ByteString {
 }
 
 /// What a map-form struct's `#[cbor(other)]` field may be (R-128): [`crate::Skipped`], which counts
-/// the entries no field claims, or with feature `heapless`, a `heapless::Vec` of
+/// the entries no field claims, or with feature `alloc` or `heapless`, a `Vec` of
 /// [`crate::RawEntry`], which captures them. The engine trusts these kinds, so the trait is sealed.
 ///
 /// ```compile_fail,E0277

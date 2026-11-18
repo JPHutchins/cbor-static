@@ -222,8 +222,8 @@
 //! # `other`
 //!
 //! `#[cbor(other)]` on one field of a map-form struct, a flattened struct's included, takes the
-//! entries no field claims (R-128): [`crate::Skipped`] counts them, and with feature `heapless`, a
-//! `heapless::Vec` of [`crate::RawEntry`] captures each whole and writes it back in its place. It
+//! entries no field claims (R-128): [`crate::Skipped`] counts them, and with feature `alloc` or
+//! `heapless`, a `Vec` of [`crate::RawEntry`] captures each whole and writes it back in its place. It
 //! is a cbor-static attribute; serde's variant-level `other` is unsupported. `Strict` still rejects
 //! an unknown entry, and `deny_unknown_fields` beside it is a compile error:
 //!

@@ -6,7 +6,7 @@ mod cbor_tag;
 mod chunks;
 mod deterministic;
 mod elements;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod entries;
 mod enums;
 mod index;
@@ -30,7 +30,7 @@ pub use cbor_tag::CBOR_TAG;
 pub use chunks::{BYTES as BYTE_CHUNKS, TEXT as TEXT_CHUNKS};
 pub use deterministic::{BYTEWISE, DeterministicOps, LENGTH_FIRST};
 pub use elements::ELEMENTS;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub use entries::ENTRIES;
 pub use enums::EXTERNAL;
 pub use index::INDEX;
