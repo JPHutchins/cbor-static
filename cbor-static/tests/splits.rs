@@ -8,6 +8,7 @@ use core::fmt::Debug;
 use core::mem::MaybeUninit;
 
 use cbor_static::{Decode, Decoder, ErrorKind, Fed};
+use proptest::prelude::*;
 
 type Outcome<T> = Result<T, (ErrorKind, u16)>;
 
@@ -225,5 +226,33 @@ fn a_wrong_type_item_is_reported_just_past_its_head_in_any_chunks() {
                 "{bytes:x?} split at {at}"
             );
         }
+    }
+}
+
+#[test]
+fn a_string_too_long_and_invalid_fails_on_its_length_in_any_chunks() {
+    let bytes = b"\x65\x00\x00\x80\x00\x00";
+    assert_eq!(whole::<char>(bytes), Err((ErrorKind::TypeMismatch, 0)));
+    splits_as_whole::<char>(bytes);
+    #[cfg(feature = "heapless")]
+    {
+        assert_eq!(
+            whole::<heapless::String<4>>(bytes),
+            Err((ErrorKind::OutOfRange, 0))
+        );
+        splits_as_whole::<heapless::String<4>>(bytes);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: if cfg!(miri) { 4 } else { 512 },
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn any_bytes_split_as_they_decode_whole(bytes in proptest::collection::vec(any::<u8>(), 0..24)) {
+        every_type(&bytes);
     }
 }

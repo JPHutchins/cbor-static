@@ -16,7 +16,8 @@ use crate::wire::{Header, Major, length};
 
 /// Writes the empty value into the target.
 pub type BeginFn = unsafe fn(*mut u8);
-/// Copies the next segment of the payload, which starts `at` bytes in.
+/// Copies the next segment of the payload, which starts `at` bytes in; an empty segment checks
+/// that the value has room for `at` bytes.
 pub type AppendFn = unsafe fn(*mut u8, usize, &[u8]) -> Result<(), ErrorKind>;
 /// Checks, and completes, a value of this many bytes, under the profile `Strict` names.
 pub type FinishFn = unsafe fn(*mut u8, usize, Option<&'static StrictOps>) -> Result<(), ErrorKind>;
@@ -98,6 +99,7 @@ fn copy(
     let dst = state.target.dst;
     loop {
         let copying = unsafe { &mut state.scratch.assume_init_mut().copy };
+        unsafe { append(dst, declared_end(copying), &[]) }?;
         let segment = input.take(copying.left);
         let taken = u64::try_from(segment.len()).unwrap_or(copying.left);
         if cfg!(cbor_static_oneshot) && taken < copying.left {
@@ -131,6 +133,14 @@ fn copy(
         unsafe { finish(dst, total, state.strict) }?;
         return complete(state, frames).map(|()| Flow::Continue);
     }
+}
+
+/// Where the chunk being copied ends, which the value must have room for before any of the chunk
+/// is copied, so that a string too long for it fails alike in every chunking.
+fn declared_end(copying: &Copying) -> usize {
+    copying
+        .total
+        .saturating_add(usize::try_from(copying.left).unwrap_or(usize::MAX))
 }
 
 /// A definite chunk's length, which must also fit `usize` (R-103).
