@@ -83,4 +83,14 @@ impl Error {
             offset: u32::try_from(offset).unwrap_or(u32::MAX),
         }
     }
+
+    /// This error of an item nested `at` bytes into its outer input or output, at its offset there.
+    pub(crate) fn after(self, at: usize) -> Self {
+        Self {
+            offset: self
+                .offset
+                .saturating_add(u32::try_from(at).unwrap_or(u32::MAX)),
+            ..self
+        }
+    }
 }

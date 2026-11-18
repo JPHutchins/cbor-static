@@ -11,6 +11,10 @@ use quote::ToTokens;
 
 const CODEC_TRAITS: [&str; 2] = ["Encode", "Decode"];
 
+/// The types that may be `Send`: each owns or exclusively borrows its state, so sending one moves
+/// that state and shares none of it (#38 Q8).
+const SENT_NOT_SHARED: [&str; 2] = ["Encoder", "Decoder"];
+
 #[derive(Debug, PartialEq, Eq)]
 enum Unsafe {
     CodecImpl,
@@ -105,13 +109,15 @@ fn no_crate_or_test_shares_a_mutable_static() {
 
 #[test]
 #[cfg_attr(miri, ignore = "parses source text, which no unsafe touches")]
-fn immutable_and_atomic_statics_and_static_lifetimes_are_not_shared_mutable() {
+fn immutable_and_atomic_statics_static_lifetimes_and_sent_codecs_are_not_shared_mutable() {
     for allowed in [
         "pub static ENC_STR: EncKind = EncKind::Leaf { size };",
         "static DROPPED: AtomicUsize = AtomicUsize::new(0);",
         "fn f(slot: &'static mut u8) {}",
         "unsafe impl Encode for u32 {}",
         "macro_rules! m { () => { quote!(static TABLE: [u8; 2] = [0, 1];) } }",
+        "unsafe impl<T: Encode + Sync> Send for Encoder<'_, T> {}",
+        "unsafe impl<'de, T: Decode<'de> + Send> Send for Decoder<'de, '_, T> {}",
     ] {
         assert_eq!(
             shared_mutable(parsed(allowed)),
@@ -129,6 +135,9 @@ fn static_mut_thread_marker_impls_and_sync_cells_are_shared_mutable() {
         "pub(crate) static mut SLOT: Option<u8> = None;",
         "unsafe impl Sync for Slot {}",
         "unsafe impl<T> core::marker::Send for Slot<T> where T: Copy {}",
+        "unsafe impl<T: Encode + Sync> Sync for Encoder<'_, T> {}",
+        "unsafe impl<'de, T: Decode<'de>> Sync for Decoder<'de, '_, T> {}",
+        "unsafe impl Send for Pending {}",
         "fn f() { static mut LOCAL: u8 = 0; }",
         "macro_rules! m { () => { quote!(static mut TABLE: u8 = 0;) } }",
         "static SLOT: core::cell::SyncUnsafeCell<u8> = core::cell::SyncUnsafeCell::new(0);",
@@ -185,16 +194,25 @@ fn shared_mutable(tokens: TokenStream) -> Vec<String> {
             Some(excerpt(&trees[at..]))
         }
         (_, [keyword, next, header @ ..])
-            if is(keyword, "unsafe")
-                && is(next, "impl")
-                && trait_name(header)
-                    .is_some_and(|name| ["Send", "Sync"].contains(&name.as_str())) =>
+            if is(keyword, "unsafe") && is(next, "impl") && shares(header) =>
         {
             Some(excerpt(&trees[at..]))
         }
         (_, [cell, ..]) if is(cell, "SyncUnsafeCell") => Some(excerpt(&trees[at..])),
         _ => None,
     })
+}
+
+/// Whether the impl `header` begins makes its type shareable between threads: any `Sync`, and a
+/// `Send` but for the types in [`SENT_NOT_SHARED`].
+fn shares(header: &[TokenTree]) -> bool {
+    match trait_name(header).as_deref() {
+        Some("Sync") => true,
+        Some("Send") => {
+            !self_type_name(header).is_some_and(|name| SENT_NOT_SHARED.contains(&name.as_str()))
+        }
+        _ => false,
+    }
 }
 
 fn excerpt(trees: &[TokenTree]) -> String {
@@ -237,6 +255,21 @@ fn trait_name(header: &[TokenTree]) -> Option<String> {
         })
         .last()
         .filter(|_| outside.iter().any(|tree| is(tree, "for")))
+}
+
+/// The implementing type's first path segment in `impl<generics> Trait for Type<args> {`: the first
+/// identifier outside angle brackets after `for`.
+fn self_type_name(header: &[TokenTree]) -> Option<String> {
+    header
+        .iter()
+        .zip(depths(header))
+        .filter_map(|(tree, depth)| (depth == 0).then_some(tree))
+        .skip_while(|tree| !is(tree, "for"))
+        .skip(1)
+        .find_map(|tree| match tree {
+            TokenTree::Ident(ident) => Some(ident.to_string()),
+            _ => None,
+        })
 }
 
 /// The angle-bracket depth before each token. The `>` of `->` closes nothing.

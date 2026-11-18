@@ -1,15 +1,17 @@
 #![forbid(unsafe_code)]
 //! CBOR as a flat stream of heads, each with its definite string's payload (D-20), over
-//! contiguous input. Typed decoding in the middle of a stream is Phase 2.
+//! contiguous input, and typed items handed off in the middle of one (#5 Q11).
 
 mod writer;
 
 use core::iter::FusedIterator;
+use core::mem::MaybeUninit;
 
 pub use writer::TokenWriter;
 
-use crate::engine::{Input, Skip, utf8};
+use crate::engine::{Decoder, Fed, Input, Skip, StrictOps, utf8};
 use crate::error::{Error, ErrorKind};
+use crate::schema::Decode;
 use crate::wire::{FALSE, Header, INDEFINITE, Major, NULL, TRUE, UNDEFINED, float, length};
 
 /// One head, with the payload of a definite string. `Negative(n)` is `-1 - n`, and `None` is an
@@ -104,7 +106,15 @@ impl Eq for Token<'_> {}
 pub struct Tokens<'de> {
     input: Input<'de>,
     skip: Skip,
+    strict: Option<&'static StrictOps>,
 }
+
+/// The head of an item taken whole, as the skip state counts it: one item, opening nothing.
+const WHOLE_ITEM: Header = Header {
+    major: Major::Uint,
+    info: 0,
+    arg: 0,
+};
 
 impl<'de> Tokens<'de> {
     /// ```
@@ -112,9 +122,82 @@ impl<'de> Tokens<'de> {
     /// ```
     #[must_use]
     pub const fn new(bytes: &'de [u8]) -> Self {
+        Self::under(bytes, None)
+    }
+
+    /// The tokens of `bytes`, whose typed items [`Tokens::decode_into`] decodes under the profile
+    /// `strict` names: a `with` field's module reads its item through these (#5 Q19).
+    pub(crate) const fn under(bytes: &'de [u8], strict: Option<&'static StrictOps>) -> Self {
         Self {
             input: Input::new(bytes),
             skip: Skip::started(0),
+            strict,
+        }
+    }
+
+    /// Decodes the next item as `T` into `out` (D-15), and moves past it. On failure the tokens stay
+    /// where they were, so the item can be decoded as another type, or read token by token.
+    ///
+    /// ```
+    /// use core::mem::MaybeUninit;
+    /// use cbor_static::{ErrorKind, Token, Tokens};
+    ///
+    /// #[derive(cbor_static::Decode, Debug, PartialEq)]
+    /// struct Point {
+    ///     x: u32,
+    /// }
+    ///
+    /// let mut tokens = Tokens::new(b"\x82\xa1\x61x\x01\x07");
+    /// assert_eq!(tokens.next(), Some(Ok(Token::Array(Some(2)))));
+    /// assert_eq!(*tokens.decode_into::<Point>(&mut MaybeUninit::uninit())?, Point { x: 1 });
+    /// assert_eq!(
+    ///     tokens.decode_into::<Point>(&mut MaybeUninit::uninit()).map_err(|e| (e.kind, e.offset)),
+    ///     Err((ErrorKind::TypeMismatch, 6))
+    /// );
+    /// assert_eq!(*tokens.decode_into::<u8>(&mut MaybeUninit::uninit())?, 7);
+    /// assert_eq!(tokens.next(), None);
+    ///
+    /// let mut chunks = Tokens::new(b"\x5f\x41\x01\xff");
+    /// assert_eq!(chunks.next(), Some(Ok(Token::BytesIndefinite)));
+    /// assert_eq!(
+    ///     chunks.decode_into::<u8>(&mut MaybeUninit::uninit()).map_err(|e| (e.kind, e.offset)),
+    ///     Err((ErrorKind::NotWellFormed, 1))
+    /// );
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    /// Any of [`crate::decode_into`]'s but [`ErrorKind::TrailingInput`], at offsets into these
+    /// tokens' input, and [`ErrorKind::NotWellFormed`] where no item may begin: inside an
+    /// indefinite-length string.
+    #[inline(never)]
+    pub fn decode_into<'s, T: Decode<'de>>(
+        &mut self,
+        out: &'s mut MaybeUninit<T>,
+    ) -> Result<&'s mut T, Error> {
+        let at = self.input.at;
+        let mut skip = self.skip;
+        skip.on_header(WHOLE_ITEM)
+            .map_err(|kind| Error::new(kind, 0, at))?;
+        let mut decoder = Decoder::under(out, self.strict);
+        match decoder.feed(self.input.rest()) {
+            Ok(Fed::Done(used)) => {
+                self.input.at = at + used;
+                self.skip = skip;
+                decoder.finish()
+            }
+            Ok(Fed::NeedInput) => Err(Error::new(
+                ErrorKind::UnexpectedEnd,
+                0,
+                at + self.input.rest().len(),
+            )),
+            Err(error) => Err(Error {
+                kind: match error.kind {
+                    ErrorKind::NeedContiguous => ErrorKind::UnexpectedEnd,
+                    kind => kind,
+                },
+                ..error.after(at)
+            }),
         }
     }
 

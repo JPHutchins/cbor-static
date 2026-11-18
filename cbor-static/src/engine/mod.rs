@@ -155,6 +155,41 @@ pub enum Fed {
 /// assert_eq!(encoder.resume(&mut chunk)?, cbor_static::Progress::Done(1));
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
+///
+/// Its type's stack is inside it, so a `static` holds all of an encoding's state (#5 Q11):
+///
+/// ```
+/// use std::sync::Mutex;
+///
+/// use cbor_static::{Encoder, Progress};
+///
+/// static READING: (u16, bool) = (500, true);
+/// static ENCODER: Mutex<Option<Encoder<'static, (u16, bool)>>> = Mutex::new(None);
+///
+/// let mut guard = ENCODER.lock().unwrap();
+/// let encoder = guard.insert(Encoder::new(&READING));
+/// let mut mtu = [0u8; 3];
+/// assert_eq!(encoder.resume(&mut mtu)?, Progress::NeedSpace(3));
+/// assert_eq!(mtu, *b"\x82\x19\x01");
+/// assert_eq!(encoder.resume(&mut mtu)?, Progress::Done(2));
+/// assert_eq!(mtu[..2], *b"\xf4\xf5");
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
+/// It is `Send` where its value may be shared between threads, and not otherwise:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Encode)]
+/// struct Counted {
+///     id: u32,
+///     #[cbor(skip)]
+///     uses: core::cell::Cell<u32>,
+/// }
+///
+/// fn send(_: impl Send) {}
+///
+/// send(cbor_static::Encoder::new(&Counted { id: 1, uses: core::cell::Cell::new(0) }));
+/// ```
 pub struct Encoder<'v, T: Encode> {
     state: encode::State,
     stack: MaybeUninit<T::Stack>,
@@ -172,11 +207,31 @@ pub struct Encoder<'v, T: Encode> {
 /// assert!(decoder.finish().is_err());
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
+///
+/// It is `Send` where its value may move between threads, and not otherwise:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Decode)]
+/// struct Shared {
+///     id: u32,
+///     #[cbor(skip)]
+///     owner: Option<std::rc::Rc<u32>>,
+/// }
+///
+/// fn send(_: impl Send) {}
+///
+/// let mut slot = core::mem::MaybeUninit::<Shared>::uninit();
+/// send(cbor_static::Decoder::new(&mut slot));
+/// ```
 pub struct Decoder<'de, 's, T: Decode<'de>> {
     state: decode::State,
     stack: MaybeUninit<T::Stack>,
     slot: PhantomData<(&'s mut T, &'de [u8])>,
 }
+
+unsafe impl<T: Encode + Sync> Send for Encoder<'_, T> {}
+
+unsafe impl<'de, T: Decode<'de> + Send> Send for Decoder<'de, '_, T> {}
 
 impl<'v, T: Encode> Encoder<'v, T> {
     /// An encoder of `value`, which writes nothing until resumed.

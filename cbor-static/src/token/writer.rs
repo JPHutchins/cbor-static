@@ -1,5 +1,7 @@
 use super::Token;
+use crate::engine::{Encoder, Progress};
 use crate::error::{Error, ErrorKind};
+use crate::schema::Encode;
 use crate::wire::{FALSE, Head, Major, NULL, TRUE, UNDEFINED, float};
 
 /// Writes tokens in preferred serialization (RFC 8949 §4.1), with definite lengths only (D-11).
@@ -62,6 +64,42 @@ impl<'a> TokenWriter<'a> {
             .for_each(|(slot, byte)| *slot = *byte);
         self.at += len;
         Ok(self)
+    }
+
+    /// Appends `value`'s encoding (#5 Q11), or when it fails, leaves [`TokenWriter::written`] as it
+    /// was.
+    ///
+    /// ```
+    /// use cbor_static::{ErrorKind, Token, TokenWriter};
+    ///
+    /// let mut out = [0u8; 6];
+    /// let mut writer = TokenWriter::new(&mut out);
+    /// writer.write(Token::Array(Some(2)))?.encode(&(1u8, "a"))?;
+    /// assert_eq!(
+    ///     writer.encode(&500u16).map_err(|e| (e.kind, e.offset)).err(),
+    ///     Some((ErrorKind::BufferTooSmall, 5))
+    /// );
+    /// assert_eq!(writer.encode(&true)?.written(), 6);
+    /// assert_eq!(out, *b"\x82\x82\x01\x61a\xf5");
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    /// [`ErrorKind::BufferTooSmall`] when the rest of the buffer cannot hold it, and any error
+    /// encoding it, as [`crate::to_slice`] gives, at offsets into the buffer.
+    #[inline(never)]
+    pub fn encode<T: Encode>(&mut self, value: &T) -> Result<&mut Self, Error> {
+        let at = self.at;
+        match Encoder::new(value)
+            .resume(self.out.get_mut(at..).unwrap_or(&mut []))
+            .map_err(|error| error.after(at))?
+        {
+            Progress::Done(written) => {
+                self.at += written;
+                Ok(self)
+            }
+            Progress::NeedSpace(_) => Err(Error::new(ErrorKind::BufferTooSmall, 0, at)),
+        }
     }
 
     /// ```
