@@ -17,6 +17,7 @@ mod map;
 mod option;
 #[cfg(feature = "heapless")]
 mod seq;
+mod stopped;
 mod tag;
 mod tagged;
 mod untagged;

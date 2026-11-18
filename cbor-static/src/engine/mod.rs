@@ -150,7 +150,9 @@ impl<'v, T: Encode> Encoder<'v, T> {
     /// Writes the next part of the encoding into `out`.
     ///
     /// # Errors
-    /// None for derived types; an error indicates a corrupt descriptor.
+    /// [`ErrorKind::LimitExceeded`] for a field longer than its `#[cbor(max_len = N)]`, which
+    /// every later call returns too, writing nothing; any other error indicates a corrupt
+    /// descriptor.
     pub fn resume(&mut self, out: &mut [u8]) -> Result<Progress, Error> {
         const { assert!(fits::<T::Stack>(T::MAX_DEPTH)) };
         encode::resume(&mut self.state, frames(&mut self.stack, T::MAX_DEPTH), out)

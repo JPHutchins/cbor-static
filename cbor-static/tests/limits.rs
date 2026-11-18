@@ -93,6 +93,27 @@ fn chunked_encode_kind<T: Encode>(value: &T, chunk: usize) -> Option<ErrorKind> 
         .flatten()
 }
 
+/// An encoder stopped by a field over its limit stays stopped: every later resume returns the same
+/// error, its field and offset included, and writes nothing.
+#[test]
+fn an_encoder_stopped_at_the_limit_stays_stopped() {
+    let value = Borrowed {
+        name: "abcde",
+        raw: &[],
+        nick: None,
+    };
+    let mut encoder = Encoder::new(&value);
+    let first = encoder
+        .resume(&mut [0u8; 64])
+        .expect_err("name is over its limit");
+    assert_eq!(first.kind, ErrorKind::LimitExceeded);
+    for _ in 0..3 {
+        let mut again = [0xaa_u8; 64];
+        assert_eq!(encoder.resume(&mut again), Err(first));
+        assert_eq!(again, [0xaa; 64]);
+    }
+}
+
 #[test]
 fn encoding_past_the_limit_fails_in_chunks() {
     let longer = Borrowed {
@@ -129,7 +150,11 @@ fn another_type_is_a_mismatch_not_a_limit() {
         b"\xa2\x64name\xf6\x63raw\x40",
         b"\xa2\x64name\x60\x63raw\x65abcde",
     ] {
-        assert_eq!(decode::<Borrowed>(bytes), Err(ErrorKind::TypeMismatch), "{bytes:x?}");
+        assert_eq!(
+            decode::<Borrowed>(bytes),
+            Err(ErrorKind::TypeMismatch),
+            "{bytes:x?}"
+        );
     }
 }
 
