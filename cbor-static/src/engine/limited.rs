@@ -59,8 +59,8 @@ unsafe fn dec_limited<const N: usize, const TEXT: bool>(
 }
 
 /// Whether a segment `at` bytes into a string keeps it within `N` bytes.
-#[cfg(feature = "heapless")]
-fn within<const N: usize>(at: usize, segment: &[u8]) -> Result<(), ErrorKind> {
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(super) fn within<const N: usize>(at: usize, segment: &[u8]) -> Result<(), ErrorKind> {
     match at.checked_add(segment.len()) {
         Some(end) if end <= N => Ok(()),
         _ => Err(ErrorKind::LimitExceeded),

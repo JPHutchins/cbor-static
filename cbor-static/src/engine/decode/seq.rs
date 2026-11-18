@@ -58,7 +58,7 @@ pub(super) fn entry(
     Ok(expect(state, elem, slot(*at, frame.base, frame.seen)?))
 }
 
-fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
+pub(super) fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
     let DecKind::Seq { at, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
     };
@@ -66,7 +66,7 @@ fn child_done(frame: &mut Frame) -> Result<After, ErrorKind> {
     Ok(After::Entry)
 }
 
-fn drop(frame: &Frame) {
+pub(super) fn drop(frame: &Frame) {
     if let DecKind::Seq {
         drop: Some(drop), ..
     } = desc(frame)

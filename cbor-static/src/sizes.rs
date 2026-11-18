@@ -36,6 +36,17 @@ pub trait MaxEncodedLen {
     const MAX_ENCODED_LEN: usize;
 }
 
+/// The most bytes a `#[cbor(bytes)]` field of this type holds.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no maximum encoded length",
+    label = "unbounded",
+    note = "a field bounds an unbounded type with `#[cbor(max_len = N)]`"
+)]
+pub trait ByteCapacity {
+    const CAPACITY: usize;
+}
+
 /// Encodes `value` into `out`, which the compiler checks holds `T::MAX_ENCODED_LEN` bytes, and
 /// returns the bytes written.
 ///

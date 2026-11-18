@@ -12,7 +12,7 @@ use crate::sizes::{MaxEncodedLen, container_len, larger};
 /// entries for maps.
 #[diagnostic::on_unimplemented(
     message = "`max_len` does not bound `{Self}`",
-    note = "it bounds `&str`, `&[u8]`, heapless `String`, `Vec` and `LinearMap`, and an `Option` of one"
+    note = "it bounds `&str`, `&[u8]`, alloc or heapless `String` and `Vec`, heapless `LinearMap`, and an `Option` of one"
 )]
 pub trait Limit {
     /// The longest `len()` the type itself allows.
@@ -214,5 +214,59 @@ mod bounded {
         for Limited<LinearMap<K, V, CAP>, N>
     {
         const MAX_ENCODED_LEN: usize = container_len(N, K::MAX_ENCODED_LEN + V::MAX_ENCODED_LEN);
+    }
+}
+
+#[cfg(feature = "alloc")]
+mod allocated {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    use super::{Limited, LimitedBytes, LimitedDecode};
+    use crate::engine::{
+        HeapLimited, any_length, append_bytes_limited, append_text_limited, at_heap_limited,
+        drop_fn, empty,
+    };
+    use crate::schema::{DecKind, Decode};
+    use crate::sizes::{MaxEncodedLen, container_len};
+
+    limit!([] String => usize::MAX, [T] Vec<T> => usize::MAX);
+
+    impl<const N: usize> LimitedDecode<'_> for Limited<String, N> {
+        const DECODE: &'static DecKind = &DecKind::Owned {
+            ops: &HeapLimited::<N>::TEXT,
+            begin: empty::<String>,
+            drop: drop_fn::<String>(),
+            append: append_text_limited::<N>,
+            finish: any_length,
+        };
+    }
+
+    impl<'de, T: Decode<'de>, const N: usize> LimitedDecode<'de> for Limited<Vec<T>, N> {
+        const DECODE: &'static DecKind = &DecKind::Seq {
+            ops: &HeapLimited::<N>::SEQ,
+            begin: empty::<Vec<T>>,
+            drop: drop_fn::<Vec<T>>(),
+            elem: T::DECODE,
+            at: at_heap_limited::<T, N>,
+        };
+    }
+
+    impl<const N: usize> LimitedBytes for Limited<Vec<u8>, N> {
+        const DECODE_BYTES: &'static DecKind = &DecKind::Owned {
+            ops: &HeapLimited::<N>::BYTES,
+            begin: empty::<Vec<u8>>,
+            drop: drop_fn::<Vec<u8>>(),
+            append: append_bytes_limited::<N>,
+            finish: any_length,
+        };
+    }
+
+    impl<const N: usize> MaxEncodedLen for Limited<String, N> {
+        const MAX_ENCODED_LEN: usize = container_len(N, 1);
+    }
+
+    impl<T: MaxEncodedLen, const N: usize> MaxEncodedLen for Limited<Vec<T>, N> {
+        const MAX_ENCODED_LEN: usize = container_len(N, T::MAX_ENCODED_LEN);
     }
 }

@@ -15,7 +15,7 @@ mod limited;
 mod linear_map;
 mod map;
 mod option;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod seq;
 mod stopped;
 mod tag;
@@ -39,7 +39,7 @@ pub use limited::LIMITED;
 pub use linear_map::LINEAR_MAP;
 pub use map::{MAP, MAP_OTHER};
 pub use option::OPTION;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 pub use seq::SEQ;
 pub use tag::TAG;
 pub use tagged::{ADJACENT, INTERNAL};

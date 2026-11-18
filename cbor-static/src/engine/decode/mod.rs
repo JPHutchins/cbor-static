@@ -8,8 +8,10 @@ mod described;
 mod elements;
 mod entries;
 mod enums;
+#[cfg(feature = "alloc")]
+mod heap;
 mod index;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod limited;
 #[cfg(feature = "heapless")]
 mod linear_map;
@@ -18,7 +20,7 @@ mod option;
 mod other;
 mod owned;
 mod raw;
-#[cfg(feature = "heapless")]
+#[cfg(any(feature = "heapless", feature = "alloc"))]
 mod seq;
 mod steps;
 mod tagged;
@@ -33,6 +35,8 @@ pub use defaulted::DEFAULTED;
 pub use described::SELF_DESCRIBED;
 pub use elements::ELEMENTS;
 pub use enums::EXTERNAL;
+#[cfg(feature = "alloc")]
+pub use heap::{BYTES as BYTES_HEAP, Limited as HeapLimited, SEQ as SEQ_HEAP, TEXT as TEXT_HEAP};
 pub use index::INDEX;
 #[cfg(feature = "heapless")]
 pub use limited::Limited;

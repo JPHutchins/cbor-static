@@ -377,7 +377,7 @@ fn stack(
     level(variants.iter().map(|variant| match &variant.payload {
         Payload::Unit if unit_frames => level(core::iter::empty()),
         Payload::Unit => (quote!(()), quote!(0)),
-        Payload::Newtype(field) => field_child(&field.ty, field.bytes, path),
+        Payload::Newtype(field) => field_child(&field.ty, field.bytes, (which, path)),
         Payload::Struct(fields) => {
             level(fields.iter().map(|field| field_stack(field, which, path)))
         }

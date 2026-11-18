@@ -266,6 +266,8 @@ extern crate self as cbor_static;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(feature = "alloc")]
+mod allocated;
 pub mod attributes;
 #[cfg(feature = "heapless")]
 mod bounded;
@@ -433,6 +435,6 @@ pub mod __private {
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
         Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,
     };
-    pub use crate::sizes::{container_len, head_len, larger};
+    pub use crate::sizes::{ByteCapacity, container_len, head_len, larger};
     pub use crate::stack::{Level, Unlevel, Widest, deeper};
 }

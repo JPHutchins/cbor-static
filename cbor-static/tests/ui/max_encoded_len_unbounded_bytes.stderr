@@ -1,0 +1,18 @@
+error[E0277]: `Vec<u8>` has no maximum encoded length
+ --> tests/ui/max_encoded_len_unbounded_bytes.rs:6:14
+  |
+6 |     payload: Vec<u8>,
+  |              ^^^^^^^ unbounded
+  |
+  = help: the trait `cbor_static::__private::ByteCapacity` is not implemented for `Vec<u8>`
+  = note: a field bounds an unbounded type with `#[cbor(max_len = N)]`
+help: the following other types implement trait `cbor_static::__private::ByteCapacity`
+ --> src/containers.rs
+  |
+  | impl<const N: usize> ByteCapacity for [u8; N] {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `[u8; N]`
+  |
+ ::: src/bounded.rs
+  |
+  | impl<const N: usize, L: LenType> ByteCapacity for Vec<u8, N, L> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `heapless::vec::VecInner<u8, L, heapless::vec::storage::VecStorageInner<[MaybeUninit<u8>; N]>>`

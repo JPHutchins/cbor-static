@@ -144,7 +144,7 @@ pub fn transparent(
         "cbor-static: a unit or newtype struct must be laid out as what it wraps"
     ););
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = field_child(&ty, bytes, path);
+        let (stack, depth) = field_child(&ty, bytes, (Trait::Encode, path));
         let kind = field_kind(&ty, coding, Trait::Encode, path);
         let part = (!bytes).then(|| quote!(<#ty as #path>::ORDER));
         let checks = admitted(
@@ -163,7 +163,7 @@ pub fn transparent(
         }
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = field_child(&ty, bytes, path);
+        let (stack, depth) = field_child(&ty, bytes, (Trait::Decode, path));
         let kind = field_kind(&ty, coding, Trait::Decode, path);
         Body {
             kind: quote!({
