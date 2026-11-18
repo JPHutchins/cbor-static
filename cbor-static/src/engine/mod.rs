@@ -40,7 +40,7 @@ pub use decode::{
     SELF_DESCRIBED as DECODE_SELF_DESCRIBED, StoreFn, TEXT_OWNED, UNTAGGED as DECODE_UNTAGGED,
 };
 #[cfg(feature = "alloc")]
-pub(crate) use decode::{BYTES_HEAP, HeapLimited, SEQ_HEAP, TEXT_HEAP};
+pub(crate) use decode::{BOXED as DECODE_BOXED, BYTES_HEAP, HeapLimited, SEQ_HEAP, TEXT_HEAP};
 #[cfg(feature = "heapless")]
 pub(crate) use decode::{
     LINEAR_MAP as DECODE_LINEAR_MAP, Limited as DecodeLimited, SEQ as DECODE_SEQ,
@@ -65,9 +65,11 @@ pub use glue::{
     write_tag,
 };
 #[cfg(feature = "alloc")]
+pub use heap::AllocateFn;
+#[cfg(feature = "alloc")]
 pub(crate) use heap::{
-    append_bytes, append_bytes_limited, append_text, append_text_limited, at as at_heap,
-    at_limited as at_heap_limited, view as view_heap,
+    allocate, append_bytes, append_bytes_limited, append_text, append_text_limited, at as at_heap,
+    at_limited as at_heap_limited, release, unboxed, view as view_heap,
 };
 pub(crate) use input::Input;
 pub use leaf::ENC_SKIPPED as ENCODE_SKIPPED;

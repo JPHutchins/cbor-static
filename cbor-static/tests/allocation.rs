@@ -161,13 +161,24 @@ fn a_refused_reservation_is_out_of_memory_and_frees_the_rest() {
         values: Vec<String>,
         #[cbor(bytes)]
         blob: Vec<u8>,
+        point: Box<(u8, Box<u8>)>,
     }
 
-    let input = b"\xa3\x64name\x62ab\x66values\x82\x61x\x61y\x64blob\x43\x01\x02\x03";
+    let input =
+        b"\xa4\x64name\x62ab\x66values\x82\x61x\x61y\x64blob\x43\x01\x02\x03\x65point\x82\x01\x02";
     let (live, needed) = measured(usize::MAX, || {
         assert!(from_slice::<Record>(input).is_ok());
     });
     assert_eq!(live, 0);
+    for end in 0..input.len() {
+        let (live, _) = measured(usize::MAX, || {
+            assert!(from_slice::<Record>(&input[..end]).is_err());
+            let mut wrong = input.to_vec();
+            wrong[end] = 0xf4;
+            drop(from_slice::<Record>(&wrong));
+        });
+        assert_eq!(live, 0, "{end} bytes");
+    }
     let outcomes: Vec<_> = (0..needed * 8)
         .map(|budget| {
             let outcome = Cell::new(Ok(()));

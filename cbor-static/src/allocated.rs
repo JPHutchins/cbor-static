@@ -1,15 +1,18 @@
 #![deny(unsafe_code)]
 //! Containers that allocate, behind feature `alloc` (#5 Q8).
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::engine::{
-    BYTES_HEAP, ENCODE_SEQ, SEQ_HEAP, TEXT_HEAP, any_length, append_bytes, append_text, at_heap,
-    drop_fn, empty, enc_text, enc_view, view_heap,
+    BYTES_HEAP, DECODE_BOXED, ENCODE_OPTION, ENCODE_SEQ, SEQ_HEAP, TEXT_HEAP, allocate, any_length,
+    append_bytes, append_text, at_heap, drop_fn, empty, enc_text, enc_view, release, unboxed,
+    view_heap,
 };
 use crate::lead::Lead;
 use crate::schema::{ByteString, DecKind, Decode, EncKind, Encode, Order, sealed};
+use crate::sizes::MaxEncodedLen;
 use crate::stack::Level;
 
 #[allow(unsafe_code)]
@@ -147,4 +150,67 @@ impl ByteString for Vec<u8> {
     };
     type Stack = Level<()>;
     const MAX_DEPTH: usize = 1;
+}
+
+#[allow(unsafe_code)]
+unsafe impl<T: Encode> Encode for Box<T> {
+    const ENCODE: &'static EncKind = &EncKind::Option {
+        ops: &ENCODE_OPTION,
+        absent: None,
+        some: T::ENCODE,
+        some_ptr: unboxed::<T>,
+    };
+    type Stack = T::Stack;
+    const MAX_DEPTH: usize = T::MAX_DEPTH;
+    const ORDER: Order = T::ORDER;
+}
+
+/// The value it holds, decoded into room allocated as it begins and freed should it fail.
+///
+/// ```
+/// #[derive(cbor_static::Cbor, Debug, PartialEq)]
+/// struct Reading {
+///     id: u8,
+///     detail: Option<Box<[u16; 2]>>,
+/// }
+///
+/// let reading: Box<Reading> = cbor_static::from_slice(b"\xa2\x62id\x01\x66detail\x82\x01\x02")?;
+/// assert_eq!(reading.detail.as_deref(), Some(&[1, 2]));
+///
+/// let mut out = [0u8; 16];
+/// let len = cbor_static::to_slice(&reading, &mut out)?;
+/// assert_eq!(&out[..len], b"\xa2\x62id\x01\x66detail\x82\x01\x02");
+///
+/// assert_eq!(
+///     cbor_static::from_slice::<Box<Reading>>(b"\xa2\x62id\x01\x66detail\x82\x01\xf5")
+///         .map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::TypeMismatch)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+#[allow(unsafe_code)]
+unsafe impl<'de, T: Decode<'de>> Decode<'de> for Box<T> {
+    const DECODE: &'static DecKind = &DecKind::Boxed {
+        ops: &DECODE_BOXED,
+        inner: T::DECODE,
+        drop: drop_fn::<Self>(),
+        allocate: allocate::<T>,
+        release: release::<T>,
+    };
+    type Stack = Level<T::Stack>;
+    const MAX_DEPTH: usize = 1 + T::MAX_DEPTH;
+    type OptionStack = Level<Self::Stack>;
+    const LEAD: Lead = T::LEAD;
+    const CONTIGUOUS: bool = T::CONTIGUOUS;
+}
+
+/// The longest encoding of the value it holds.
+///
+/// ```
+/// use cbor_static::MaxEncodedLen;
+///
+/// assert_eq!(<Box<u32> as MaxEncodedLen>::MAX_ENCODED_LEN, 5);
+/// ```
+impl<T: MaxEncodedLen> MaxEncodedLen for Box<T> {
+    const MAX_ENCODED_LEN: usize = T::MAX_ENCODED_LEN;
 }

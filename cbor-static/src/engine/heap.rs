@@ -4,6 +4,7 @@
     reason = "every container pointer is a descriptor offset taken with offset_of!, so it is aligned"
 )]
 
+use alloc::alloc::Layout;
 use alloc::vec::Vec;
 use core::ptr;
 
@@ -101,4 +102,43 @@ fn extend(vec: &mut Vec<u8>, segment: &[u8]) -> Result<(), ErrorKind> {
         });
     unsafe { vec.set_len(vec.len() + segment.len()) };
     Ok(())
+}
+
+/// Makes room for a `T`, which it writes into a `Box<T>`'s slot and returns; null when refused.
+pub type AllocateFn = unsafe fn(*mut u8) -> *mut u8;
+
+/// An [`AllocateFn`] for `T`. A zero-sized `T` takes no allocation.
+///
+/// # Safety
+/// `slot` is valid for writes of a `Box<T>`.
+pub unsafe fn allocate<T>(slot: *mut u8) -> *mut u8 {
+    use core::ptr::NonNull;
+
+    let room = if size_of::<T>() == 0 {
+        NonNull::<T>::dangling().as_ptr().cast()
+    } else {
+        unsafe { alloc::alloc::alloc(Layout::new::<T>()) }
+    };
+    if !room.is_null() {
+        unsafe { slot.cast::<*mut u8>().write(room) };
+    }
+    room
+}
+
+/// Frees the room [`allocate`] wrote into `slot`, without dropping anything in it.
+///
+/// # Safety
+/// `slot` holds what [`allocate`] for `T` wrote, and nothing there still needs dropping.
+pub unsafe fn release<T>(slot: *mut u8) {
+    if size_of::<T>() != 0 {
+        unsafe { alloc::alloc::dealloc(slot.cast::<*mut u8>().read(), Layout::new::<T>()) };
+    }
+}
+
+/// The value a `Box<T>` at `boxed` holds.
+///
+/// # Safety
+/// `boxed` points to a valid `Box<T>`.
+pub unsafe fn unboxed<T>(boxed: *const u8) -> *const u8 {
+    ptr::from_ref::<T>(unsafe { &*boxed.cast::<alloc::boxed::Box<T>>() }).cast()
 }

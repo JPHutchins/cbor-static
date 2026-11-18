@@ -37,6 +37,14 @@ pub fn golden_in_place<T>(value: &T, bytes: &[u8])
 where
     T: Encode + for<'de> Decode<'de> + PartialEq + Debug,
 {
+    golden_released(value, bytes, |_| {});
+}
+
+/// `golden_in_place`, which hands each slot a decode completed to `release`.
+pub fn golden_released<T>(value: &T, bytes: &[u8], release: impl Fn(&mut MaybeUninit<T>))
+where
+    T: Encode + for<'de> Decode<'de> + PartialEq + Debug,
+{
     assert!(!<T as Decode<'_>>::CONTIGUOUS, "claims contiguous input");
     assert_eq!(encode(value), bytes, "encode");
     for chunk in 1..=64 {
@@ -52,11 +60,12 @@ where
                 break;
             }
         }
-        assert_eq!(
-            decoder.finish().map(|decoded| &*decoded == value),
-            Ok(true),
-            "decode in chunks of {chunk}"
-        );
+        let equal = decoder.finish().map(|decoded| &*decoded == value);
+        drop(decoder);
+        if equal.is_ok() {
+            release(&mut slot);
+        }
+        assert_eq!(equal, Ok(true), "decode in chunks of {chunk}");
     }
 }
 

@@ -12,9 +12,9 @@ error[E0277]: `&'a str` has no maximum encoded length
             (A, B)
             (A, B, C)
             (A, B, C, D)
+            Box<T>
             Event<'a>
             F16
-            Note<'a>
           and $N others
 
 error[E0277]: `&'a [u8]` has no maximum encoded length
