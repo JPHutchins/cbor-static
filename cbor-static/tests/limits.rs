@@ -4,7 +4,7 @@
 
 mod common;
 
-use cbor_static::{Encode, ErrorKind, to_slice};
+use cbor_static::{Encode, Encoder, ErrorKind, Progress, to_slice};
 use common::{chunked_decode, decode, encode};
 
 #[derive(cbor_static::Cbor, Clone, Copy, Debug, PartialEq)]
@@ -78,6 +78,46 @@ fn encoding_past_the_limit_fails() {
         .map_err(|e| e.kind),
         Err(ErrorKind::LimitExceeded)
     );
+}
+
+/// The error encoding `value` in `chunk`-byte pieces stops at, if any.
+fn chunked_encode_kind<T: Encode>(value: &T, chunk: usize) -> Option<ErrorKind> {
+    let mut encoder = Encoder::new(value);
+    let mut out = vec![0u8; chunk];
+    core::iter::repeat_with(|| encoder.resume(&mut out))
+        .find_map(|progress| match progress {
+            Ok(Progress::NeedSpace(_)) => None,
+            Ok(Progress::Done(_)) => Some(None),
+            Err(error) => Some(Some(error.kind)),
+        })
+        .flatten()
+}
+
+#[test]
+fn encoding_past_the_limit_fails_in_chunks() {
+    let longer = Borrowed {
+        name: "abcd",
+        raw: &[0; 3],
+        nick: None,
+    };
+    for chunk in 1..=64 {
+        assert_eq!(
+            chunked_encode_kind(&longer, chunk),
+            Some(ErrorKind::LimitExceeded),
+            "in chunks of {chunk}"
+        );
+        assert_eq!(
+            chunked_encode_kind(
+                &Borrowed {
+                    raw: &[0; 2],
+                    ..longer
+                },
+                chunk
+            ),
+            None,
+            "in chunks of {chunk}"
+        );
+    }
 }
 
 #[test]

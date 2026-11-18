@@ -301,6 +301,16 @@ pub use token::{Token, TokenWriter, Tokens};
 
 /// Encodes `value` into `out` in one call, returning the bytes written.
 ///
+/// ```
+/// let mut out = [0u8; 3];
+/// assert_eq!(cbor_static::to_slice(&500u16, &mut out)?, 3);
+/// assert_eq!(
+///     cbor_static::to_slice(&70_000u32, &mut out).map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::BufferTooSmall)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
 /// # Errors
 /// [`ErrorKind::BufferTooSmall`] when `out` cannot hold the whole encoding.
 pub fn to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
