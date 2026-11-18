@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 HARNESS: Final = ROOT / "target" / "harness"
 CRATES: Final = HARNESS / "crates"
 PROFILES: Final = ("release", "release-s")
+COUNTS: Final = (1, 2, 4, 8, 16, 32)
 GATE_TARGET: Final = "thumbv7m-none-eabi"
 MANGLING: Final = ("-C", "symbol-mangling-version=v0")
 
