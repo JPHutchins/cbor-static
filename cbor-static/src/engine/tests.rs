@@ -38,6 +38,7 @@ unsafe impl Decode<'_> for Tracked {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+    const CONTIGUOUS: bool = false;
 }
 
 /// A text leaf that knows nothing of indefinite strings: it takes any text payload whole.
@@ -68,6 +69,7 @@ unsafe impl Decode<'_> for Naive {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+    const CONTIGUOUS: bool = true;
 }
 
 unsafe impl Decode<'_> for Greedy {
@@ -79,12 +81,29 @@ unsafe impl Decode<'_> for Greedy {
     type Stack = ();
     const MAX_DEPTH: usize = 0;
     type OptionStack = crate::stack::Level<()>;
+    const CONTIGUOUS: bool = true;
 }
 
 fn kind_of<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<ErrorKind> {
     crate::decode_into(bytes, &mut MaybeUninit::<T>::uninit())
         .err()
         .map(|e| e.kind)
+}
+
+#[test]
+fn by_value_moves_out_only_what_its_own_slot_holds() {
+    use std::boxed::Box;
+
+    let elsewhere = Box::into_raw(Box::new(7u32));
+    assert_eq!(
+        super::by_value::<u32, ()>(|_| Ok((unsafe { &mut *elsewhere }, ()))).map_err(|e| e.kind),
+        Err(ErrorKind::Unsupported)
+    );
+    drop(unsafe { Box::from_raw(elsewhere) });
+    assert_eq!(
+        super::by_value::<u32, ()>(|slot| Ok((slot.write(9), ()))),
+        Ok((9, ()))
+    );
 }
 
 #[test]

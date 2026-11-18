@@ -273,20 +273,7 @@ impl<'de, K: Decode<'de>, V: Decode<'de>> Iterator for MapIter<'de, K, V> {
 
 /// The item at the front of `bytes`, which decoding has already checked, and the bytes after it.
 fn first<'de, T: Decode<'de>>(bytes: &'de [u8]) -> Option<(T, &'de [u8])> {
-    use core::mem::MaybeUninit;
-
-    use super::{Decoder, Fed};
-
-    let mut slot = MaybeUninit::<T>::uninit();
-    let used = {
-        let mut decoder = Decoder::new(&mut slot);
-        let Ok(Fed::Done(used)) = decoder.feed(bytes) else {
-            return None;
-        };
-        decoder.finish().ok()?;
-        used
-    };
-    Some((unsafe { slot.assume_init() }, bytes.get(used..)?))
+    crate::from_slice_partial(bytes).ok()
 }
 
 /// An array's or map's elements, after its head.

@@ -109,6 +109,7 @@ pub unsafe trait Encode: Sized {
 ///     type Stack = ();
 ///     const MAX_DEPTH: usize = 2;
 ///     type OptionStack = ();
+///     const CONTIGUOUS: bool = false;
 /// }
 ///
 /// let mut slot = core::mem::MaybeUninit::uninit();
@@ -137,6 +138,10 @@ pub unsafe trait Decode<'de>: Sized {
     /// (D-10).
     #[doc(hidden)]
     const LEAD: Lead = Lead::ANY;
+    /// Whether decoding needs contiguous input rather than chunks: borrowed types, internally and
+    /// adjacently tagged enums (D-10, D-16), and anything holding one.
+    #[doc(hidden)]
+    const CONTIGUOUS: bool;
 }
 
 /// A byte array or vector's byte-string encoding, which a field selects with `#[cbor(bytes)]`;
@@ -211,6 +216,9 @@ pub trait Other: sealed::Other {
     type Stack;
     #[doc(hidden)]
     const MAX_DEPTH: usize;
+    /// Whether decoding needs contiguous input rather than chunks: captured entries borrow it.
+    #[doc(hidden)]
+    const CONTIGUOUS: bool;
 }
 
 /// A struct encoded as a map, which is what an internally tagged enum's newtype variant must wrap:

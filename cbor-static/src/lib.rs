@@ -275,9 +275,11 @@ mod half;
 mod keys;
 mod lead;
 mod limits;
+mod resumable;
 mod scalar;
 mod schema;
 mod sizes;
+mod slices;
 mod stack;
 mod tags;
 mod token;
@@ -296,6 +298,7 @@ pub use error::{Error, ErrorKind};
 pub use half::F16;
 pub use schema::{ByteString, Decode, Encode, Other};
 pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
+pub use slices::{from_slice, from_slice_partial};
 pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
@@ -322,6 +325,16 @@ pub fn to_slice<T: Encode>(value: &T, out: &mut [u8]) -> Result<usize, Error> {
 }
 
 /// Decodes exactly one item spanning all of `input` into `slot`.
+///
+/// ```
+/// let mut slot = core::mem::MaybeUninit::<[u16; 2]>::uninit();
+/// assert_eq!(*cbor_static::decode_into(b"\x82\x01\x19\x01\xf4", &mut slot)?, [1, 500]);
+/// assert_eq!(
+///     cbor_static::decode_into(b"\x82\x01\x19\x01", &mut slot).map_err(|e| e.kind),
+///     Err(cbor_static::ErrorKind::UnexpectedEnd)
+/// );
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 ///
 /// # Errors
 /// Any [`ErrorKind`]: malformed or truncated input, a type or range mismatch, a missing or
@@ -378,13 +391,20 @@ fn whole<'de, 's, T: Decode<'de>>(
 ) -> Result<&'s mut T, Error> {
     match decoder.feed(input) {
         Ok(Fed::Done(consumed)) if consumed == input.len() => decoder.finish(),
-        Ok(Fed::Done(consumed)) => Err(Error::new(ErrorKind::TrailingInput, 0, consumed)),
-        Ok(Fed::NeedInput) => Err(Error::new(ErrorKind::UnexpectedEnd, 0, input.len())),
-        Err(error) if error.kind == ErrorKind::NeedContiguous => Err(Error {
+        fed => Err(not_whole(fed, input)),
+    }
+}
+
+/// Why feeding all of `input` as one chunk did not decode exactly one item.
+fn not_whole(fed: Result<Fed, Error>, input: &[u8]) -> Error {
+    match fed {
+        Ok(Fed::Done(consumed)) => Error::new(ErrorKind::TrailingInput, 0, consumed),
+        Ok(Fed::NeedInput) => Error::new(ErrorKind::UnexpectedEnd, 0, input.len()),
+        Err(error) if error.kind == ErrorKind::NeedContiguous => Error {
             kind: ErrorKind::UnexpectedEnd,
             ..error
-        }),
-        Err(error) => Err(error),
+        },
+        Err(error) => error,
     }
 }
 
@@ -406,6 +426,7 @@ pub mod __private {
     };
     pub use crate::lead::Lead;
     pub use crate::limits::{Limit, Limited, LimitedBytes, LimitedDecode, encode_limited};
+    pub use crate::resumable::resumable;
     pub use crate::schema::{
         Assemble, Concat, DecKind, DecVariant, Decoding, EncKind, Encoding, EnumGlue, FieldLayout,
         Flat, Layout, MakeDefault, MapForm, Order, Other, Run, entries, flattened, map_form,

@@ -10,11 +10,12 @@ use cbor_static::{
 
 /// R-009's correctness criterion for an owned type: `value` encodes to exactly `bytes`, whole and
 /// in every output chunk size up to 64, and `bytes` decodes to `value`, whole and in every input
-/// chunk size up to 64.
+/// chunk size up to 64, as its type claims.
 pub fn golden<T>(value: &T, bytes: &[u8])
 where
     T: Encode + for<'de> Decode<'de> + Copy + PartialEq + Debug,
 {
+    assert!(!<T as Decode<'_>>::CONTIGUOUS, "claims contiguous input");
     assert_eq!(encode(value), bytes, "encode");
     assert_eq!(decode::<T>(bytes), Ok(*value), "decode");
     for chunk in 1..=64 {
@@ -36,6 +37,7 @@ pub fn golden_in_place<T>(value: &T, bytes: &[u8])
 where
     T: Encode + for<'de> Decode<'de> + PartialEq + Debug,
 {
+    assert!(!<T as Decode<'_>>::CONTIGUOUS, "claims contiguous input");
     assert_eq!(encode(value), bytes, "encode");
     for chunk in 1..=64 {
         assert_eq!(
@@ -60,11 +62,12 @@ where
 
 /// `golden` for internally and adjacently tagged values, whose decoding needs contiguous input
 /// (D-10, D-16): encoding still resumes at every chunk size, and decoding in chunks either
-/// succeeds or reports `NeedContiguous`.
+/// succeeds or reports `NeedContiguous`, as its type claims.
 pub fn golden_contiguous<T>(value: &T, bytes: &[u8])
 where
     T: Encode + for<'de> Decode<'de> + Copy + PartialEq + Debug,
 {
+    assert!(<T as Decode<'_>>::CONTIGUOUS, "claims chunked input");
     assert_eq!(encode(value), bytes, "encode");
     assert_eq!(decode::<T>(bytes), Ok(*value), "decode");
     for chunk in 1..=64 {

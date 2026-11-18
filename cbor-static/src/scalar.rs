@@ -184,6 +184,7 @@ macro_rules! scalar {
 			};
 			type OptionStack = ();
 			const LEAD: Lead = <$ty as Scalar>::LEAD;
+			const CONTIGUOUS: bool = false;
 		}
 	)+};
 }
@@ -205,6 +206,7 @@ macro_rules! leaf {
             const MAX_DEPTH: usize = 0;
             type OptionStack = Level<()>;
             const LEAD: Lead = $lead;
+            const CONTIGUOUS: bool = false;
         }
     };
 }
@@ -254,6 +256,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
+    const CONTIGUOUS: bool = true;
 }
 
 /// A one-character text string, which may arrive in chunks.
@@ -271,6 +274,7 @@ unsafe impl Decode<'_> for char {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
+    const CONTIGUOUS: bool = false;
 }
 
 #[allow(unsafe_code)]
@@ -287,6 +291,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::BYTES;
+    const CONTIGUOUS: bool = true;
 }
 
 #[allow(unsafe_code)]
@@ -304,4 +309,5 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Option<T> {
     const MAX_DEPTH: usize = depth_of::<T::OptionStack>();
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::NULL.union(T::LEAD);
+    const CONTIGUOUS: bool = T::CONTIGUOUS;
 }

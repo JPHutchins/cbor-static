@@ -1,3 +1,4 @@
+mod contiguous;
 mod enums;
 mod flatten;
 mod forms;
@@ -125,6 +126,7 @@ fn impls(
                 lead,
                 ..
             } = body(&quote!(::cbor_static::Decode<'de>));
+            let contiguous = contiguous::contiguous(&item.shape);
             quote! {
                 #[automatically_derived]
                 unsafe impl #generics ::cbor_static::Decode<'de> for #ty #bounds {
@@ -133,6 +135,7 @@ fn impls(
                     const MAX_DEPTH: usize = #depth;
                     type OptionStack = __p::Level<Self::Stack>;
                     const LEAD: __p::Lead = #lead;
+                    const CONTIGUOUS: bool = #contiguous;
                 }
             }
         }

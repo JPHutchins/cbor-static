@@ -97,6 +97,7 @@ unsafe impl<'de, const TAG: u64, T: Decode<'de>> Decode<'de> for Tagged<TAG, T> 
     const MAX_DEPTH: usize = T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::tagged(TAG);
+    const CONTIGUOUS: bool = T::CONTIGUOUS;
 }
 
 #[allow(unsafe_code)]
@@ -122,4 +123,5 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for SelfDescribed<T> {
     const MAX_DEPTH: usize = T::MAX_DEPTH;
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::TAG.union(T::LEAD);
+    const CONTIGUOUS: bool = T::CONTIGUOUS;
 }

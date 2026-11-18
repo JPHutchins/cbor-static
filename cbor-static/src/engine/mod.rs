@@ -85,14 +85,30 @@ use crate::error::{Error, ErrorKind};
 use crate::schema::{Decode, Encode};
 use crate::stack::{Frame, fits};
 
-/// Encoding as far as the last output buffer allowed.
+/// Encoding as far as the last output buffer allowed: the bytes written, and whether more follow.
+///
+/// ```
+/// let mut encoder = cbor_static::Encoder::new(&[1u8, 2]);
+/// assert_eq!(encoder.resume(&mut [0u8; 2])?, cbor_static::Progress::NeedSpace(2));
+/// assert_eq!(encoder.resume(&mut [0u8; 2])?, cbor_static::Progress::Done(1));
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Progress {
     Done(usize),
     NeedSpace(usize),
 }
 
-/// Decoding as far as the last input chunk allowed.
+/// Decoding as far as the last input chunk allowed: done, with the bytes of that chunk the item
+/// used, or in need of more.
+///
+/// ```
+/// let mut slot = core::mem::MaybeUninit::<[u8; 2]>::uninit();
+/// let mut decoder = cbor_static::Decoder::new(&mut slot);
+/// assert_eq!(decoder.feed(b"\x82\x01")?, cbor_static::Fed::NeedInput);
+/// assert_eq!(decoder.feed(b"\x02\xf6")?, cbor_static::Fed::Done(1));
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fed {
     Done(usize),
@@ -134,6 +150,23 @@ pub struct Decoder<'de, 's, T: Decode<'de>> {
 }
 
 impl<'v, T: Encode> Encoder<'v, T> {
+    /// An encoder of `value`, which writes nothing until resumed.
+    ///
+    /// ```
+    /// use cbor_static::Progress;
+    ///
+    /// let mut encoder = cbor_static::Encoder::new(&"hello");
+    /// let mut mtu = [0u8; 4];
+    /// let mut sent = Vec::new();
+    /// loop {
+    ///     match encoder.resume(&mut mtu)? {
+    ///         Progress::NeedSpace(n) => sent.extend_from_slice(&mtu[..n]),
+    ///         Progress::Done(n) => break sent.extend_from_slice(&mtu[..n]),
+    ///     }
+    /// }
+    /// assert_eq!(sent, b"\x65hello");
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     pub fn new(value: &'v T) -> Self {
         Self {
             state: match T::DETERMINISTIC {
@@ -149,6 +182,23 @@ impl<'v, T: Encode> Encoder<'v, T> {
 
     /// Writes the next part of the encoding into `out`.
     ///
+    /// ```
+    /// #[derive(cbor_static::Encode)]
+    /// struct Name<'a> {
+    ///     #[cbor(max_len = 2)]
+    ///     name: &'a str,
+    /// }
+    ///
+    /// let mut encoder = cbor_static::Encoder::new(&Name { name: "abc" });
+    /// let mut out = [0u8; 16];
+    /// for _ in 0..2 {
+    ///     assert_eq!(
+    ///         encoder.resume(&mut out).map_err(|e| e.kind),
+    ///         Err(cbor_static::ErrorKind::LimitExceeded)
+    ///     );
+    /// }
+    /// ```
+    ///
     /// # Errors
     /// [`ErrorKind::LimitExceeded`] for a field longer than its `#[cbor(max_len = N)]`, which
     /// every later call returns too, writing nothing; any other error indicates a corrupt
@@ -160,6 +210,23 @@ impl<'v, T: Encode> Encoder<'v, T> {
 }
 
 impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
+    /// A decoder into `slot`, which it writes as chunks arrive.
+    ///
+    /// ```
+    /// #[derive(cbor_static::Decode, Debug, PartialEq)]
+    /// struct Point {
+    ///     x: u32,
+    ///     y: u32,
+    /// }
+    ///
+    /// let mut slot = core::mem::MaybeUninit::uninit();
+    /// let mut decoder = cbor_static::Decoder::<Point>::new(&mut slot);
+    /// for chunk in b"\xa2\x61x\x01\x61y\x02".chunks(3) {
+    ///     decoder.feed(chunk)?;
+    /// }
+    /// assert_eq!(*decoder.finish()?, Point { x: 1, y: 2 });
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
     pub fn new(slot: &'s mut MaybeUninit<T>) -> Self {
         Self {
             state: decode::State::new(T::DECODE, slot.as_mut_ptr().cast()),
@@ -214,6 +281,21 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
 
     /// Consumes `chunk`, returning how much of it the item used once complete.
     ///
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::<[bool; 2]>::uninit();
+    /// let mut decoder = cbor_static::Decoder::new(&mut slot);
+    /// assert_eq!(decoder.feed(b"\x82\xf5")?, cbor_static::Fed::NeedInput);
+    /// assert_eq!(
+    ///     decoder.feed(b"\x01").map_err(|e| (e.kind, e.offset)),
+    ///     Err((cbor_static::ErrorKind::TypeMismatch, 3))
+    /// );
+    /// assert_eq!(
+    ///     decoder.feed(b"\xf4").map_err(|e| e.kind),
+    ///     Err(cbor_static::ErrorKind::TypeMismatch)
+    /// );
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    ///
     /// # Errors
     /// Any decode error; the fields decoded so far are dropped and later calls repeat it.
     pub fn feed(&mut self, chunk: &'de [u8]) -> Result<Fed, Error> {
@@ -227,6 +309,17 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
 
     /// The decoded value, once [`Decoder::feed`] has returned [`Fed::Done`]; at most once.
     ///
+    /// ```
+    /// let mut slot = core::mem::MaybeUninit::<u16>::uninit();
+    /// let mut decoder = cbor_static::Decoder::new(&mut slot);
+    /// assert_eq!(decoder.feed(b"\x19\x01")?, cbor_static::Fed::NeedInput);
+    /// assert_eq!(
+    ///     decoder.finish().map_err(|e| e.kind),
+    ///     Err(cbor_static::ErrorKind::UnexpectedEnd)
+    /// );
+    /// # Ok::<(), cbor_static::Error>(())
+    /// ```
+    ///
     /// # Errors
     /// [`crate::ErrorKind::UnexpectedEnd`] before then; an error on every later call.
     pub fn finish(&mut self) -> Result<&'s mut T, Error> {
@@ -237,6 +330,20 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
 impl<'de, T: Decode<'de>> Drop for Decoder<'de, '_, T> {
     fn drop(&mut self) {
         decode::abandon(&mut self.state, frames(&mut self.stack, T::MAX_DEPTH));
+    }
+}
+
+/// The value `decode` writes into a slot of its own, moved out, with what else `decode` returns.
+/// Only a reference to the slot itself, such as [`Decoder::finish`] gives, shows it initialized.
+pub(crate) fn by_value<T, R>(
+    decode: impl for<'s> FnOnce(&'s mut MaybeUninit<T>) -> Result<(&'s mut T, R), Error>,
+) -> Result<(T, R), Error> {
+    let mut slot = MaybeUninit::uninit();
+    let (value, rest) = decode(&mut slot)?;
+    if ptr::eq(ptr::from_mut(value), slot.as_ptr()) {
+        Ok((unsafe { slot.assume_init() }, rest))
+    } else {
+        Err(Error::new(ErrorKind::Unsupported, 0, 0))
     }
 }
 

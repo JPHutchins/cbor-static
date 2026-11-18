@@ -1,0 +1,30 @@
+error[E0080]: evaluation panicked: cbor-static: the type's decoding needs contiguous input
+ --> $RUST/core/src/panic.rs
+  |
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `cbor_static::__private::resumable::<Event>::{constant#0}` failed here
+  |
+ ::: src/resumable.rs
+  |
+  | /         assert!(
+  | |             !<T as Decode<'static>>::CONTIGUOUS,
+  | |             "cbor-static: the type's decoding needs contiguous input"
+  | |         );
+  | |_________- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/resumable.rs
+  |
+  | /     const {
+  | |         assert!(
+  | |             !<T as Decode<'static>>::CONTIGUOUS,
+  | |             "cbor-static: the type's decoding needs contiguous input"
+  | |         );
+  | |     };
+  | |_____^
+
+note: the above error was encountered while instantiating `fn cbor_static::__private::resumable::<Event>`
+ --> tests/ui/resumable_internal.rs:8:5
+  |
+8 |     cbor_static::__private::resumable::<Event>();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
