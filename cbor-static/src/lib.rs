@@ -263,7 +263,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 extern crate self as cbor_static;
-#[cfg(test)]
+#[cfg(any(test, feature = "std"))]
 extern crate std;
 
 #[cfg(feature = "alloc")]
@@ -275,9 +275,13 @@ mod bounded;
 mod bounded_len;
 mod containers;
 pub mod deterministic;
+#[cfg(feature = "embedded-io")]
+pub mod embedded_io;
 mod engine;
 mod error;
 mod half;
+#[cfg(feature = "std")]
+pub mod io;
 mod keys;
 mod lead;
 mod limits;
@@ -287,6 +291,8 @@ mod schema;
 mod sizes;
 mod slices;
 mod stack;
+#[cfg(any(feature = "embedded-io", feature = "std"))]
+mod streams;
 mod tags;
 mod token;
 #[cfg(feature = "alloc")]
@@ -309,6 +315,8 @@ pub use half::F16;
 pub use schema::{ByteString, Decode, Encode, Other};
 pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
 pub use slices::{from_slice, from_slice_partial};
+#[cfg(any(feature = "embedded-io", feature = "std"))]
+pub use streams::IoError;
 pub use tags::{DateTime, Embedded, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 #[cfg(feature = "alloc")]

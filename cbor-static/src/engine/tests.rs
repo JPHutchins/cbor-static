@@ -114,12 +114,16 @@ fn by_value_moves_out_only_what_its_own_slot_holds() {
 
     let elsewhere = Box::into_raw(Box::new(7u32));
     assert_eq!(
-        super::by_value::<u32, ()>(|_| Ok((unsafe { &mut *elsewhere }, ()))).map_err(|e| e.kind),
+        super::by_value::<u32, (), Error>(
+            |_| Ok((unsafe { &mut *elsewhere }, ())),
+            core::convert::identity
+        )
+        .map_err(|e| e.kind),
         Err(ErrorKind::Unsupported)
     );
     drop(unsafe { Box::from_raw(elsewhere) });
     assert_eq!(
-        super::by_value::<u32, ()>(|slot| Ok((slot.write(9), ()))),
+        super::by_value::<u32, (), Error>(|slot| Ok((slot.write(9), ())), core::convert::identity),
         Ok((9, ()))
     );
 }
@@ -492,5 +496,240 @@ fn a_skipped_default_is_dropped_with_its_struct() {
             (Some(ErrorKind::MissingField), 0),
             "the skipped field comes last, so a missing field fails before its default"
         );
+    }
+}
+
+/// What `from_reader` relies on (#5 Q5): a type that keeps nothing of its input holds no reference
+/// into a chunk past the feed that delivered it. Each chunk here is its own heap allocation, freed
+/// right after its feed, so a kept reference is a use-after-free under Miri.
+#[cfg(all(feature = "alloc", any(feature = "embedded-io", feature = "std")))]
+mod transient {
+    use core::fmt::Debug;
+    use std::boxed::Box;
+    use std::collections::BTreeMap;
+    use std::string::String;
+    use std::vec;
+    use std::vec::Vec;
+
+    use crate::Skipped;
+    use crate::engine::{Decoder, Fed, by_value};
+    use crate::error::Error;
+    use crate::schema::{Decode, Encode};
+
+    #[derive(crate::Cbor, Debug, PartialEq)]
+    struct Record {
+        id: u64,
+        name: String,
+        tags: Vec<String>,
+        unit: char,
+        big: u128,
+        #[cbor(bytes)]
+        key: [u8; 4],
+        pair: Option<(i8, bool)>,
+    }
+
+    fn record() -> Record {
+        Record {
+            id: 1 << 40,
+            name: "thermistor".into(),
+            tags: vec!["a".into(), "bé".into()],
+            unit: 'é',
+            big: u128::MAX,
+            key: [1, 2, 3, 4],
+            pair: Some((-3, true)),
+        }
+    }
+
+    #[derive(crate::Cbor, Debug, PartialEq)]
+    struct Inner {
+        a: u8,
+        b: String,
+    }
+
+    /// Entries `Narrow` and `Counting` don't claim: a map, an array of an array and an option, and
+    /// a definite string, each skipped as it arrives.
+    #[derive(crate::Cbor, Debug, PartialEq)]
+    struct Wide {
+        id: u32,
+        inner: Inner,
+        list: (u8, [u32; 3], Option<bool>),
+        note: String,
+        last: i16,
+    }
+
+    #[derive(crate::Decode, Debug, PartialEq)]
+    struct Narrow {
+        id: u32,
+        last: i16,
+    }
+
+    #[derive(crate::Decode, Debug, PartialEq)]
+    struct Counting {
+        id: u32,
+        last: i16,
+        #[cbor(other)]
+        rest: Skipped,
+    }
+
+    fn wide() -> Wide {
+        Wide {
+            id: 7,
+            inner: Inner {
+                a: 1,
+                b: "an inner string".into(),
+            },
+            list: (2, [70_000, 3, 1 << 31], Some(true)),
+            note: "a definite string no field claims".into(),
+            last: -300,
+        }
+    }
+
+    #[derive(crate::Cbor, Debug, PartialEq)]
+    enum Event {
+        Idle,
+        Reading(u32),
+        Fault { code: i16, text: String },
+    }
+
+    #[derive(crate::Cbor, Debug, PartialEq)]
+    struct Held {
+        boxed: Box<(u8, String)>,
+        map: BTreeMap<String, Vec<u16>>,
+        events: [Event; 3],
+    }
+
+    fn held() -> Held {
+        Held {
+            boxed: Box::new((9, "boxed".into())),
+            map: [("x".into(), vec![1, 500]), ("yy".into(), vec![])].into(),
+            events: [
+                Event::Idle,
+                Event::Reading(70_000),
+                Event::Fault {
+                    code: -2,
+                    text: "overheat".into(),
+                },
+            ],
+        }
+    }
+
+    /// `T` fed `pieces`, each copied into a fresh allocation by `chunk` and released after its feed.
+    fn fed<'a, T: for<'de> Decode<'de>, C: AsRef<[u8]>>(
+        pieces: impl IntoIterator<Item = &'a [u8]>,
+        mut chunk: impl FnMut(&[u8]) -> C,
+    ) -> Result<T, Error> {
+        by_value(
+            |slot| {
+                let mut decoder = Decoder::<T>::new(slot);
+                for piece in pieces {
+                    let held = chunk(piece);
+                    let fed = decoder.feed_transient(held.as_ref())?;
+                    drop(held);
+                    if let Fed::Done(_) = fed {
+                        break;
+                    }
+                }
+                decoder.finish().map(|value| (value, ()))
+            },
+            core::convert::identity,
+        )
+        .map(|(value, ())| value)
+    }
+
+    /// `bytes` decoded as `T`, seen through `seen`, at every split into two feeds and in every
+    /// chunk size (up to 4 under Miri), each chunk its own allocation, freed right after its feed.
+    fn kept_nothing<T: for<'de> Decode<'de>, S: PartialEq + Debug>(
+        bytes: &[u8],
+        seen: impl Fn(T) -> S,
+        expected: &S,
+    ) {
+        for at in 0..=bytes.len() {
+            let (head, tail) = bytes.split_at(at);
+            assert_eq!(
+                fed::<T, _>([head, tail], |piece| Box::<[u8]>::from(piece))
+                    .map(&seen)
+                    .as_ref(),
+                Ok(expected),
+                "split at {at}"
+            );
+        }
+        for size in (1..=bytes.len()).filter(|size| !cfg!(miri) || *size <= 4) {
+            assert_eq!(
+                fed::<T, _>(bytes.chunks(size), |piece| Box::<[u8]>::from(piece))
+                    .map(&seen)
+                    .as_ref(),
+                Ok(expected),
+                "chunks of {size}"
+            );
+        }
+    }
+
+    fn encoded<T: Encode>(value: &T) -> Vec<u8> {
+        crate::to_vec(value).expect("encodes")
+    }
+
+    #[test]
+    fn no_chunk_is_kept_past_its_feed_at_any_split() {
+        kept_nothing(&encoded(&record()), |value: Record| value, &record());
+    }
+
+    #[test]
+    fn unknown_entries_skipped_or_counted_keep_no_chunk() {
+        let bytes = encoded(&wide());
+        kept_nothing(&bytes, |value: Narrow| value, &Narrow { id: 7, last: -300 });
+        kept_nothing(
+            &bytes,
+            |value: Counting| (value.id, value.last, value.rest.count()),
+            &(7, -300, 3),
+        );
+    }
+
+    #[test]
+    fn an_enum_box_and_btree_map_keep_no_chunk() {
+        kept_nothing(&encoded(&held()), |value: Held| value, &held());
+    }
+
+    #[cfg(feature = "heapless")]
+    #[test]
+    fn heapless_strings_vecs_and_maps_keep_no_chunk() {
+        #[derive(crate::Cbor, Debug, PartialEq)]
+        struct Bounded {
+            name: heapless::String<8>,
+            values: heapless::Vec<u16, 4>,
+            map: heapless::LinearMap<heapless::String<4>, u8, 2>,
+        }
+
+        let bounded = || Bounded {
+            name: heapless::String::try_from("probe").expect("fits"),
+            values: heapless::Vec::from_slice(&[1, 500, 70]).expect("fits"),
+            map: [(heapless::String::try_from("ab").expect("fits"), 3)]
+                .into_iter()
+                .collect(),
+        };
+        kept_nothing(&encoded(&bounded()), |value: Bounded| value, &bounded());
+    }
+
+    #[test]
+    fn a_buffer_overwritten_between_feeds_leaves_the_value_as_fed() {
+        let bytes = encoded(&record());
+        for size in 1..=bytes.len() {
+            let mut reused = vec![0u8; size];
+            let decoded = by_value(
+                |slot| {
+                    let mut decoder = Decoder::<Record>::new(slot);
+                    for piece in bytes.chunks(size) {
+                        reused.fill(0xff);
+                        reused[..piece.len()].copy_from_slice(piece);
+                        if let Fed::Done(_) = decoder.feed_transient(&reused[..piece.len()])? {
+                            break;
+                        }
+                    }
+                    decoder.finish().map(|value| (value, ()))
+                },
+                core::convert::identity,
+            )
+            .map(|(value, ())| value);
+            assert_eq!(decoded, Ok(record()), "chunks of {size}");
+        }
     }
 }
