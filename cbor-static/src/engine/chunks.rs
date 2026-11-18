@@ -11,7 +11,7 @@ use core::marker::PhantomData;
 use super::{Item, Next};
 use crate::error::ErrorKind;
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Payload};
 use crate::stack::Level;
 use crate::wire::Major;
 
@@ -214,6 +214,7 @@ unsafe impl<'de: 'a, 'a, T: ?Sized + Chunk> Decode<'de> for Chunks<'a, T> {
         decode: decode::<T>,
         default: None,
         drop: None,
+        payload: Payload::Taken,
     };
     type Stack = ();
     const MAX_DEPTH: usize = 0;

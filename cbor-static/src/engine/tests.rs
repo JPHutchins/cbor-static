@@ -6,7 +6,7 @@ use super::leaf::store;
 use super::{Decoder, Encoder, Item, Next, drop_fn, index_tag};
 use crate::error::{Error, ErrorKind};
 use crate::scalar::Scalar;
-use crate::schema::{DecKind, Decode, EncKind, Encode, Layout};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Layout, Payload};
 
 mod drops;
 
@@ -34,6 +34,7 @@ unsafe impl Decode<'_> for Tracked {
         decode: decode_tracked,
         default: None,
         drop: drop_fn::<Tracked>(),
+        payload: Payload::Refused,
     };
     type Stack = ();
     const MAX_DEPTH: usize = 0;
@@ -65,6 +66,7 @@ unsafe impl Decode<'_> for Naive {
         decode: decode_naive,
         default: None,
         drop: None,
+        payload: Payload::Taken,
     };
     type Stack = ();
     const MAX_DEPTH: usize = 0;
@@ -77,6 +79,7 @@ unsafe impl Decode<'_> for Greedy {
         decode: decode_greedy,
         default: None,
         drop: None,
+        payload: Payload::Taken,
     };
     type Stack = ();
     const MAX_DEPTH: usize = 0;

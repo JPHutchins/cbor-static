@@ -7,7 +7,7 @@ use super::text::utf8;
 use super::{BYTES_OWNED, FinishFn, Item, Next, Pending, StrictOps};
 use crate::error::ErrorKind;
 use crate::scalar::Scalar;
-use crate::schema::{DecKind, Decode, EncKind};
+use crate::schema::{DecKind, Decode, EncKind, Payload};
 use crate::wire::{Header, Major, NULL};
 
 pub type EncodeFn = unsafe fn(*const u8, &mut Pending);
@@ -22,6 +22,7 @@ pub static DEC_STR: DecKind = DecKind::Leaf {
     decode: dec_str,
     default: None,
     drop: None,
+    payload: Payload::Taken,
 };
 pub static ENC_BYTES: EncKind = EncKind::Leaf {
     encode: enc_bytes,
@@ -31,6 +32,7 @@ pub static DEC_BYTES: DecKind = DecKind::Leaf {
     decode: dec_bytes,
     default: None,
     drop: None,
+    payload: Payload::Taken,
 };
 /// A `skip`ped field (#13 Q31), which is never written: its encoding is always absent.
 pub static ENC_SKIPPED: EncKind = EncKind::Leaf {
@@ -55,6 +57,7 @@ pub static NULL_ITEM: DecKind = DecKind::Leaf {
     decode: dec_null,
     default: None,
     drop: None,
+    payload: Payload::Refused,
 };
 /// A bignum's digits, a byte string copied into the magnitude in the slot of the `u128` or `i128`
 /// it becomes, chunk by chunk, definite or indefinite (D-16, #20).

@@ -8,7 +8,7 @@ use crate::engine::{
 use crate::error::ErrorKind;
 use crate::half::F16;
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode, Order};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Order, Payload};
 use crate::stack::{Level, depth_of};
 use crate::wire::{FALSE, Major, NULL, TRUE, float};
 
@@ -22,6 +22,7 @@ pub trait Scalar: Copy + 'static {
         decode: dec_scalar::<Self>,
         default: None,
         drop: None,
+        payload: Payload::Refused,
     };
 
     const LEAD: Lead;
@@ -181,6 +182,7 @@ macro_rules! scalar {
 				decode: dec_option::<$ty>,
 				default: Some(none::<$ty>),
 				drop: None,
+				payload: Payload::Refused,
 			};
 			type OptionStack = ();
 			const LEAD: Lead = <$ty as Scalar>::LEAD;
@@ -225,7 +227,8 @@ leaf!(
     &DecKind::Leaf {
         decode: dec_u128,
         default: None,
-        drop: None
+        drop: None,
+        payload: Payload::Refused,
     }
 );
 leaf!(
@@ -238,7 +241,8 @@ leaf!(
     &DecKind::Leaf {
         decode: dec_i128,
         default: None,
-        drop: None
+        drop: None,
+        payload: Payload::Refused,
     }
 );
 

@@ -158,6 +158,7 @@ pub enum DecKind {
         decode: DecodeFn,
         default: Option<WriteFn>,
         drop: Option<WriteFn>,
+        payload: Payload,
     },
     Struct {
         ops: &'static DecOps,
@@ -258,6 +259,13 @@ pub struct MapGlue {
     pub key_encode: &'static EncKind,
 }
 
+/// Whether a leaf takes a text or byte string's payload, or no string is a value of its type.
+#[derive(Clone, Copy)]
+pub enum Payload {
+    Refused,
+    Taken,
+}
+
 pub struct DecVariant {
     pub payload: Option<&'static DecKind>,
     pub assemble: WriteFn,
@@ -273,11 +281,15 @@ impl DecKind {
     pub const fn dropped_by(&self, drop: Option<WriteFn>) -> Self {
         match *self {
             Self::Leaf {
-                decode, default, ..
+                decode,
+                default,
+                payload,
+                ..
             } => Self::Leaf {
                 decode,
                 default,
                 drop,
+                payload,
             },
             Self::Struct {
                 ops, layout, kinds, ..
@@ -407,6 +419,7 @@ impl DecKind {
             decode: dec_skipped,
             default: Some(default),
             drop,
+            payload: Payload::Refused,
         }
     }
 
