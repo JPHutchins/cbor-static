@@ -271,6 +271,8 @@ mod allocated;
 pub mod attributes;
 #[cfg(feature = "heapless")]
 mod bounded;
+#[cfg(feature = "alloc")]
+mod bounded_len;
 mod containers;
 pub mod deterministic;
 mod engine;
@@ -293,6 +295,8 @@ mod wire;
 
 use core::mem::MaybeUninit;
 
+#[cfg(feature = "alloc")]
+pub use bounded_len::Bounded;
 pub use cbor_static_derive::{Cbor, Decode, Encode};
 pub use engine::{
     ArrayIter, ArrayRef, Chunk, ChunkIter, Chunks, Decoder, Encoder, Fed, MapIter, MapRef,

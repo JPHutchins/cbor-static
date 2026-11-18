@@ -1,5 +1,6 @@
-//! Alloc `Vec`, `String`, `#[cbor(bytes)]` `Vec<u8>` and `Box` (#5 Q8): round trips at every chunk
-//! size, indefinite strings (D-13), `max_len` (#5 Q15), and the field an error inside one reports.
+//! Alloc `Vec`, `String`, `#[cbor(bytes)]` `Vec<u8>`, `Box` and `Bounded` (#5 Q8): round trips at
+//! every chunk size, indefinite strings (D-13), `max_len` and nested limits (#5 Q15), and the field
+//! an error inside one reports.
 #![cfg(feature = "alloc")]
 
 mod common;
@@ -7,7 +8,7 @@ mod common;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 
-use cbor_static::{Cbor, Decode, Encode, ErrorKind, from_slice};
+use cbor_static::{Bounded, Cbor, Decode, Encode, ErrorKind, MaxEncodedLen, from_slice};
 use common::{encode, golden_released};
 use proptest::prelude::*;
 
@@ -215,6 +216,54 @@ fn a_box_fails_as_the_value_it_holds() {
                 .map(|_| ())
                 .map_err(|e| (e.kind, e.field, e.offset)),
             "{input:x?}"
+        );
+    }
+}
+
+type Names = Bounded<Vec<Bounded<String, 3>>, 2>;
+
+#[derive(Cbor, Debug, PartialEq)]
+#[cbor(max_encoded_len)]
+struct Tagged {
+    names: Names,
+    #[cbor(bytes)]
+    key: Bounded<Vec<u8>, 2>,
+}
+
+fn names(items: &[&str]) -> Names {
+    Bounded::new(
+        items
+            .iter()
+            .map(|item| Bounded::new((*item).into()).expect("fits"))
+            .collect(),
+    )
+    .expect("fits")
+}
+
+#[test]
+fn bounded_limits_nest_where_max_len_cannot() {
+    golden(
+        &Tagged {
+            names: names(&["abc", ""]),
+            key: Bounded::new(vec![1]).expect("fits"),
+        },
+        b"\xa2\x65names\x82\x63abc\x60\x63key\x41\x01",
+    );
+    assert_eq!(
+        <Tagged as MaxEncodedLen>::MAX_ENCODED_LEN,
+        1 + 6 + 1 + 2 * 4 + 4 + 3
+    );
+    for longer in [
+        b"\xa2\x65names\x81\x64abcd\x63key\x40".as_slice(),
+        b"\xa2\x65names\x81\x7f\x62ab\x62cd\xff\x63key\x40",
+        b"\xa2\x65names\x83\x60\x60\x60\x63key\x40",
+        b"\xa2\x65names\x9f\x60\x60\x60\xff\x63key\x40",
+        b"\xa2\x65names\x80\x63key\x43\x01\x02\x03",
+    ] {
+        assert_eq!(
+            from_slice::<Tagged>(longer).map_err(|e| e.kind),
+            Err(ErrorKind::LimitExceeded),
+            "{longer:x?}"
         );
     }
 }

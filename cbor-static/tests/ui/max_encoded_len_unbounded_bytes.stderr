@@ -7,7 +7,12 @@ error[E0277]: `Vec<u8>` has no maximum encoded length
   = help: the trait `cbor_static::__private::ByteCapacity` is not implemented for `Vec<u8>`
   = note: a field bounds an unbounded type with `#[cbor(max_len = N)]`
 help: the following other types implement trait `cbor_static::__private::ByteCapacity`
- --> src/containers.rs
+ --> src/bounded_len.rs
+  |
+  | impl<T: ByteString, const N: usize> ByteCapacity for Bounded<T, N> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Bounded<T, N>`
+  |
+ ::: src/containers.rs
   |
   | impl<const N: usize> ByteCapacity for [u8; N] {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `[u8; N]`

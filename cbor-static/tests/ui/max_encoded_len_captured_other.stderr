@@ -12,8 +12,8 @@ error[E0277]: `RawEntry<'a>` has no maximum encoded length
             (A, B)
             (A, B, C)
             (A, B, C, D)
+            Bounded<T, N>
             Box<T>
             F16
-            Header<'a>
           and $N others
   = note: required for `VecInner<RawEntry<'a>, usize, heapless::vec::storage::VecStorageInner<[MaybeUninit<RawEntry<'a>>; 4]>>` to implement `MaxEncodedLen`
