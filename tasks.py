@@ -69,7 +69,7 @@ usize16 = Task(
 	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target; also the no-feature build, warnings denied",
 )
 oneshot = Task(
-	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test oneshot",
+	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test oneshot --test sizes",
 	env={
 		"CARGO_TARGET_DIR": f"{TARGET_DIR}/oneshot-host",
 		"RUSTFLAGS": "--cfg cbor_static_oneshot -D warnings",

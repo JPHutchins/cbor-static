@@ -3,7 +3,7 @@
 //! (R-201).
 
 use crate::engine::{Encoder, Progress, Skipped};
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::half::F16;
 use crate::schema::Encode;
 use crate::tags::{SelfDescribed, Tagged};
@@ -80,10 +80,13 @@ pub fn encode_into<T: Encode + MaxEncodedLen, const N: usize>(
 /// As [`crate::to_slice`], save [`crate::ErrorKind::BufferTooSmall`].
 pub fn encoded_len<T: Encode>(value: &T) -> Result<usize, Error> {
     let mut encoder = Encoder::new(value);
-    let mut scratch = [0u8; 16];
+    let mut scratch = [0u8; 64];
     let mut counted = 0;
     loop {
         match encoder.resume(&mut scratch)? {
+            Progress::NeedSpace(0) => {
+                return Err(Error::new(ErrorKind::BufferTooSmall, 0, counted));
+            }
             Progress::NeedSpace(written) => counted += written,
             Progress::Done(written) => return Ok(counted + written),
         }

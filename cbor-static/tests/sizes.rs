@@ -66,6 +66,21 @@ fn containers_hold_their_widest_elements() {
     widest(&SelfDescribed(char::MAX));
 }
 
+/// The one-shot measurement build moves each item whole, so it counts only items that fit
+/// `encoded_len`'s scratch; the resumable build counts any.
+#[test]
+fn an_item_wider_than_the_scratch() {
+    let wide = "x".repeat(100);
+    if cfg!(cbor_static_oneshot) {
+        assert_eq!(
+            encoded_len(&wide.as_str()).map_err(|e| e.kind),
+            Err(cbor_static::ErrorKind::BufferTooSmall)
+        );
+    } else {
+        assert_eq!(encoded_len(&wide.as_str()), Ok(102));
+    }
+}
+
 #[test]
 fn a_none_counts_its_payload_as_room() {
     assert_eq!(bounded(&None::<u64>), 1);
