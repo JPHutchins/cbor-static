@@ -243,7 +243,9 @@
 //! `String`, elements for heapless `Vec`, entries for `LinearMap`, and an `Option` of any of them
 //! when it is `Some` (#5 Q15). Encoding a longer value fails with `LimitExceeded`, and so does
 //! decoding one: a definite length at its head, before any copy, and an indefinite one at the
-//! chunk or element that would pass `N`.
+//! chunk or element that would pass `N`. A borrowed `&str` or `&[u8]` copies nothing and is
+//! checked once its payload is in one chunk, so a truncated one is `UnexpectedEnd`, and one split
+//! across chunks `NeedContiguous` (D-16).
 //!
 //! ```
 //! #[derive(cbor_static::Cbor, Debug, PartialEq)]

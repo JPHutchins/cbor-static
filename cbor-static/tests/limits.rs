@@ -158,6 +158,22 @@ fn another_type_is_a_mismatch_not_a_limit() {
     }
 }
 
+/// A borrowed field copies nothing, so its limit is checked once its payload is contiguous: input
+/// that ends inside it, or splits it, fails as any borrowed string does.
+#[test]
+fn a_borrowed_field_is_checked_once_contiguous() {
+    let over: &[u8] = b"\xa2\x64name\x65abcde\x63raw\x40";
+    assert_eq!(decode::<Borrowed>(over), Err(ErrorKind::LimitExceeded));
+    assert_eq!(
+        decode::<Borrowed>(&over[..8]),
+        Err(ErrorKind::UnexpectedEnd)
+    );
+    assert_eq!(
+        chunked_decode::<Borrowed>(over, 8),
+        Err(ErrorKind::NeedContiguous)
+    );
+}
+
 #[test]
 fn decoding_past_the_limit_fails_whole_and_in_chunks() {
     for bytes in [
