@@ -8,8 +8,8 @@ use proc_macro2::{Literal, TokenStream};
 use quote::{ToTokens, quote};
 
 use super::{
-    Body, Order, Params, Trait, admitted, derives, field_decode, field_encode, field_stack, impls,
-    key, level, makers, ordered, params, part_order,
+    Body, Order, Params, Site, Trait, admitted, derives, field_decode, field_encode, field_stack,
+    helpers, impls, key, level, ordered, params, part_order,
 };
 use crate::Directions;
 use crate::model::{Field, Item, Key, Mode, Unknown};
@@ -27,6 +27,7 @@ pub fn flattening(
     let params = params(item);
     let ident = &item.ident;
     let flats = flats(item, fields, directions);
+    let site = Site::new(ident, &params.named);
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(
             fields
@@ -38,7 +39,7 @@ pub fn flattening(
             if flattened(field) {
                 quote!(__p::EncKind::kinds(<#ty as #path>::ENCODE))
             } else {
-                let kind = field_encode(field, path);
+                let kind = field_encode(field, site, path);
                 quote!(&[#kind])
             }
         });
@@ -79,7 +80,7 @@ pub fn flattening(
             if flattened(field) {
                 quote!(__p::DecKind::kinds(<#ty as #path>::DECODE))
             } else {
-                let kind = field_decode(field, index, ident, &params.named, path);
+                let kind = field_decode(field, index, site, path);
                 quote!(&[#kind])
             }
         });
@@ -106,12 +107,12 @@ pub fn flattening(
             order: Order::default(),
         }
     });
-    let makers = makers(ident, fields, &params);
+    let helpers = helpers(item, fields, &params, directions);
     quote! {
         const LAYOUT_KEYS: &[__p::Key] = &[#(#own_keys),*];
         const LAYOUT_NAMES: [u8; const { __p::names_len(LAYOUT_KEYS) }] = const { __p::names(LAYOUT_KEYS) };
         #flats
-        #makers
+        #helpers
         #encode
         #decode
     }

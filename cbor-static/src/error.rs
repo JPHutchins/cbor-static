@@ -75,6 +75,21 @@ pub struct Error {
     pub offset: u32,
 }
 
+/// An error of `kind` at the start: what a `#[cbor(with = module)]` field's module returns, whose
+/// field and offset the engine reports in its place (#5 Q19).
+///
+/// ```
+/// use cbor_static::{Error, ErrorKind};
+///
+/// let error = Error::from(ErrorKind::TypeMismatch);
+/// assert_eq!((error.kind, error.field, error.offset), (ErrorKind::TypeMismatch, 0, 0));
+/// ```
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self::new(kind, 0, 0)
+    }
+}
+
 impl Error {
     pub(crate) fn new(kind: ErrorKind, field: u8, offset: usize) -> Self {
         Self {

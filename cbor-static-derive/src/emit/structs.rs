@@ -4,9 +4,9 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
 use super::{
-    Body, Order, Params, Placed, Trait, admitted, arranged, derives, field_child, field_decode,
-    field_encode, field_kind, field_stack, generic, impls, joined, key, layout, level, makers,
-    ordered, params, part_order, static_type,
+    Body, Order, Params, Placed, Site, Trait, admitted, arranged, derives, field_child,
+    field_decode, field_encode, field_kind, field_stack, generic, helpers, impls, joined, key,
+    layout, level, ordered, params, part_order, static_type, via, withs,
 };
 use crate::Directions;
 use crate::model::{Field, Item, Key, Mode, StructForm, Unknown};
@@ -50,6 +50,8 @@ pub fn structure(
         decode: decode_ops,
         lead,
     } = forms(form, &layout);
+    let params = params(item);
+    let site = Site::new(&item.ident, &params.named);
     let encode = impls(item, directions, Trait::Encode, |path| {
         let (stack, depth) = level(
             fields
@@ -59,7 +61,7 @@ pub fn structure(
         let kinds = arranged(
             &name,
             sort,
-            fields.iter().map(|field| field_encode(field, path)),
+            fields.iter().map(|field| field_encode(field, site, path)),
         );
         let parts = fields
             .iter()
@@ -81,7 +83,6 @@ pub fn structure(
             },
         }
     });
-    let params = params(item);
     let decode = impls(item, directions, Trait::Decode, |path| {
         let (stack, depth) = level(
             fields
@@ -94,7 +95,7 @@ pub fn structure(
             fields
                 .iter()
                 .enumerate()
-                .map(|(index, field)| field_decode(field, index, &item.ident, &params.named, path)),
+                .map(|(index, field)| field_decode(field, index, site, path)),
         );
         Body {
             kind: quote!(&__p::DecKind::Struct { ops: #decode_ops, layout: #layout, kinds: #kinds, drop: __p::drop_fn::<Self>() }),
@@ -106,12 +107,12 @@ pub fn structure(
     });
     let labels = labels(fields);
     let map_form = map_forms(item, fields, form, directions);
-    let makers = makers(&item.ident, fields, &params);
+    let helpers = helpers(item, fields, &params, directions);
     quote! {
         #layout_consts
         #labels
         #map_form
-        #makers
+        #helpers
         #encode
         #decode
     }
@@ -139,14 +140,24 @@ pub fn transparent(
         },
     );
     let (bytes, _) = coding;
+    let with = field.is_some_and(|field| field.with_module.is_some());
+    let params = params(item);
+    let site = Site::new(&item.ident, &params.named);
+    let via = |which| field.and_then(|field| via(field, site, which));
     let wraps = quote!(assert!(
         __p::wraps::<Self, #ty>(#offset),
         "cbor-static: a unit or newtype struct must be laid out as what it wraps"
     ););
     let encode = impls(item, directions, Trait::Encode, |path| {
-        let (stack, depth) = field_child(&ty, bytes, (Trait::Encode, path));
-        let kind = field_kind(&ty, coding, Trait::Encode, path);
-        let part = (!bytes).then(|| quote!(<#ty as #path>::ORDER));
+        let (stack, depth) = field_child(&ty, (bytes, with), (Trait::Encode, path));
+        let kind = field_kind(
+            &ty,
+            coding,
+            via(Trait::Encode).as_ref(),
+            Trait::Encode,
+            path,
+        );
+        let part = field.and_then(|field| part_order(field, path));
         let checks = admitted(
             mode,
             field
@@ -163,8 +174,14 @@ pub fn transparent(
         }
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
-        let (stack, depth) = field_child(&ty, bytes, (Trait::Decode, path));
-        let kind = field_kind(&ty, coding, Trait::Decode, path);
+        let (stack, depth) = field_child(&ty, (bytes, with), (Trait::Decode, path));
+        let kind = field_kind(
+            &ty,
+            coding,
+            via(Trait::Decode).as_ref(),
+            Trait::Decode,
+            path,
+        );
         Body {
             kind: quote!({
                 #wraps
@@ -176,15 +193,22 @@ pub fn transparent(
             }),
             stack,
             depth,
-            lead: if bytes {
-                quote!(__p::Lead::BYTES)
-            } else {
-                quote!(<#ty as #path>::LEAD)
+            lead: match (bytes, with) {
+                (_, true) => quote!(__p::Lead::ANY),
+                (true, false) => quote!(__p::Lead::BYTES),
+                (false, false) => quote!(<#ty as #path>::LEAD),
             },
             order: Order::default(),
         }
     });
+    let withs = withs(
+        item,
+        &item.ident,
+        field.map_or_default(core::slice::from_ref),
+        directions,
+    );
     quote! {
+        #withs
         #encode
         #decode
     }

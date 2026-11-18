@@ -1,0 +1,5 @@
+error: cbor-static: an `other` field takes no other field attribute
+  --> tests/ui/with_and_other.rs:10:5
+   |
+10 |     #[cbor(other, with = nothing)]
+   |     ^

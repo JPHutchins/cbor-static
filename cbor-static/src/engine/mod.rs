@@ -61,7 +61,7 @@ pub use encode::{
     DeterministicOps, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
     INDEX as ENCODE_INDEX, INTERNAL as ENCODE_INTERNAL, LENGTH_FIRST, LIMITED as ENCODE_LIMITED,
     MAP as ENCODE_MAP, MAP_OTHER as ENCODE_MAP_OTHER, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
-    UNTAGGED as ENCODE_UNTAGGED,
+    UNTAGGED as ENCODE_UNTAGGED, WithEncode, WithEncoding,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 #[cfg(feature = "alloc")]
@@ -94,7 +94,9 @@ pub(crate) use leaf::{
 pub use limited::{append_string_limited, append_vec_limited, at_limited};
 pub use limited::{bytes_limited, limited, str_limited};
 pub use pending::Pending;
-pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped};
+pub use raw::{
+    ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped, WithDecode, WithDecoding,
+};
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;

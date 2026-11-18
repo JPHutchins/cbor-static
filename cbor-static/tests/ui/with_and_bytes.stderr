@@ -1,0 +1,5 @@
+error: cbor-static: a `with` field's module writes it, so it takes no `bytes`, `max_len` or `skip_serializing_if`
+ --> tests/ui/with_and_bytes.rs:9:5
+  |
+9 |     #[cbor(with = nothing, bytes)]
+  |     ^

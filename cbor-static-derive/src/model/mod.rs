@@ -148,6 +148,8 @@ pub struct Field {
     pub bytes: bool,
     /// `#[cbor(max_len = N)]`: the bound on the field's `len()` (#5 Q15).
     pub max_len: Option<Expr>,
+    /// `#[cbor(with = module)]`: the module that writes and reads the field (#5 Q19).
+    pub with_module: Option<Path>,
 }
 
 impl Field {

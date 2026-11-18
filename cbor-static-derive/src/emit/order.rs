@@ -65,12 +65,13 @@ pub fn admitted(mode: Mode, parts: impl Iterator<Item = (String, TokenStream)>) 
         .collect()
 }
 
-/// A field's `Order` as a part of its container: a `skip`ped field is never written, and a
-/// `#[cbor(bytes)]` field is a byte string.
+/// A field's `Order` as a part of its container: a `skip`ped field is never written, a
+/// `#[cbor(bytes)]` field is a byte string, and a `with` field's module commits to no order.
 pub fn part_order(field: &Field, path: &TokenStream) -> Option<TokenStream> {
     let ty = &field.ty;
     match field.key {
         Key::Skipped => None,
+        _ if field.with_module.is_some() => Some(quote!(__p::Order::Conflict)),
         _ if field.bytes => None,
         Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
             Some(quote!(<#ty as #path>::ORDER))

@@ -1,0 +1,5 @@
+error: cbor-static: an internally tagged newtype variant's map takes the tag's entry, so no `with` module may write it
+  --> tests/ui/with_internal_newtype.rs:10:25
+   |
+10 |     Level(#[cbor(with = as_map)] u8),
+   |                         ^^^^^^

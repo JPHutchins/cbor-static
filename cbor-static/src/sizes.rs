@@ -88,7 +88,7 @@ pub fn encode_into<T: Encode + MaxEncodedLen, const N: usize>(
 /// ```
 ///
 /// # Errors
-/// As [`crate::to_slice`], save [`crate::ErrorKind::BufferTooSmall`].
+/// As [`crate::to_slice`].
 pub fn encoded_len<T: Encode>(value: &T) -> Result<usize, Error> {
     let mut encoder = Encoder::new(value);
     let mut scratch = [0u8; 64];

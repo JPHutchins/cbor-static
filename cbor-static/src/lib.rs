@@ -125,8 +125,8 @@
 //! struct Meters(#[serde(rename = "m")] u32);
 //! ```
 //!
-//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]`, `max_len` and `borrow`,
-//! and nothing else.
+//! A newtype variant's field is positional too: it takes `#[cbor(bytes)]`, `max_len`, `with` and
+//! `borrow`, and nothing else.
 //!
 //! ```
 //! #[derive(cbor_static::Cbor)]
@@ -428,8 +428,9 @@ pub mod __private {
         DECODE_MAP_MIXED, DECODE_MAP_MIXED_DENY, DECODE_UNTAGGED, DeterministicOps,
         ENCODE_ADJACENT, ENCODE_ARRAY, ENCODE_CBOR_TAG, ENCODE_EXTERNAL, ENCODE_INDEX,
         ENCODE_INTERNAL, ENCODE_MAP, ENCODE_SKIPPED, ENCODE_UNTAGGED, LENGTH_FIRST, Pending,
-        as_slice, assemble, drop_fn, field_ptr_of, gathered, index_of, index_tag, offset, wraps,
-        write_default, write_made, write_tag,
+        WithDecode, WithDecoding, WithEncode, WithEncoding, as_slice, assemble, drop_fn,
+        field_ptr_of, gathered, index_of, index_tag, offset, wraps, write_default, write_made,
+        write_tag,
     };
     pub use crate::keys::item_len as key_len;
     pub use crate::keys::{

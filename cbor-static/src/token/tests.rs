@@ -151,3 +151,9 @@ fn the_writer_rejects_indefinite_tokens_and_writes_nothing_on_error() {
     assert_eq!(writer.written(), 0);
     assert_eq!(out, [0; 3]);
 }
+
+/// A writer holds its buffer, its length so far, and a window only a `with` field's ops give it.
+#[test]
+fn a_writer_is_four_words() {
+    const { assert!(size_of::<TokenWriter>() == 4 * size_of::<usize>()) };
+}

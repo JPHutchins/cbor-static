@@ -248,6 +248,38 @@ FEATURES: Final = (
 		"`RawCbor`", "raw", "struct", (f"{DECODE}::raw::RAW", "cbor_static::engine::raw::codec::ENC_RAW")
 	),
 	Feature(
+		"`Embedded<T>`",
+		"embedded",
+		"struct",
+		(
+			f"{DECODE}::raw::RAW",
+			f"{ENCODE}::embedded::open::<u32>",
+			f"{ENCODE}::embedded::next",
+			"cbor_static::engine::raw::embedded::store::<u32>",
+		),
+	),
+	Feature(
+		"`with = module`",
+		"with",
+		"struct",
+		(
+			f"{DECODE}::raw::RAW",
+			f"{ENCODE}::stopped::STOPPED",
+			"cbor_static::token::window::WINDOW",
+			"<cbor_static::token::writer::TokenWriter>::write",
+			"<cbor_static::token::Tokens as core::iter::traits::iterator::Iterator>::next",
+		),
+	),
+	Feature(
+		"typed hand-off (`Tokens::decode_into`, `TokenWriter::encode`) in `with`",
+		"handoff",
+		"with",
+		(
+			"<cbor_static::token::Tokens>::decode_into::<u32>",
+			"<cbor_static::token::writer::TokenWriter>::encode::<u32>",
+		),
+	),
+	Feature(
 		"`ArrayRef`",
 		"array_ref",
 		"struct",

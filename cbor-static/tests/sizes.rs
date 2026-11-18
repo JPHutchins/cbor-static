@@ -151,3 +151,36 @@ proptest! {
         bounded(&entries.into_iter().collect::<LinearMap<u8, i32, 3>>());
     }
 }
+
+/// Writes `len` bytes of text as one typed item.
+mod text {
+    use cbor_static::{Error, TokenWriter, Tokens};
+
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "the signature #5 Q19 gives a module"
+    )]
+    pub fn encode(len: &usize, writer: &mut TokenWriter<'_>) -> Result<(), Error> {
+        writer.encode(&"x".repeat(*len).as_str()).map(|_| ())
+    }
+
+    pub fn decode(tokens: &mut Tokens<'_>) -> Result<usize, Error> {
+        tokens.next().map_or(Ok(0), |token| token.map(|_| 0))
+    }
+}
+
+#[derive(cbor_static::Cbor)]
+struct Text(#[cbor(with = text)] usize);
+
+/// A typed item a `with` module encodes goes through a small buffer, so the one-shot build fails on
+/// one wider than it, as `encoded_len` does; the resumable build writes any.
+#[test]
+fn a_typed_item_in_a_with_module_wider_than_its_buffer() {
+    let mut out = [0u8; 128];
+    let written = to_slice(&Text(100), &mut out).map_err(|e| e.kind);
+    if cfg!(cbor_static_oneshot) {
+        assert_eq!(written, Err(cbor_static::ErrorKind::BufferTooSmall));
+    } else {
+        assert_eq!(written, Ok(102));
+    }
+}

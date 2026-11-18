@@ -23,6 +23,7 @@ mod stopped;
 mod tag;
 mod tagged;
 mod untagged;
+mod with;
 
 use core::mem::MaybeUninit;
 use core::ptr;
@@ -48,6 +49,7 @@ pub use seq::SEQ;
 pub use tag::TAG;
 pub use tagged::{ADJACENT, INTERNAL};
 pub use untagged::UNTAGGED;
+pub use with::{WithEncode, WithEncoding};
 
 use super::pending::Pending;
 use super::{Progress, frame_mut, top_field};

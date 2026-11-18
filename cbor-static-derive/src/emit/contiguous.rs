@@ -30,10 +30,11 @@ fn any<'a>(fields: impl Iterator<Item = &'a Field>) -> TokenStream {
 }
 
 /// A field's own: none for a `skip`ped field, which is not decoded, or a byte string, which is
-/// copied.
+/// copied; a `with` field's module reads its item whole.
 fn field(field: &Field) -> Option<TokenStream> {
     let ty = &field.ty;
     match (&field.key, field.bytes) {
+        _ if field.with_module.is_some() => Some(quote!(true)),
         (Key::Skipped, _) | (_, true) => None,
         (Key::Other, false) => Some(quote!(<#ty as __p::Other>::CONTIGUOUS)),
         (

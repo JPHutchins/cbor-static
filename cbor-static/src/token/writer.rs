@@ -1,4 +1,5 @@
 use super::Token;
+use super::window::{WHOLE_ITEM, Window};
 use crate::engine::{Encoder, Progress};
 use crate::error::{Error, ErrorKind};
 use crate::schema::Encode;
@@ -18,8 +19,9 @@ use crate::wire::{FALSE, Head, Major, NULL, TRUE, UNDEFINED, float};
 /// ```
 #[derive(Debug)]
 pub struct TokenWriter<'a> {
-    out: &'a mut [u8],
-    at: usize,
+    pub(super) out: &'a mut [u8],
+    pub(super) at: usize,
+    pub(super) item: Option<&'a mut Window>,
 }
 
 impl<'a> TokenWriter<'a> {
@@ -28,7 +30,31 @@ impl<'a> TokenWriter<'a> {
     /// ```
     #[must_use]
     pub const fn new(out: &'a mut [u8]) -> Self {
-        Self { out, at: 0 }
+        Self {
+            out,
+            at: 0,
+            item: None,
+        }
+    }
+
+    /// A writer of exactly one item, of which `out` takes the part `window` covers.
+    pub(crate) const fn window(out: &'a mut [u8], window: &'a mut Window) -> Self {
+        Self {
+            out,
+            at: 0,
+            item: Some(window),
+        }
+    }
+
+    /// The length of the one item a [`TokenWriter::window`] wrote.
+    ///
+    /// # Errors
+    /// [`ErrorKind::NotWellFormed`] when it wrote none, or left one unfinished.
+    pub(crate) fn item_len(&self) -> Result<usize, ErrorKind> {
+        match self.item.as_deref() {
+            Some(window) if window.done() => Ok(self.at),
+            Some(_) | None => Err(ErrorKind::NotWellFormed),
+        }
     }
 
     /// Appends `token`, or nothing when it fails.
@@ -53,6 +79,9 @@ impl<'a> TokenWriter<'a> {
     /// - [`ErrorKind::NotWellFormed`] for the simple values 24 to 31, which have no encoding.
     #[inline(never)]
     pub fn write(&mut self, token: Token<'_>) -> Result<&mut Self, Error> {
+        if let Some(write) = self.item.as_deref().map(|window| window.ops.write) {
+            return write(self, token);
+        }
         let (head, payload) = encoding(token).map_err(|kind| Error::new(kind, 0, self.at))?;
         let len = head.as_bytes().len() + payload.len();
         self.out
@@ -90,16 +119,23 @@ impl<'a> TokenWriter<'a> {
     #[inline(never)]
     pub fn encode<T: Encode>(&mut self, value: &T) -> Result<&mut Self, Error> {
         let at = self.at;
-        match Encoder::new(value)
-            .resume(self.out.get_mut(at..).unwrap_or(&mut []))
-            .map_err(|error| error.after(at))?
-        {
-            Progress::Done(written) => {
-                self.at += written;
-                Ok(self)
+        match self.item.as_deref_mut() {
+            None => match Encoder::new(value)
+                .resume(self.out.get_mut(at..).unwrap_or(&mut []))
+                .map_err(|error| error.after(at))?
+            {
+                Progress::Done(written) => self.at += written,
+                Progress::NeedSpace(_) => {
+                    return Err(Error::new(ErrorKind::BufferTooSmall, 0, at));
+                }
+            },
+            Some(window) => {
+                let before = *window;
+                self.at =
+                    streamed(value, window, self.out, at).inspect_err(|_| *window = before)?;
             }
-            Progress::NeedSpace(_) => Err(Error::new(ErrorKind::BufferTooSmall, 0, at)),
         }
+        Ok(self)
     }
 
     /// ```
@@ -115,7 +151,36 @@ impl<'a> TokenWriter<'a> {
     }
 }
 
-fn encoding(token: Token<'_>) -> Result<(Head, &[u8]), ErrorKind> {
+/// Encodes `value` at offset `at` of a window's item, through a small buffer on the stack, keeping
+/// the bytes `window` covers in `out`, and returns the offset after it.
+fn streamed<T: Encode>(
+    value: &T,
+    window: &mut Window,
+    out: &mut [u8],
+    at: usize,
+) -> Result<usize, Error> {
+    (window.ops.owe)(window, WHOLE_ITEM).map_err(|kind| Error::new(kind, 0, at))?;
+    let mut encoder = Encoder::new(value);
+    let mut scratch = [0u8; 64];
+    let mut offset = at;
+    loop {
+        let (written, done) = match encoder
+            .resume(&mut scratch)
+            .map_err(|error| error.after(at))?
+        {
+            Progress::NeedSpace(0) => return Err(Error::new(ErrorKind::BufferTooSmall, 0, at)),
+            Progress::NeedSpace(written) => (written, false),
+            Progress::Done(written) => (written, true),
+        };
+        (window.ops.put)(window, out, offset, scratch.get(..written).unwrap_or(&[]));
+        offset += written;
+        if done {
+            return Ok(offset);
+        }
+    }
+}
+
+pub(super) fn encoding(token: Token<'_>) -> Result<(Head, &[u8]), ErrorKind> {
     match token {
         Token::Unsigned(n) => Ok((Head::new(Major::Uint, n), &[])),
         Token::Negative(n) => Ok((Head::new(Major::Nint, n), &[])),

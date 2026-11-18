@@ -5,12 +5,14 @@
 
 mod codec;
 mod other;
+mod with;
 
 use core::marker::PhantomData;
 
 use crate::schema::Decode;
 
 pub use other::{RawEntry, Skipped};
+pub use with::{WithDecode, WithDecoding};
 
 /// One well-formed item, borrowed from the input.
 ///

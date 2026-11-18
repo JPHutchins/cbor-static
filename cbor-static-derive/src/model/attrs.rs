@@ -42,6 +42,8 @@ pub enum Attr {
     MaxLen(Expr),
     /// `max_encoded_len`: the item implements `MaxEncodedLen` (#5 Q2).
     MaxEncodedLen,
+    /// `with = module`: the module's `encode` and `decode` write and read the field (#5 Q19).
+    With(Path),
 }
 
 pub enum KeyLit {
@@ -87,6 +89,7 @@ pub struct FieldAttrs {
     /// The lifetimes `borrow` names; empty for every one the field's type has.
     pub borrow: Option<Vec<String>>,
     pub max_len: Option<Expr>,
+    pub with_module: Option<Path>,
 }
 
 /// Whether a field is written under a key of its own, `skip`ped, `flatten`ed into its struct's
@@ -231,6 +234,10 @@ impl FieldAttrs {
                 max_len: Some(max_len),
                 ..self
             }),
+            Attr::With(module) => Ok(Self {
+                with_module: Some(module),
+                ..self
+            }),
             _ => Err(misplaced(attr.span, "a field")),
         }
     }
@@ -327,6 +334,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("length_first", true) => Attr::Order(Mode::LengthFirst),
                     ("max_len", true) => Attr::MaxLen(meta.value()?.parse::<Expr>()?),
                     ("max_encoded_len", true) => Attr::MaxEncodedLen,
+                    ("with", true) => Attr::With(meta.value()?.parse::<Path>()?),
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }

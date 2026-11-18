@@ -1,0 +1,23 @@
+error[E0080]: evaluation panicked: cbor-static: `inner` does not sort its map keys the same way
+  --> tests/ui/with_deterministic_nested.rs:13:10
+   |
+13 | #[derive(cbor_static::Encode)]
+   |          ^^^^^^^^^^^^^^^^^^^ evaluation of `_::<impl cbor_static::Encode for Reading>::ENCODE` failed here
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |                 None => encode::State::new(T::ENCODE, ptr::from_ref(value).cast()),
+  |                                            ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/engine/mod.rs
+  |
+  |                     encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
+  |                                                  ^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn Encoder::<'_, Reading>::new`
+ --> src/lib.rs
+  |
+  |     match Encoder::new(value).resume(out)? {
+  |           ^^^^^^^^^^^^^^^^^^^

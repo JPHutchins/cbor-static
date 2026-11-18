@@ -3,9 +3,12 @@ use core::mem::MaybeUninit;
 use super::encode::DeterministicOps;
 use crate::wire::{Head, Major};
 
+/// The bytes of heads `Pending` holds.
+pub const CAPACITY: usize = 18;
+
 /// Bytes produced for one item and not yet written: up to two heads plus a borrowed tail.
 pub struct Pending {
-    buf: [MaybeUninit<u8>; 18],
+    buf: [MaybeUninit<u8>; CAPACITY],
     at: u8,
     len: u8,
     tail: *const u8,
@@ -16,7 +19,7 @@ pub struct Pending {
 impl Pending {
     pub(crate) const fn new(deterministic: Option<&'static DeterministicOps>) -> Self {
         Self {
-            buf: [MaybeUninit::uninit(); 18],
+            buf: [MaybeUninit::uninit(); CAPACITY],
             at: 0,
             len: 0,
             tail: core::ptr::NonNull::dangling().as_ptr(),

@@ -2,11 +2,13 @@
 //! CBOR as a flat stream of heads, each with its definite string's payload (D-20), over
 //! contiguous input, and typed items handed off in the middle of one (#5 Q11).
 
+mod window;
 mod writer;
 
 use core::iter::FusedIterator;
 use core::mem::MaybeUninit;
 
+pub(crate) use window::Window;
 pub use writer::TokenWriter;
 
 use crate::engine::{Decoder, Fed, Input, Skip, StrictOps, utf8};

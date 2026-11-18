@@ -1,0 +1,5 @@
+error: cbor-static: `level` is written `with` a module, so it has no maximum encoded length
+  --> tests/ui/with_max_encoded_len.rs:12:12
+   |
+12 |     level: u8,
+   |            ^^

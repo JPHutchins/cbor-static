@@ -102,18 +102,24 @@ pub fn fields_of<'a>(
             if let Key::Text(text) = &key {
                 check_name(text, field.span())?;
             }
+            let absent_as_none = is_option && attrs.with_module.is_none();
             Ok(Field {
                 member: Member::Named(ident),
                 ty: field.ty.clone(),
                 key,
-                fallback: match (attrs.default, is_option) {
+                fallback: match (attrs.default, absent_as_none) {
                     (Fallback::Default, true) => Fallback::Type,
                     (fallback, _) => fallback,
                 },
                 omit_if_absent: match form {
                     StructForm::Map { .. } => attrs.skip_if_none,
-                    StructForm::Array => is_option,
+                    StructForm::Array => absent_as_none,
                 },
+                with_module: coded_with(
+                    field,
+                    attrs.with_module,
+                    [attrs.bytes, attrs.max_len.is_some(), attrs.skip_if_none],
+                )?,
                 bytes: attrs.bytes,
                 max_len: attrs.max_len,
             })
@@ -173,6 +179,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             bytes: false,
             borrow: None,
             max_len: None,
+            with_module: None,
             role: _,
             default,
         } => Ok(Field {
@@ -186,6 +193,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             omit_if_absent: true,
             bytes: false,
             max_len: None,
+            with_module: None,
         }),
         _ => Err(syn::Error::new(
             field.span(),
@@ -218,6 +226,7 @@ fn flattened(
                 bytes: false,
                 borrow: None,
                 max_len: None,
+                with_module: None,
             },
         ) => Ok(Field {
             member: Member::Named(ident),
@@ -227,6 +236,7 @@ fn flattened(
             omit_if_absent: false,
             bytes: false,
             max_len: None,
+            with_module: None,
         }),
         (StructForm::Map { .. }, _) => Err(syn::Error::new(
             field.span(),
@@ -259,6 +269,7 @@ fn other(
                 bytes: false,
                 borrow: None,
                 max_len: None,
+                with_module: None,
             },
         ) => Ok(Field {
             member: Member::Named(ident),
@@ -268,6 +279,7 @@ fn other(
             omit_if_absent: true,
             bytes: false,
             max_len: None,
+            with_module: None,
         }),
         (StructForm::Map { .. }, _) => Err(syn::Error::new(
             field.span(),
@@ -289,7 +301,7 @@ pub fn positional(fields: &FieldsUnnamed) -> syn::Result<Vec<Field>> {
 }
 
 /// A field identified by its place alone: a tuple struct's, a newtype variant's, or a transparent
-/// struct's one field. It takes `#[cbor(bytes)]` and `borrow`, and nothing else.
+/// struct's one field. It takes `#[cbor(bytes)]`, `max_len`, `with` and `borrow`, and nothing else.
 pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
     match attrs::parse(&field.attrs)?
         .into_iter()
@@ -304,19 +316,41 @@ pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
             bytes,
             borrow,
             max_len,
-        } => borrowed(field, borrow.as_deref()).map(|()| Field {
-            member,
-            ty: field.ty.clone(),
-            key: Key::Position,
-            fallback: Fallback::Type,
-            omit_if_absent: false,
-            bytes,
-            max_len,
+            with_module,
+        } => borrowed(field, borrow.as_deref()).and_then(|()| {
+            Ok(Field {
+                member,
+                ty: field.ty.clone(),
+                key: Key::Position,
+                fallback: Fallback::Type,
+                omit_if_absent: false,
+                with_module: coded_with(field, with_module, [bytes, max_len.is_some()])?,
+                bytes,
+                max_len,
+            })
         }),
         _ => Err(syn::Error::new(
             field.span(),
-            "cbor-static: a positional field takes only `#[cbor(bytes)]`, `max_len` and `borrow`",
+            "cbor-static: a positional field takes only `#[cbor(bytes)]`, `max_len`, `with` and \
+             `borrow`",
         )),
+    }
+}
+
+/// A field's `with` module, which writes the field itself, so none of `bytes`, `max_len` and
+/// `skip_serializing_if` may say how, or whether: each of `others` says whether one is given.
+fn coded_with<const N: usize>(
+    field: &syn::Field,
+    with_module: Option<Path>,
+    others: [bool; N],
+) -> syn::Result<Option<Path>> {
+    match (with_module, others.contains(&true)) {
+        (Some(_), true) => Err(syn::Error::new(
+            field.span(),
+            "cbor-static: a `with` field's module writes it, so it takes no `bytes`, `max_len` or \
+             `skip_serializing_if`",
+        )),
+        (with_module, _) => Ok(with_module),
     }
 }
 
