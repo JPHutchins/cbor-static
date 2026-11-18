@@ -240,6 +240,16 @@ impl<'de, T: Decode<'de>> Drop for Decoder<'de, '_, T> {
     }
 }
 
+/// The value `decode` writes into a slot of its own, moved out, with what else `decode` returns.
+/// `decode` returns the slot's own value: the `&mut T` [`Decoder::finish`] gives.
+pub(crate) fn by_value<T, R>(
+    decode: impl for<'s> FnOnce(&'s mut MaybeUninit<T>) -> Result<(&'s mut T, R), Error>,
+) -> Result<(T, R), Error> {
+    let mut slot = MaybeUninit::uninit();
+    let (_, rest) = decode(&mut slot)?;
+    Ok((unsafe { slot.assume_init() }, rest))
+}
+
 fn frames<S>(stack: &mut MaybeUninit<S>, depth: usize) -> &mut [MaybeUninit<Frame>] {
     if depth == 0 {
         &mut []

@@ -279,6 +279,7 @@ mod resumable;
 mod scalar;
 mod schema;
 mod sizes;
+mod slices;
 mod stack;
 mod tags;
 mod token;
@@ -297,6 +298,7 @@ pub use error::{Error, ErrorKind};
 pub use half::F16;
 pub use schema::{ByteString, Decode, Encode, Other};
 pub use sizes::{MaxEncodedLen, encode_into, encoded_len};
+pub use slices::{from_slice, from_slice_partial};
 pub use tags::{DateTime, Epoch, SelfDescribed, Tagged};
 pub use token::{Token, TokenWriter, Tokens};
 
@@ -379,13 +381,20 @@ fn whole<'de, 's, T: Decode<'de>>(
 ) -> Result<&'s mut T, Error> {
     match decoder.feed(input) {
         Ok(Fed::Done(consumed)) if consumed == input.len() => decoder.finish(),
-        Ok(Fed::Done(consumed)) => Err(Error::new(ErrorKind::TrailingInput, 0, consumed)),
-        Ok(Fed::NeedInput) => Err(Error::new(ErrorKind::UnexpectedEnd, 0, input.len())),
-        Err(error) if error.kind == ErrorKind::NeedContiguous => Err(Error {
+        fed => Err(not_whole(fed, input)),
+    }
+}
+
+/// Why feeding all of `input` as one chunk did not decode exactly one item.
+fn not_whole(fed: Result<Fed, Error>, input: &[u8]) -> Error {
+    match fed {
+        Ok(Fed::Done(consumed)) => Error::new(ErrorKind::TrailingInput, 0, consumed),
+        Ok(Fed::NeedInput) => Error::new(ErrorKind::UnexpectedEnd, 0, input.len()),
+        Err(error) if error.kind == ErrorKind::NeedContiguous => Error {
             kind: ErrorKind::UnexpectedEnd,
             ..error
-        }),
-        Err(error) => Err(error),
+        },
+        Err(error) => error,
     }
 }
 
