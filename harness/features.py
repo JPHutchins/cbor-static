@@ -27,6 +27,8 @@ LEAF: Final = "cbor_static::engine::leaf"
 STRINGS: Final = "cbor_static::engine::strings"
 NIGHTLY: Final = "nightly"
 HEAPLESS: Final = "heapless"
+ALLOC: Final = "alloc"
+HEAP: Final = "cbor_static::engine::heap"
 DECODE_ONLY: Final = "decode_only"
 MANIFEST: Final = tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())
 FEATURES_DIR: Final = HARNESS / "features"
@@ -272,6 +274,72 @@ FEATURES: Final = (
 		cargo_features=(HEAPLESS,),
 	),
 	Feature(
+		"alloc `Vec`",
+		"alloc_vec",
+		"struct",
+		(f"{DECODE}::heap::SEQ", f"{ENCODE}::seq::SEQ", f"{HEAP}::at::<u32>"),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"alloc `String`",
+		"alloc_string",
+		"struct",
+		(f"{DECODE}::heap::TEXT", f"{STRINGS}::enc_text::<alloc::string::String>", f"{HEAP}::append_text"),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"alloc `Vec<u8>` under `#[cbor(bytes)]`",
+		"alloc_bytes",
+		"struct",
+		(f"{DECODE}::heap::BYTES", f"{STRINGS}::enc_view::<alloc::vec::Vec<u8>>"),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"`Box`",
+		"alloc_box",
+		"struct",
+		(
+			f"{DECODE}::heap::BOXED",
+			*(f"{HEAP}::{name}::<u32>" for name in ("allocate", "release", "unboxed")),
+		),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"`Bounded`",
+		"alloc_bounded",
+		"struct",
+		(
+			f"{ENCODE}::limited::LIMITED",
+			f"{DECODE}::heap::text_limited::<8>",
+			f"{HEAP}::append_text_limited::<8>",
+		),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"`max_len` on alloc `Vec` and bytes",
+		"alloc_max_len",
+		"struct",
+		(
+			f"{DECODE}::heap::element_limited::<4>",
+			f"{DECODE}::heap::bytes_limited::<4>",
+			f"{HEAP}::at_limited::<u32, 4>",
+			f"{HEAP}::append_bytes_limited::<4>",
+		),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
+		"`other`, captured (alloc `Vec<RawEntry>`)",
+		"alloc_other_entries",
+		"struct",
+		(
+			f"{DECODE}::map::MAP_OTHER",
+			f"{ENCODE}::map::MAP_OTHER",
+			f"{ENCODE}::entries::ENTRIES",
+			"cbor_static::engine::raw::other::allocated::capture",
+		),
+		cargo_features=(ALLOC,),
+	),
+	Feature(
 		"heapless `LinearMap`, decode-only",
 		"heapless_map_decode",
 		"struct_decode",
@@ -378,7 +446,7 @@ def fixture(
 				"src/main.rs": render(
 					"main.rs",
 					attributes="#![feature(f16)]" if NIGHTLY in cargo_features else "",
-					prelude=CBOR_STATIC.prelude,
+					prelude=CBOR_STATIC.prelude + (render("allocator.rs") if ALLOC in cargo_features else ""),
 					items="\n".join(
 						render(f"features/{template}.rs", i=str(index), **positional_fields(index))
 						+ "\n"

@@ -14,7 +14,7 @@ from harness.gate import INFORMATIONAL_TARGET
 from harness.measure import CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_label, elf_path, write_crate
 from harness.symbols import FIXTURES, MACHINERY, fixture, matched, names
 from harness.templates import render
-from harness.unused import control, gate, tokens
+from harness.unused import allocating, control, gate, tokens
 
 if TYPE_CHECKING:
 	from collections.abc import Callable
@@ -24,10 +24,15 @@ SOFT_FLOAT: Final = re.compile(r"__aeabi_(?:[fdh]|c[fd]|u?[il]2[fd])\w*|__[a-z]+
 
 
 class Rule(NamedTuple):
+	"""A requirement's banned symbols, the report it writes, and the control firmwares that must
+	link them.
+	"""
+
 	requirement: str
 	what: str
 	banned: Callable[[str], bool]
-	control: str
+	report: str
+	controls: tuple[str, ...]
 	targets: tuple[str, ...]
 
 
@@ -54,9 +59,21 @@ def soft_float(symbol: str) -> bool:
 
 
 RULES: Final = {
-	"panics": Rule("R-132", "`core::panicking` symbols", panicking, "panicking", (GATE_TARGET,)),
+	"panics": Rule(
+		"R-132",
+		"`core::panicking` symbols",
+		panicking,
+		"panicking",
+		("panicking", "alloc_panicking"),
+		(GATE_TARGET,),
+	),
 	"soft_float": Rule(
-		"R-135", "soft-float routines", soft_float, "soft_float", (GATE_TARGET, INFORMATIONAL_TARGET)
+		"R-135",
+		"soft-float routines",
+		soft_float,
+		"soft_float",
+		("soft_float",),
+		(GATE_TARGET, INFORMATIONAL_TARGET),
 	),
 }
 
@@ -67,6 +84,7 @@ def main(rule: Rule) -> int:
 		"R-006 fixtures": tuple(fixture(name, target) for name in FIXTURES for target in rule.targets),
 		"R-009 positive controls": (control(nightly=False), control(nightly=True)),
 		"token control": (tokens(),),
+		"alloc control": (allocating(),),
 		"R-009 feature cost fixtures (when built)": built(),
 	}
 	read = {elf: names(elf) for elfs in groups.values() for elf in elfs}
@@ -80,7 +98,8 @@ def main(rule: Rule) -> int:
 	controls = {
 		f"{target}/{elf_label(elf)}": sorted(filter(rule.banned, names(elf)))
 		for target in rule.targets
-		for elf in controls_of(rule, target)
+		for control in rule.controls
+		for elf in controls_of(control, target)
 	}
 	passed = bool(groups["gate"]) and not linked and not blind and all(controls.values())
 	text = "\n".join(
@@ -101,19 +120,19 @@ def main(rule: Rule) -> int:
 			),
 		)
 	)
-	(HARNESS / f"{rule.control}.md").write_text(text + "\n")
+	(HARNESS / f"{rule.report}.md").write_text(text + "\n")
 	print(text)
 	return 0 if passed else 1
 
 
-def controls_of(rule: Rule, target: str) -> tuple[Path, ...]:
-	"""Builds the rule's control firmware at every profile for `target`."""
-	name = f"{rule.control.replace('_', '-')}-control"
+def controls_of(control: str, target: str) -> tuple[Path, ...]:
+	"""Builds a rule's control firmware at every profile for `target`."""
+	name = f"{control.replace('_', '-')}-control"
 	crate = write_crate(
 		CRATES / name,
 		{
 			"Cargo.toml": render("Cargo.toml", name=name, dependencies=""),
-			"src/main.rs": render(f"{rule.control}.rs"),
+			"src/main.rs": render(f"{control}.rs", allocator=render("allocator.rs")),
 		},
 	)
 	for profile in PROFILES:
