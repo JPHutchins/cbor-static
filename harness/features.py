@@ -28,6 +28,7 @@ STRINGS: Final = "cbor_static::engine::strings"
 NIGHTLY: Final = "nightly"
 HEAPLESS: Final = "heapless"
 ALLOC: Final = "alloc"
+EMBEDDED_IO: Final = "embedded-io"
 HEAP: Final = "cbor_static::engine::heap"
 DECODE_ONLY: Final = "decode_only"
 MANIFEST: Final = tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())
@@ -398,6 +399,14 @@ FEATURES: Final = (
 		cargo_features=(ALLOC,),
 	),
 	Feature(
+		"`embedded-io` `to_writer` and `from_reader`",
+		"embedded_io",
+		"struct",
+		tuple(f"cbor_static::streams::{name}::<!>" for name in ("drained", "filled")),
+		"roundtrip_embedded_io",
+		(EMBEDDED_IO,),
+	),
+	Feature(
 		"heapless `LinearMap`, decode-only",
 		"heapless_map_decode",
 		"struct_decode",
@@ -507,7 +516,9 @@ def fixture(
 				"src/main.rs": render(
 					"main.rs",
 					attributes="#![feature(f16)]" if NIGHTLY in cargo_features else "",
-					prelude=CBOR_STATIC.prelude + (render("allocator.rs") if ALLOC in cargo_features else ""),
+					prelude=CBOR_STATIC.prelude
+					+ (render("allocator.rs") if ALLOC in cargo_features else "")
+					+ (render("embedded_io.rs") if EMBEDDED_IO in cargo_features else ""),
 					items="\n".join(
 						render(f"features/{template}.rs", i=str(index), **positional_fields(index))
 						+ "\n"

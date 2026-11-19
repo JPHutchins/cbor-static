@@ -9,7 +9,7 @@
 use super::RawCbor;
 use crate::engine::{ENCODE_SKIPPED, Item, Next, write_default};
 use crate::error::ErrorKind;
-use crate::schema::{DecKind, EncKind, Order, Other, sealed};
+use crate::schema::{DecKind, EncKind, Order, Other, Payload, sealed};
 
 /// An entry of a map that no field claims, captured by `#[cbor(other)]`: its key and its value,
 /// each the item it arrived as, which it encodes back as, verbatim (D-11a).
@@ -70,11 +70,12 @@ impl Other for Skipped {
         decode: count,
         default: Some(write_default::<Self>),
         drop: None,
+        payload: Payload::Refused,
     };
     const ORDER: Order = Order::Any;
     type Stack = ();
     const MAX_DEPTH: usize = 0;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE_OTHER.takes_payload();
 }
 
 /// Counts one more entry, which its map then skips.
@@ -121,7 +122,7 @@ mod captured {
     use super::{RawEntry, whole};
     use crate::engine::{ENCODE_ENTRIES, Item, Next, drop_fn, view, write_default};
     use crate::error::ErrorKind;
-    use crate::schema::{DecKind, EncKind, Encode, Order, Other, sealed};
+    use crate::schema::{DecKind, EncKind, Encode, Order, Other, Payload, sealed};
     use crate::stack::Level;
 
     impl<const N: usize, L: LenType> sealed::Other for Vec<RawEntry<'_>, N, L> {}
@@ -169,11 +170,12 @@ mod captured {
             decode: capture::<N, L>,
             default: Some(write_default::<Self>),
             drop: drop_fn::<Self>(),
+            payload: Payload::Taken,
         };
         const ORDER: Order = Order::Conflict;
         type Stack = Level<()>;
         const MAX_DEPTH: usize = 1;
-        const CONTIGUOUS: bool = true;
+        const CONTIGUOUS: bool = Self::DECODE_OTHER.takes_payload();
     }
 
     unsafe fn capture<const N: usize, L: LenType>(
@@ -196,7 +198,7 @@ mod allocated {
     use super::{RawEntry, whole};
     use crate::engine::{ENCODE_ENTRIES, Item, Next, drop_fn, push_heap, view_heap, write_default};
     use crate::error::ErrorKind;
-    use crate::schema::{DecKind, EncKind, Encode, Order, Other, sealed};
+    use crate::schema::{DecKind, EncKind, Encode, Order, Other, Payload, sealed};
     use crate::stack::Level;
 
     impl sealed::Other for Vec<RawEntry<'_>> {}
@@ -237,11 +239,12 @@ mod allocated {
             decode: capture,
             default: Some(write_default::<Self>),
             drop: drop_fn::<Self>(),
+            payload: Payload::Taken,
         };
         const ORDER: Order = Order::Conflict;
         type Stack = Level<()>;
         const MAX_DEPTH: usize = 1;
-        const CONTIGUOUS: bool = true;
+        const CONTIGUOUS: bool = Self::DECODE_OTHER.takes_payload();
     }
 
     unsafe fn capture(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {

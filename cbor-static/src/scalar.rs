@@ -8,7 +8,7 @@ use crate::engine::{
 use crate::error::ErrorKind;
 use crate::half::F16;
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode, Order};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Order, Payload};
 use crate::stack::{Level, depth_of};
 use crate::wire::{FALSE, Major, NULL, TRUE, float};
 
@@ -22,6 +22,7 @@ pub trait Scalar: Copy + 'static {
         decode: dec_scalar::<Self>,
         default: None,
         drop: None,
+        payload: Payload::Refused,
     };
 
     const LEAD: Lead;
@@ -181,10 +182,11 @@ macro_rules! scalar {
 				decode: dec_option::<$ty>,
 				default: Some(none::<$ty>),
 				drop: None,
+				payload: Payload::Refused,
 			};
 			type OptionStack = ();
 			const LEAD: Lead = <$ty as Scalar>::LEAD;
-			const CONTIGUOUS: bool = false;
+			const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 		}
 	)+};
 }
@@ -206,7 +208,7 @@ macro_rules! leaf {
             const MAX_DEPTH: usize = 0;
             type OptionStack = Level<()>;
             const LEAD: Lead = $lead;
-            const CONTIGUOUS: bool = false;
+            const CONTIGUOUS: bool = Self::DECODE.takes_payload();
         }
     };
 }
@@ -225,7 +227,8 @@ leaf!(
     &DecKind::Leaf {
         decode: dec_u128,
         default: None,
-        drop: None
+        drop: None,
+        payload: Payload::Refused,
     }
 );
 leaf!(
@@ -238,7 +241,8 @@ leaf!(
     &DecKind::Leaf {
         decode: dec_i128,
         default: None,
-        drop: None
+        drop: None,
+        payload: Payload::Refused,
     }
 );
 
@@ -256,7 +260,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a str {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 /// A one-character text string, which may arrive in chunks.
@@ -274,7 +278,7 @@ unsafe impl Decode<'_> for char {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::TEXT;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 #[allow(unsafe_code)]
@@ -291,7 +295,7 @@ unsafe impl<'de: 'a, 'a> Decode<'de> for &'a [u8] {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::BYTES;
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 #[allow(unsafe_code)]

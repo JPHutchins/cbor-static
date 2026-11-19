@@ -18,6 +18,8 @@ where
     assert!(!<T as Decode<'_>>::CONTIGUOUS, "claims contiguous input");
     assert_eq!(encode(value), bytes, "encode");
     assert_eq!(decode::<T>(bytes), Ok(*value), "decode");
+    #[cfg(any(feature = "embedded-io", feature = "std"))]
+    streamed(value, bytes);
     for chunk in 1..=64 {
         assert_eq!(
             chunked_encode(value, chunk),
@@ -47,6 +49,8 @@ where
 {
     assert!(!<T as Decode<'_>>::CONTIGUOUS, "claims contiguous input");
     assert_eq!(encode(value), bytes, "encode");
+    #[cfg(any(feature = "embedded-io", feature = "std"))]
+    streamed(value, bytes);
     for chunk in 1..=64 {
         assert_eq!(
             chunked_encode(value, chunk),
@@ -94,6 +98,55 @@ where
         );
     }
     assert_eq!(chunked_decode::<T>(bytes, bytes.len()), Ok(*value));
+}
+
+#[cfg(any(feature = "embedded-io", feature = "std"))]
+/// R-206: `value` written through every scratch buffer size up to 64 is `bytes`, and `bytes` read
+/// through each is `value`, over `embedded-io` and `std::io`.
+pub fn streamed<T>(value: &T, bytes: &[u8])
+where
+    T: Encode + for<'de> Decode<'de> + PartialEq + Debug,
+{
+    for size in (1..=64).filter(|size| !cfg!(miri) || [1, 2, 9, 64].contains(size)) {
+        let mut scratch = vec![0u8; size];
+        #[cfg(feature = "embedded-io")]
+        {
+            use cbor_static::embedded_io::{from_reader, to_writer};
+
+            let mut out = vec![0u8; bytes.len()];
+            assert_eq!(
+                to_writer(value, &mut out.as_mut_slice(), &mut scratch),
+                Ok(bytes.len()),
+                "embedded-io write through {size}"
+            );
+            assert_eq!(out, bytes, "embedded-io write through {size}");
+            let (read, rest) =
+                from_reader::<T, _>(&mut &*bytes, &mut scratch).expect("embedded-io read");
+            assert_eq!(
+                (&read, rest),
+                (value, [].as_slice()),
+                "embedded-io read through {size}"
+            );
+        }
+        #[cfg(feature = "std")]
+        {
+            use cbor_static::io::{from_reader, to_writer};
+
+            let mut out = Vec::new();
+            assert_eq!(
+                to_writer(value, &mut out, &mut scratch).ok(),
+                Some(bytes.len()),
+                "std write through {size}"
+            );
+            assert_eq!(out, bytes, "std write through {size}");
+            let (read, rest) = from_reader::<T, _>(&mut &*bytes, &mut scratch).expect("std read");
+            assert_eq!(
+                (&read, rest),
+                (value, [].as_slice()),
+                "std read through {size}"
+            );
+        }
+    }
 }
 
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {

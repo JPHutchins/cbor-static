@@ -13,7 +13,7 @@ use crate::lead::Lead;
 pub use flat::{Concat, Flat, Run, Storage, entries, flattened};
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 pub use kinds::MapGlue;
-pub use kinds::{DecKind, DecVariant, EncKind};
+pub use kinds::{DecKind, DecVariant, EncKind, Payload};
 pub use order::Order;
 
 /// Encodes through the engine via a constant descriptor; implemented by `#[derive(Encode)]`, for

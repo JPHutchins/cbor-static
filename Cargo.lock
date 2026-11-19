@@ -25,6 +25,7 @@ name = "cbor-static"
 version = "0.0.0"
 dependencies = [
  "cbor-static-derive",
+ "embedded-io",
  "heapless",
  "proc-macro2",
  "proptest",
@@ -73,6 +74,12 @@ checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "embedded-io"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb1aa714776b75c7e67e1da744b81a129b3ff919c8712b5e1b32252c1f07cc7"
 
 [[package]]
 name = "equivalent"

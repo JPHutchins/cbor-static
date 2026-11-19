@@ -170,6 +170,7 @@ fn borrowed_types_need_contiguous_input() {
     assert!(contiguous::<ArrayRef<'_, u8>>());
     assert!(contiguous::<MapRef<'_, u8, u8>>());
     assert!(contiguous::<Chunks<'_, str>>());
+    assert!(contiguous::<cbor_static::Embedded<u8>>());
     assert!(contiguous::<Borrowed<'_>>());
     assert!(contiguous::<Wrapper<'_>>());
 }
@@ -189,6 +190,23 @@ fn holding_a_contiguous_type_makes_a_type_contiguous() {
     assert!(contiguous::<Holds<Internal>>());
     assert!(contiguous::<External<'_>>());
     assert!(contiguous::<Flattening<'_>>());
+}
+
+#[test]
+fn every_forwarder_is_contiguous_exactly_when_a_child_is() {
+    use cbor_static::SelfDescribed;
+
+    assert!(!contiguous::<Option<u8>>());
+    assert!(contiguous::<Option<&str>>());
+    assert!(!contiguous::<[u8; 2]>());
+    assert!(contiguous::<[&str; 2]>());
+    assert!(!contiguous::<(u8, u8)>());
+    assert!(contiguous::<(&str, u8)>());
+    assert!(contiguous::<(u8, &str)>());
+    assert!(!contiguous::<Tagged<1, u8>>());
+    assert!(contiguous::<Tagged<1, &str>>());
+    assert!(!contiguous::<SelfDescribed<u8>>());
+    assert!(contiguous::<SelfDescribed<&str>>());
 }
 
 #[test]
@@ -226,10 +244,36 @@ mod heapless_types {
         assert!(contiguous::<Vec<Borrowed<'_>, 4>>());
         assert!(contiguous::<LinearMap<u8, Internal, 4>>());
         assert!(contiguous::<LinearMap<&str, u8, 4>>());
+        assert!(!contiguous::<Vec<u8, 4>>());
+        assert!(contiguous::<Vec<&str, 4>>());
+        assert!(contiguous::<LinearMap<u8, &str, 4>>());
     }
 
     #[test]
     fn captured_entries_borrow_the_input() {
         assert!(contiguous::<Capturing<'_>>());
+    }
+}
+
+#[cfg(feature = "alloc")]
+mod alloc_types {
+    use std::collections::BTreeMap;
+
+    use cbor_static::Bounded;
+
+    use super::contiguous;
+
+    #[test]
+    fn alloc_containers_take_their_elements() {
+        assert!(!contiguous::<String>());
+        assert!(!contiguous::<Vec<u8>>());
+        assert!(contiguous::<Vec<&str>>());
+        assert!(!contiguous::<Box<u8>>());
+        assert!(contiguous::<Box<&str>>());
+        assert!(!contiguous::<BTreeMap<u8, u8>>());
+        assert!(contiguous::<BTreeMap<&str, u8>>());
+        assert!(contiguous::<BTreeMap<u8, &str>>());
+        assert!(!contiguous::<Bounded<Vec<u8>, 2>>());
+        assert!(contiguous::<Bounded<Vec<&str>, 2>>());
     }
 }

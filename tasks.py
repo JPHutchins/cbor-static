@@ -15,19 +15,23 @@ if "CBOR_STATIC_DEV_SHELL" not in os.environ and not any(
 
 ROOT = Path(__file__).parent
 TRIPLES = tuple(tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["targets"])
-FEATURES = tuple(tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())["features"])
+FEATURES = frozenset(tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())["features"])
 RUSTS = {"stable": ".", "nightly": "nightly"}
+ENABLED = {rust: FEATURES - (RUSTS.keys() - {rust}) for rust in RUSTS}
+
+
+def features(enabled: frozenset[str]) -> str:
+	return " ".join(f"cbor-static/{feature}" for feature in sorted(enabled))
+
+
 TOOLCHAIN = {
-	rust: {
-		"RUST": rust,
-		"DIR": directory,
-		"FEATURES": " ".join(
-			f"cbor-static/{feature}" for feature in FEATURES if feature not in RUSTS.keys() - {rust}
-		),
-	}
+	rust: {"RUST": rust, "DIR": directory, "FEATURES": features(ENABLED[rust])}
 	for rust, directory in RUSTS.items()
 }
 TOOLCHAINS = tuple(TOOLCHAIN.values())
+BARE_TOOLCHAINS = tuple(
+	{**toolchain, "FEATURES": features(ENABLED[toolchain["RUST"]] - {"std"})} for toolchain in TOOLCHAINS
+)
 TARGET_DIR = f"{ROOT}/target"
 MIRI_SHARDS = tuple(str(shard) for shard in range(1, 5))
 MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
@@ -91,7 +95,7 @@ build = Parallel(
 		cwd="{DIR}",
 		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/{{RUST}}-{{TRIPLE}}"},
 	),
-	variants=TOOLCHAINS,
+	variants=BARE_TOOLCHAINS,
 	matrix={"TRIPLE": TRIPLES},
 )
 miri = Parallel(

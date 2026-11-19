@@ -428,6 +428,25 @@ impl<'de, 's, T: Decode<'de>> Decoder<'de, 's, T> {
     }
 }
 
+#[cfg(any(feature = "embedded-io", feature = "std"))]
+impl<T: for<'de> Decode<'de>> Decoder<'static, '_, T> {
+    /// [`Decoder::feed`], of a chunk that need outlive only this call: what `from_reader` feeds
+    /// from the one buffer it reads into (#5 Q5).
+    pub(crate) fn feed_transient(&mut self, chunk: &[u8]) -> Result<Fed, Error> {
+        crate::resumable::resumable::<T>();
+        const {
+            assert!(fits::<<T as Decode<'static>>::Stack>(
+                <T as Decode<'static>>::MAX_DEPTH
+            ));
+        };
+        decode::feed(
+            &mut self.state,
+            frames(&mut self.stack, <T as Decode<'static>>::MAX_DEPTH),
+            chunk,
+        )
+    }
+}
+
 impl<'de, T: Decode<'de>> Drop for Decoder<'de, '_, T> {
     fn drop(&mut self) {
         decode::abandon(&mut self.state, frames(&mut self.stack, T::MAX_DEPTH));
@@ -436,15 +455,16 @@ impl<'de, T: Decode<'de>> Drop for Decoder<'de, '_, T> {
 
 /// The value `decode` writes into a slot of its own, moved out, with what else `decode` returns.
 /// Only a reference to the slot itself, such as [`Decoder::finish`] gives, shows it initialized.
-pub(crate) fn by_value<T, R>(
-    decode: impl for<'s> FnOnce(&'s mut MaybeUninit<T>) -> Result<(&'s mut T, R), Error>,
-) -> Result<(T, R), Error> {
+pub(crate) fn by_value<T, R, E>(
+    decode: impl for<'s> FnOnce(&'s mut MaybeUninit<T>) -> Result<(&'s mut T, R), E>,
+    cbor: impl FnOnce(Error) -> E,
+) -> Result<(T, R), E> {
     let mut slot = MaybeUninit::uninit();
     let (value, rest) = decode(&mut slot)?;
     if ptr::eq(ptr::from_mut(value), slot.as_ptr()) {
         Ok((unsafe { slot.assume_init() }, rest))
     } else {
-        Err(Error::new(ErrorKind::Unsupported, 0, 0))
+        Err(cbor(Error::new(ErrorKind::Unsupported, 0, 0)))
     }
 }
 

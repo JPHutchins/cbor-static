@@ -101,6 +101,8 @@ fn claim(
     key: Header,
     entry: &[u8],
 ) -> Result<Next, ErrorKind> {
+    use crate::schema::Payload;
+
     if let Some(strict) = state.strict {
         (strict.unknown)(frames, state.depth)?;
     }
@@ -110,7 +112,10 @@ fn claim(
     };
     let field = other_field(layout).ok_or(ErrorKind::Unsupported)?;
     let Some(DecKind::Leaf {
-        decode, default, ..
+        decode,
+        default,
+        payload,
+        ..
     }) = kinds.get(usize::from(field))
     else {
         return Err(ErrorKind::Unsupported);
@@ -125,7 +130,10 @@ fn claim(
             dst,
             &Item {
                 header: key,
-                payload: entry,
+                payload: match payload {
+                    Payload::Taken => entry,
+                    Payload::Refused => &[],
+                },
                 strict: state.strict,
             },
         )

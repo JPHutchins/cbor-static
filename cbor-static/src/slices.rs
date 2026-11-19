@@ -29,8 +29,11 @@ use crate::schema::Decode;
 /// # Errors
 /// As [`crate::decode_into`].
 pub fn from_slice<'de, T: Decode<'de>>(input: &'de [u8]) -> Result<T, Error> {
-    by_value(|slot| crate::decode_into(input, slot).map(|value| (value, ())))
-        .map(|(value, ())| value)
+    by_value(
+        |slot| crate::decode_into(input, slot).map(|value| (value, ())),
+        core::convert::identity,
+    )
+    .map(|(value, ())| value)
 }
 
 /// Decodes the one item `input` starts with, and returns it with the bytes after it: the rest of
@@ -49,13 +52,16 @@ pub fn from_slice<'de, T: Decode<'de>>(input: &'de [u8]) -> Result<T, Error> {
 pub fn from_slice_partial<'de, T: Decode<'de>>(input: &'de [u8]) -> Result<(T, &'de [u8]), Error> {
     use crate::engine::{Decoder, Fed};
 
-    by_value(|slot| {
-        let mut decoder = Decoder::new(slot);
-        match decoder.feed(input) {
-            Ok(Fed::Done(consumed)) => decoder
-                .finish()
-                .map(|value| (value, input.get(consumed..).unwrap_or_default())),
-            fed => Err(crate::not_whole(fed, input)),
-        }
-    })
+    by_value(
+        |slot| {
+            let mut decoder = Decoder::new(slot);
+            match decoder.feed(input) {
+                Ok(Fed::Done(consumed)) => decoder
+                    .finish()
+                    .map(|value| (value, input.get(consumed..).unwrap_or_default())),
+                fed => Err(crate::not_whole(fed, input)),
+            }
+        },
+        core::convert::identity,
+    )
 }

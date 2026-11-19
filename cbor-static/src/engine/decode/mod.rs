@@ -262,6 +262,8 @@ fn value(
     frames: &mut [MaybeUninit<Frame>],
     input: &mut Input,
 ) -> Result<Flow, ErrorKind> {
+    use crate::schema::Payload;
+
     if let Ok(DecOps {
         value: Begin::Peek(peek),
         ..
@@ -279,13 +281,17 @@ fn value(
         return Err(ErrorKind::NotWellFormed);
     }
     match state.target.kind {
-        DecKind::Leaf { decode, .. } => {
-            let payload = match (header.major, header.indefinite()) {
-                (Major::Bytes | Major::Text, true) => input.rest(),
-                (Major::Bytes | Major::Text, false) => input
+        DecKind::Leaf {
+            decode,
+            payload: strings,
+            ..
+        } => {
+            let payload = match (strings, header.major, header.indefinite()) {
+                (Payload::Taken, Major::Bytes | Major::Text, true) => input.rest(),
+                (Payload::Taken, Major::Bytes | Major::Text, false) => input
                     .take_exact(length(header.arg)?)
                     .ok_or(ErrorKind::NeedContiguous)?,
-                _ => &[],
+                (Payload::Refused | Payload::Taken, ..) => &[],
             };
             match (
                 unsafe {

@@ -137,9 +137,10 @@ mod bounded {
     /// finishes: nothing reads the `String` before then.
     pub unsafe fn append_string<const N: usize, L: LenType>(
         dst: *mut u8,
-        _: usize,
+        at: usize,
         segment: &[u8],
     ) -> Result<(), ErrorKind> {
+        room::<N>(at)?;
         unsafe { (*dst.cast::<String<N, L>>()).as_mut_vec() }
             .extend_from_slice(segment)
             .map_err(|_| ErrorKind::OutOfRange)
@@ -147,12 +148,21 @@ mod bounded {
 
     pub unsafe fn append_vec<const N: usize, L: LenType>(
         dst: *mut u8,
-        _: usize,
+        at: usize,
         segment: &[u8],
     ) -> Result<(), ErrorKind> {
+        room::<N>(at)?;
         unsafe { &mut *dst.cast::<Vec<u8, N, L>>() }
             .extend_from_slice(segment)
             .map_err(|_| ErrorKind::OutOfRange)
+    }
+
+    const fn room<const N: usize>(at: usize) -> Result<(), ErrorKind> {
+        if at <= N {
+            Ok(())
+        } else {
+            Err(ErrorKind::OutOfRange)
+        }
     }
 }
 

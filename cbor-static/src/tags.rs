@@ -6,7 +6,7 @@ use crate::engine::{
     dec_tagged, drop_fn,
 };
 use crate::lead::Lead;
-use crate::schema::{DecKind, Decode, EncKind, Encode, Order};
+use crate::schema::{DecKind, Decode, EncKind, Encode, Order, Payload};
 use crate::stack::Level;
 use crate::wire::{ENCODED_CBOR, SELF_DESCRIBE};
 
@@ -129,6 +129,7 @@ unsafe impl<'de, const TAG: u64, T: Decode<'de>> Decode<'de> for Tagged<TAG, T> 
         decode: dec_tagged::<TAG, T>,
         default: None,
         drop: drop_fn::<Self>(),
+        payload: Payload::Refused,
     };
     type Stack = T::Stack;
     const MAX_DEPTH: usize = T::MAX_DEPTH;
@@ -179,5 +180,5 @@ unsafe impl<'de, T: Decode<'de>> Decode<'de> for Embedded<T> {
     const MAX_DEPTH: usize = 0;
     type OptionStack = Level<()>;
     const LEAD: Lead = Lead::tagged(ENCODED_CBOR);
-    const CONTIGUOUS: bool = true;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }

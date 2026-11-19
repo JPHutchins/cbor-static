@@ -158,6 +158,7 @@ pub enum DecKind {
         decode: DecodeFn,
         default: Option<WriteFn>,
         drop: Option<WriteFn>,
+        payload: Payload,
     },
     Struct {
         ops: &'static DecOps,
@@ -258,6 +259,13 @@ pub struct MapGlue {
     pub key_encode: &'static EncKind,
 }
 
+/// Whether a leaf takes a text or byte string's payload, or no string is a value of its type.
+#[derive(Clone, Copy)]
+pub enum Payload {
+    Refused,
+    Taken,
+}
+
 pub struct DecVariant {
     pub payload: Option<&'static DecKind>,
     pub assemble: WriteFn,
@@ -273,11 +281,15 @@ impl DecKind {
     pub const fn dropped_by(&self, drop: Option<WriteFn>) -> Self {
         match *self {
             Self::Leaf {
-                decode, default, ..
+                decode,
+                default,
+                payload,
+                ..
             } => Self::Leaf {
                 decode,
                 default,
                 drop,
+                payload,
             },
             Self::Struct {
                 ops, layout, kinds, ..
@@ -407,6 +419,7 @@ impl DecKind {
             decode: dec_skipped,
             default: Some(default),
             drop,
+            payload: Payload::Refused,
         }
     }
 
@@ -443,6 +456,33 @@ impl DecKind {
             #[cfg(feature = "alloc")]
             Self::Boxed { .. } => None,
             Self::Struct { layout, .. } | Self::Enum { layout, .. } => Some(layout),
+        }
+    }
+
+    /// Whether a value of this kind keeps bytes of the chunk it was decoded from, and so needs
+    /// contiguous input: the `CONTIGUOUS` of every leaf and view.
+    #[must_use]
+    pub const fn takes_payload(&self) -> bool {
+        match self {
+            Self::Leaf {
+                payload: Payload::Taken,
+                ..
+            }
+            | Self::Raw { .. } => true,
+            Self::Leaf {
+                payload: Payload::Refused,
+                ..
+            }
+            | Self::Struct { .. }
+            | Self::Enum { .. }
+            | Self::Array { .. }
+            | Self::Option { .. }
+            | Self::Owned { .. }
+            | Self::Seq { .. }
+            | Self::Described { .. }
+            | Self::Map { .. } => false,
+            #[cfg(feature = "alloc")]
+            Self::Boxed { .. } => false,
         }
     }
 

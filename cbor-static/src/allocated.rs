@@ -106,7 +106,7 @@ unsafe impl Decode<'_> for String {
     const MAX_DEPTH: usize = 1;
     type OptionStack = Level<Self::Stack>;
     const LEAD: Lead = Lead::TEXT;
-    const CONTIGUOUS: bool = false;
+    const CONTIGUOUS: bool = Self::DECODE.takes_payload();
 }
 
 impl sealed::ByteString for Vec<u8> {}

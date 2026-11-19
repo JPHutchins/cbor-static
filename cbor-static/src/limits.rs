@@ -5,7 +5,7 @@
 use core::marker::PhantomData;
 
 use crate::engine::{DECODE_OPTION, drop_fn, limited, none, some};
-use crate::schema::{DecKind, Decode, EncKind};
+use crate::schema::{DecKind, Decode, EncKind, Payload};
 use crate::sizes::{MaxEncodedLen, container_len, larger};
 
 /// A type whose `len()` a field's `max_len` bounds: bytes for strings, elements for sequences,
@@ -64,6 +64,7 @@ impl<'de: 'a, 'a, const N: usize> LimitedDecode<'de> for Limited<&'a str, N> {
         decode: crate::engine::str_limited::<N>(),
         default: None,
         drop: None,
+        payload: Payload::Taken,
     };
 }
 
@@ -72,6 +73,7 @@ impl<'de: 'a, 'a, const N: usize> LimitedDecode<'de> for Limited<&'a [u8], N> {
         decode: crate::engine::bytes_limited::<N>(),
         default: None,
         drop: None,
+        payload: Payload::Taken,
     };
 }
 
