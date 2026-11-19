@@ -4,13 +4,17 @@
 //! they hold, verbatim.
 
 mod codec;
+mod embedded;
 mod other;
+mod with;
 
 use core::marker::PhantomData;
 
 use crate::schema::Decode;
 
+pub use embedded::EmbeddedDecoding;
 pub use other::{RawEntry, Skipped};
+pub use with::{WithDecode, WithDecoding};
 
 /// One well-formed item, borrowed from the input.
 ///

@@ -33,12 +33,16 @@ ALLOCATING: Final = "allocating-control"
 
 
 class Anchored(NamedTuple):
-	"""Optional code, the symbols that show it is linked, and a control firmware that uses it."""
+	"""Optional code, the symbols that show it is linked, a control firmware that uses it, and the
+	firmwares beyond the gate ELFs, named in `absent_where`, that must not link it.
+	"""
 
 	what: str
 	symbols: frozenset[str]
 	control: str
 	build: Callable[[], Path]
+	absent_where: str = ""
+	absent_from: tuple[Callable[[], Path], ...] = ()
 
 
 class Found(NamedTuple):
@@ -73,7 +77,8 @@ class Unused(NamedTuple):
 					for found in self.found
 					for row in (
 						(
-							f"| {len(found.anchored.symbols)} {found.anchored.what} in the {self.gate_elfs} gate ELFs | "
+							f"| {len(found.anchored.symbols)} {found.anchored.what} in the {self.gate_elfs} gate ELFs"
+							f"{found.anchored.absent_where} | "
 							f"{', '.join(found.leaked) or 'none ✅'} |"
 						),
 						(
@@ -105,7 +110,7 @@ def check() -> Unused:
 					sorted(
 						{
 							f"{elf_label(elf)}: {symbol}"
-							for elf in gate_elfs
+							for elf in (*gate_elfs, *(build() for build in anchored.absent_from))
 							for symbol in names(elf) & anchored.symbols
 						}
 					)
@@ -217,6 +222,21 @@ ANCHORED: Final = (
 		),
 		"a firmware that copies tokens from Tokens to a TokenWriter",
 		tokens,
+	),
+	Anchored(
+		"`with` window functions",
+		frozenset(
+			{
+				"cbor_static::token::window::WINDOW",
+				"cbor_static::token::window::write",
+				"cbor_static::token::window::owe",
+				"cbor_static::token::window::put",
+			}
+		),
+		"one positive-control ELF of every stable feature",
+		partial(control, nightly=False),
+		" or in the token-only firmware",
+		(tokens,),
 	),
 )
 

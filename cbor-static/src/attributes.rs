@@ -332,3 +332,109 @@
 //!
 //! let _ = <Ack as cbor_static::MaxEncodedLen>::MAX_ENCODED_LEN;
 //! ```
+//!
+//! # `with = module`
+//!
+//! The module's `encode` and `decode` write and read the field as exactly one item, through a
+//! [`crate::TokenWriter`] and [`crate::Tokens`], whose typed hand-off reaches the field's own
+//! parts (#5 Q11, Q19):
+//!
+//! ```
+//! use core::time::Duration;
+//!
+//! mod seconds_and_nanos {
+//!     use core::mem::MaybeUninit;
+//!     use core::time::Duration;
+//!
+//!     use cbor_static::{Error, Token, TokenWriter, Tokens};
+//!
+//!     pub fn encode(value: &Duration, writer: &mut TokenWriter<'_>) -> Result<(), Error> {
+//!         writer
+//!             .write(Token::Array(Some(2)))?
+//!             .encode(&value.as_secs())?
+//!             .encode(&value.subsec_nanos())
+//!             .map(|_| ())
+//!     }
+//!
+//!     pub fn decode(tokens: &mut Tokens<'_>) -> Result<Duration, Error> {
+//!         let (secs, nanos) = *tokens.decode_into::<(u64, u32)>(&mut MaybeUninit::uninit())?;
+//!         Ok(Duration::new(secs, nanos))
+//!     }
+//! }
+//!
+//! #[derive(cbor_static::Cbor, Debug, PartialEq)]
+//! struct Sample {
+//!     #[cbor(with = seconds_and_nanos)]
+//!     after: Duration,
+//!     value: u16,
+//! }
+//!
+//! let sample = Sample { after: Duration::new(2, 500), value: 7 };
+//! let mut out = [0u8; 32];
+//! let len = cbor_static::to_slice(&sample, &mut out)?;
+//! assert_eq!(&out[..len], b"\xa2\x65after\x82\x02\x19\x01\xf4\x65value\x07");
+//!
+//! let mut slot = core::mem::MaybeUninit::uninit();
+//! assert_eq!(*cbor_static::decode_into::<Sample>(&out[..len], &mut slot)?, sample);
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! The module may write anything, so the field has no maximum encoded length:
+//!
+//! ```compile_fail
+//! # mod nothing {
+//! #     pub fn encode(_: &u8, _: &mut cbor_static::TokenWriter<'_>) -> Result<(), cbor_static::Error> { Ok(()) }
+//! # }
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(max_encoded_len)]
+//! struct Reading {
+//!     #[cbor(with = nothing)]
+//!     level: u8,
+//! }
+//! ```
+//!
+//! nor does it sort the keys of any map it writes, so a deterministic type cannot hold it (D-11b):
+//!
+//! ```compile_fail,E0080
+//! # mod nothing {
+//! #     pub fn encode(_: &u8, _: &mut cbor_static::TokenWriter<'_>) -> Result<(), cbor_static::Error> { Ok(()) }
+//! # }
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(deterministic)]
+//! struct Reading {
+//!     #[cbor(with = nothing)]
+//!     level: u8,
+//! }
+//!
+//! let _ = cbor_static::to_slice(&Reading { level: 1 }, &mut [0u8; 8]);
+//! ```
+//!
+//! nor one that sorts its keys by length first:
+//!
+//! ```compile_fail,E0080
+//! # mod nothing {
+//! #     pub fn encode(_: &u8, _: &mut cbor_static::TokenWriter<'_>) -> Result<(), cbor_static::Error> { Ok(()) }
+//! # }
+//! #[derive(cbor_static::Encode)]
+//! #[cbor(length_first)]
+//! struct Reading {
+//!     #[cbor(with = nothing)]
+//!     level: u8,
+//! }
+//!
+//! let _ = cbor_static::to_slice(&Reading { level: 1 }, &mut [0u8; 8]);
+//! ```
+//!
+//! The module writes the field whenever it is there, so it takes no `skip_serializing_if`:
+//!
+//! ```compile_fail
+//! # mod maybe {
+//! #     pub fn encode(_: &Option<u8>, _: &mut cbor_static::TokenWriter<'_>) -> Result<(), cbor_static::Error> { Ok(()) }
+//! # }
+//! #[derive(cbor_static::Encode)]
+//! struct Reading {
+//!     #[serde(skip_serializing_if = "Option::is_none")]
+//!     #[cbor(with = maybe)]
+//!     level: Option<u8>,
+//! }
+//! ```

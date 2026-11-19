@@ -31,6 +31,7 @@ pub fn enumeration(item_attrs: &[Attribute], data: &syn::DataEnum) -> syn::Resul
     }
     cbor_tags(&form, &variants)?;
     tag_keys(&form, &variants)?;
+    joined_payloads(&form, &variants)?;
     let repr = tables_or_glue(repr(item_attrs)?, &variants);
     Ok(Shape::Enum {
         offsets: offsets(attrs.offset_of_enum, repr)?,
@@ -171,6 +172,26 @@ fn cbor_tags(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// An internally tagged newtype variant's payload is a map the tag entry joins, which only the
+/// payload type's own descriptor can write, not a `with` module (#5 Q19).
+fn joined_payloads(form: &EnumForm, variants: &[Variant]) -> syn::Result<()> {
+    variants
+        .iter()
+        .find_map(|variant| match &variant.payload {
+            Payload::Newtype(field) if matches!(form, EnumForm::Internal { .. }) => {
+                field.with_module.as_ref()
+            }
+            Payload::Newtype(_) | Payload::Unit | Payload::Struct(_) => None,
+        })
+        .map_or(Ok(()), |module| {
+            Err(syn::Error::new(
+                module.span(),
+                "cbor-static: an internally tagged newtype variant's map takes the tag's entry, \
+                 so no `with` module may write it",
+            ))
+        })
 }
 
 /// The tag key shares its map with an internally tagged struct variant's fields, and with an

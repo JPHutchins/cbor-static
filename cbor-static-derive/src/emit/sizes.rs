@@ -3,7 +3,7 @@
 //! the field's type.
 
 use proc_macro2::TokenStream;
-use quote::{quote, quote_spanned};
+use quote::{ToTokens as _, quote, quote_spanned};
 use syn::spanned::Spanned as _;
 
 use super::params::bounded;
@@ -143,10 +143,19 @@ fn null() -> TokenStream {
 }
 
 /// The longest encoding of a field's value: its type's bound, or under `bytes` or `max_len`, that
-/// of the string or container they bound.
+/// of the string or container they bound. A `with` field's module may write anything, so it has
+/// none.
 fn value(field: &Field) -> TokenStream {
     let ty = &field.ty;
     match (field.bytes, &field.max_len) {
+        _ if field.with_module.is_some() => {
+            let message = format!(
+                "cbor-static: `{member}` is written `with` a module, so it has no maximum encoded \
+                 length",
+                member = field.member.to_token_stream()
+            );
+            quote_spanned!(field.ty.span()=> ::core::compile_error!(#message))
+        }
         (true, Some(max_len)) => quote!(__p::container_len({ #max_len }, 1)),
         (true, None) => {
             let capacity = quote_spanned!(field.ty.span()=> <#ty as __p::ByteCapacity>::CAPACITY);

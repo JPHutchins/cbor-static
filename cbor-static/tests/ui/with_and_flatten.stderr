@@ -1,0 +1,5 @@
+error: cbor-static: a `flatten` field takes no other field attribute
+  --> tests/ui/with_and_flatten.rs:14:5
+   |
+14 |     #[serde(flatten)]
+   |     ^

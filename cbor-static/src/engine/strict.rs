@@ -14,6 +14,7 @@ use crate::wire::Header;
 
 /// One check per place `Strict` looks. Each rejects with [`ErrorKind::NotDeterministic`], or, for
 /// an entry no field claims, [`ErrorKind::UnknownField`].
+#[derive(Debug)]
 pub struct StrictOps {
     /// Every head read, which it parses.
     pub(super) head: fn(&[u8]) -> Result<Header, ErrorKind>,

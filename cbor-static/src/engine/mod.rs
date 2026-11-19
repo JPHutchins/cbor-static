@@ -52,6 +52,7 @@ pub(crate) use decode::{
 pub(crate) use encode::BTREE_MAP as ENCODE_BTREE_MAP;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 pub(crate) use encode::ENTRIES as ENCODE_ENTRIES;
+pub(crate) use encode::EmbeddedEncoding;
 #[cfg(feature = "heapless")]
 pub(crate) use encode::LINEAR_MAP as ENCODE_LINEAR_MAP;
 #[cfg(any(feature = "heapless", feature = "alloc"))]
@@ -61,7 +62,7 @@ pub use encode::{
     DeterministicOps, ELEMENTS as ENCODE_ELEMENTS, EXTERNAL as ENCODE_EXTERNAL, EncOps,
     INDEX as ENCODE_INDEX, INTERNAL as ENCODE_INTERNAL, LENGTH_FIRST, LIMITED as ENCODE_LIMITED,
     MAP as ENCODE_MAP, MAP_OTHER as ENCODE_MAP_OTHER, OPTION as ENCODE_OPTION, TAG as ENCODE_TAG,
-    UNTAGGED as ENCODE_UNTAGGED,
+    UNTAGGED as ENCODE_UNTAGGED, WithEncode, WithEncoding,
 };
 use encode::{BYTE_CHUNKS, TEXT_CHUNKS};
 #[cfg(feature = "alloc")]
@@ -94,7 +95,10 @@ pub(crate) use leaf::{
 pub use limited::{append_string_limited, append_vec_limited, at_limited};
 pub use limited::{bytes_limited, limited, str_limited};
 pub use pending::Pending;
-pub use raw::{ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped};
+pub(crate) use raw::EmbeddedDecoding;
+pub use raw::{
+    ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped, WithDecode, WithDecoding,
+};
 pub(crate) use skip::Skip;
 #[cfg(test)]
 pub(crate) use skip::item_len;
@@ -155,6 +159,41 @@ pub enum Fed {
 /// assert_eq!(encoder.resume(&mut chunk)?, cbor_static::Progress::Done(1));
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
+///
+/// Its type's stack is inside it, so a `static` holds all of an encoding's state (#5 Q11):
+///
+/// ```
+/// use std::sync::Mutex;
+///
+/// use cbor_static::{Encoder, Progress};
+///
+/// static READING: (u16, bool) = (500, true);
+/// static ENCODER: Mutex<Option<Encoder<'static, (u16, bool)>>> = Mutex::new(None);
+///
+/// let mut guard = ENCODER.lock().unwrap();
+/// let encoder = guard.insert(Encoder::new(&READING));
+/// let mut mtu = [0u8; 3];
+/// assert_eq!(encoder.resume(&mut mtu)?, Progress::NeedSpace(3));
+/// assert_eq!(mtu, *b"\x82\x19\x01");
+/// assert_eq!(encoder.resume(&mut mtu)?, Progress::Done(2));
+/// assert_eq!(mtu[..2], *b"\xf4\xf5");
+/// # Ok::<(), cbor_static::Error>(())
+/// ```
+///
+/// It is `Send` where its value may be shared between threads, and not otherwise:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Encode)]
+/// struct Counted {
+///     id: u32,
+///     #[cbor(skip)]
+///     uses: core::cell::Cell<u32>,
+/// }
+///
+/// fn send(_: impl Send) {}
+///
+/// send(cbor_static::Encoder::new(&Counted { id: 1, uses: core::cell::Cell::new(0) }));
+/// ```
 pub struct Encoder<'v, T: Encode> {
     state: encode::State,
     stack: MaybeUninit<T::Stack>,
@@ -172,11 +211,31 @@ pub struct Encoder<'v, T: Encode> {
 /// assert!(decoder.finish().is_err());
 /// # Ok::<(), cbor_static::Error>(())
 /// ```
+///
+/// It is `Send` where its value may move between threads, and not otherwise:
+///
+/// ```compile_fail,E0277
+/// #[derive(cbor_static::Decode)]
+/// struct Shared {
+///     id: u32,
+///     #[cbor(skip)]
+///     owner: Option<std::rc::Rc<u32>>,
+/// }
+///
+/// fn send(_: impl Send) {}
+///
+/// let mut slot = core::mem::MaybeUninit::<Shared>::uninit();
+/// send(cbor_static::Decoder::new(&mut slot));
+/// ```
 pub struct Decoder<'de, 's, T: Decode<'de>> {
     state: decode::State,
     stack: MaybeUninit<T::Stack>,
     slot: PhantomData<(&'s mut T, &'de [u8])>,
 }
+
+unsafe impl<T: Encode + Sync> Send for Encoder<'_, T> {}
+
+unsafe impl<'de, T: Decode<'de> + Send> Send for Decoder<'de, '_, T> {}
 
 impl<'v, T: Encode> Encoder<'v, T> {
     /// An encoder of `value`, which writes nothing until resumed.
@@ -204,6 +263,19 @@ impl<'v, T: Encode> Encoder<'v, T> {
                     encode::State::deterministic(T::ENCODE, ptr::from_ref(value).cast(), ops)
                 }
             },
+            stack: MaybeUninit::uninit(),
+            value: PhantomData,
+        }
+    }
+
+    /// An encoder of `value` under the deterministic encoding `deterministic` names, which an
+    /// embedded value's encoder takes from its root's, so both count and write it alike.
+    pub(crate) const fn under(
+        value: &'v T,
+        deterministic: Option<&'static DeterministicOps>,
+    ) -> Self {
+        Self {
+            state: encode::State::under(T::ENCODE, ptr::from_ref(value).cast(), deterministic),
             stack: MaybeUninit::uninit(),
             value: PhantomData,
         }

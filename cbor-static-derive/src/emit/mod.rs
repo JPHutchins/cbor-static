@@ -7,6 +7,7 @@ mod params;
 mod shadows;
 mod sizes;
 mod structs;
+mod withs;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -16,6 +17,7 @@ use crate::Directions;
 use crate::model::{Fallback, Field, Item, Key, Mode, Shape, StructForm};
 use order::{Order, admitted, joined, ordered, part_order};
 use params::{Params, codec_generics, generic, params};
+use withs::{Site, via, withs};
 
 #[derive(Clone, Copy)]
 enum Trait {
@@ -276,34 +278,42 @@ fn child(ty: &impl ToTokens, path: &TokenStream) -> (TokenStream, TokenStream) {
 }
 
 /// A field's stack and depth under `which` trait: a `#[cbor(bytes)]` field's byte string opens no
-/// frame to encode, and its own to decode.
+/// frame to encode, and its own to decode; a `with` field's module opens one frame to encode, and
+/// none to decode.
 fn field_child(
     ty: &impl ToTokens,
-    bytes: bool,
+    (bytes, with): (bool, bool),
     (which, path): (Trait, &TokenStream),
 ) -> (TokenStream, TokenStream) {
-    match (bytes, which) {
-        (false, _) => child(ty, path),
-        (true, Trait::Encode) => (quote!(()), quote!(0)),
-        (true, Trait::Decode) => child(ty, &quote!(::cbor_static::ByteString)),
+    match (bytes, with, which) {
+        (_, true, Trait::Encode) => (quote!(__p::Level<()>), quote!(1)),
+        (true, false, Trait::Encode) | (_, true, Trait::Decode) => (quote!(()), quote!(0)),
+        (false, false, _) => child(ty, path),
+        (true, false, Trait::Decode) => child(ty, &quote!(::cbor_static::ByteString)),
     }
 }
 
 /// A field's descriptor under `which` trait at `path`: its type's own, or with `#[cbor(bytes)]`,
-/// its byte string's; under `max_len`, one that bounds its length too.
+/// its byte string's; under `max_len`, one that bounds its length too; for a `with` field, the
+/// one its module is called through, `via`.
 fn field_kind(
     ty: &impl ToTokens,
     (bytes, max_len): (bool, Option<&Expr>),
+    via: Option<&TokenStream>,
     which: Trait,
     path: &TokenStream,
 ) -> TokenStream {
     match (which, bytes, max_len) {
+        _ if let Some(via) = via => match which {
+            Trait::Encode => quote!(__p::WithEncoding::<#via>::ENCODE),
+            Trait::Decode => quote!(__p::WithDecoding::<'de, #via>::DECODE),
+        },
         (Trait::Encode, false, None) => quote!(<#ty as #path>::ENCODE),
         (Trait::Decode, false, None) => quote!(<#ty as #path>::DECODE),
         (Trait::Encode, true, None) => quote!(<#ty as ::cbor_static::ByteString>::ENCODE_BYTES),
         (Trait::Decode, true, None) => quote!(<#ty as ::cbor_static::ByteString>::DECODE_BYTES),
         (Trait::Encode, bytes, Some(max_len)) => {
-            let own = field_kind(ty, (bytes, None), which, path);
+            let own = field_kind(ty, (bytes, None), None, which, path);
             quote!(&const { __p::encode_limited::<#ty, { #max_len }>(#own) })
         }
         (Trait::Decode, false, Some(max_len)) => {
@@ -330,15 +340,17 @@ fn field_stack(field: &Field, which: Trait, path: &TokenStream) -> (TokenStream,
             quote!(<<#ty as #path>::Stack as __p::Unlevel>::Children),
             quote!(<#ty as #path>::MAX_DEPTH - 1),
         ),
-        (Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position, _) => {
-            field_child(ty, field.bytes, (which, path))
-        }
+        (Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position, _) => field_child(
+            ty,
+            (field.bytes, field.with_module.is_some()),
+            (which, path),
+        ),
     }
 }
 
 /// A named field's descriptor for encoding: [`field_kind`]'s, or for a `skip`ped field one that is
 /// always absent.
-fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
+fn field_encode(field: &Field, site: Site, path: &TokenStream) -> TokenStream {
     match field.key {
         Key::Skipped => quote!(&__p::ENCODE_SKIPPED),
         Key::Other => {
@@ -346,38 +358,39 @@ fn field_encode(field: &Field, path: &TokenStream) -> TokenStream {
             quote!(<#ty as __p::Other>::ENCODE_OTHER)
         }
         Key::Text(_) | Key::Int(_) | Key::Label { .. } | Key::Position | Key::Flattened => {
-            field_kind(&field.ty, field.coding(), Trait::Encode, path)
+            field_kind(
+                &field.ty,
+                field.coding(),
+                via(field, site, Trait::Encode).as_ref(),
+                Trait::Encode,
+                path,
+            )
         }
     }
 }
 
 /// A named field's descriptor for decoding: [`field_kind`]'s behind the default the field is given,
-/// or for a `skip`ped field, the default alone. `owner` names the field's `MakeDefault` type for
-/// `default = "path"`, as [`makers`] defines it.
-fn field_decode(
-    field: &Field,
-    index: usize,
-    owner: &Ident,
-    named: &TokenStream,
-    path: &TokenStream,
-) -> TokenStream {
+/// or for a `skip`ped field, the default alone. `site` and `index` name the field's `MakeDefault`
+/// type for `default = "path"`, as [`makers`] defines it.
+fn field_decode(field: &Field, index: usize, site: Site, path: &TokenStream) -> TokenStream {
     let ty = &field.ty;
     let write = match &field.fallback {
         Fallback::Type => None,
         Fallback::Default => Some(quote!(__p::write_default::<#ty>)),
         Fallback::Path(_) => {
-            let maker = maker(owner, index);
+            let (maker, named) = (maker(site.owner, index), site.named);
             Some(quote!(__p::write_made::<#maker #named>))
         }
     };
+    let via = via(field, site, Trait::Decode);
     match (&field.key, write) {
         (Key::Skipped, Some(write)) => {
             quote!(&const { __p::DecKind::skipped(#write, __p::drop_fn::<#ty>()) })
         }
         (Key::Other, _) => quote!(<#ty as __p::Other>::DECODE_OTHER),
-        (_, None) => field_kind(ty, field.coding(), Trait::Decode, path),
+        (_, None) => field_kind(ty, field.coding(), via.as_ref(), Trait::Decode, path),
         (_, Some(write)) => {
-            let kind = field_kind(ty, field.coding(), Trait::Decode, path);
+            let kind = field_kind(ty, field.coding(), via.as_ref(), Trait::Decode, path);
             quote!(&const { __p::DecKind::defaulted(#kind, #write) })
         }
     }
@@ -412,6 +425,16 @@ fn makers(owner: &Ident, fields: &[Field], params: &Params) -> TokenStream {
 
 fn maker(owner: &Ident, index: usize) -> Ident {
     format_ident!("__{owner}Default{index}", owner = owner, index = index)
+}
+
+/// The types of their own the derive emits for `item`'s `fields`: [`makers`]' and [`withs`].
+fn helpers(item: &Item, fields: &[Field], params: &Params, directions: Directions) -> TokenStream {
+    [
+        makers(&item.ident, fields, params),
+        withs(item, &item.ident, fields, directions),
+    ]
+    .into_iter()
+    .collect()
 }
 
 fn static_type(item: &Item) -> TokenStream {

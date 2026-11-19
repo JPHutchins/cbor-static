@@ -75,12 +75,37 @@ pub struct Error {
     pub offset: u32,
 }
 
+/// An error of `kind` at the start: what a `#[cbor(with = module)]` field's module returns, whose
+/// field and offset the engine reports in its place (#5 Q19).
+///
+/// ```
+/// use cbor_static::{Error, ErrorKind};
+///
+/// let error = Error::from(ErrorKind::TypeMismatch);
+/// assert_eq!((error.kind, error.field, error.offset), (ErrorKind::TypeMismatch, 0, 0));
+/// ```
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self::new(kind, 0, 0)
+    }
+}
+
 impl Error {
     pub(crate) fn new(kind: ErrorKind, field: u8, offset: usize) -> Self {
         Self {
             kind,
             field: u16::from(field),
             offset: u32::try_from(offset).unwrap_or(u32::MAX),
+        }
+    }
+
+    /// This error of an item nested `at` bytes into its outer input or output, at its offset there.
+    pub(crate) fn after(self, at: usize) -> Self {
+        Self {
+            offset: self
+                .offset
+                .saturating_add(u32::try_from(at).unwrap_or(u32::MAX)),
+            ..self
         }
     }
 }

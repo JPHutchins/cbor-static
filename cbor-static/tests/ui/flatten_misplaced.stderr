@@ -16,7 +16,7 @@ error: cbor-static: a `flatten` field takes no other field attribute
 23 |     #[serde(flatten, rename = "c")]
    |     ^
 
-error: cbor-static: a positional field takes only `#[cbor(bytes)]`, `max_len` and `borrow`
+error: cbor-static: a positional field takes only `#[cbor(bytes)]`, `max_len`, `with` and `borrow`
   --> tests/ui/flatten_misplaced.rs:28:16
    |
 28 | struct InTuple(#[serde(flatten)] Child, u8);

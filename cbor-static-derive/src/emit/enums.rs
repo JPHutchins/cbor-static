@@ -4,9 +4,9 @@ use syn::Ident;
 
 use super::shadows::{Placement, Shadow, mirror, mirrored, owner, shadow};
 use super::{
-    Body, Order, Params, Placed, Trait, admitted, arranged, derives, field_child, field_decode,
-    field_encode, field_kind, field_stack, forms, generic, impls, joined, key, layout, level,
-    ordered, params, part_order, sorted,
+    Body, Order, Params, Placed, Site, Trait, admitted, arranged, derives, field_child,
+    field_decode, field_encode, field_kind, field_stack, forms, generic, impls, joined, key,
+    layout, level, ordered, params, part_order, sorted, via, withs,
 };
 use crate::Directions;
 use crate::model::{EnumForm, Field, Item, Mode, Offsets, Payload, Repr, Variant};
@@ -83,7 +83,14 @@ pub fn enumeration(
     let enum_consts = &enum_layout.consts;
     let glue = (repr == Repr::Rust).then(|| glue(item, variants, &shadows, (directions, mode)));
     let encode = impls(item, directions, Trait::Encode, |path| {
-        encode_kind(variants, (repr, mode), form, (&ops.encode, &layouts), path)
+        encode_kind(
+            (ident, &params.named),
+            variants,
+            (repr, mode),
+            form,
+            (&ops.encode, &layouts),
+            path,
+        )
     });
     let decode = impls(item, directions, Trait::Decode, |path| {
         decode_kind(
@@ -95,15 +102,33 @@ pub fn enumeration(
             path,
         )
     });
+    let withs = payload_withs(item, variants, directions);
     quote! {
         #(#definitions)*
         #mirror_definition
         #enum_consts
         #(#payload_consts)*
         #glue
+        #withs
         #encode
         #decode
     }
+}
+
+/// The types of their own the derive emits for each variant's `with` fields, which their variant
+/// owns.
+fn payload_withs(item: &Item, variants: &[Variant], directions: Directions) -> TokenStream {
+    variants
+        .iter()
+        .map(|variant| {
+            let fields = match &variant.payload {
+                Payload::Unit => &[],
+                Payload::Newtype(field) => core::slice::from_ref(field.as_ref()),
+                Payload::Struct(fields) => fields.as_slice(),
+            };
+            withs(item, &owner(&item.ident, variant), fields, directions)
+        })
+        .collect()
 }
 
 /// Each struct variant's layout, its fields placed in its shadow, sorted in `mode`.
@@ -235,6 +260,7 @@ fn glue(
 }
 
 fn encode_kind(
+    (ident, named): (&Ident, &TokenStream),
     variants: &[Variant],
     (repr, mode): (Repr, Mode),
     form: &EnumForm,
@@ -249,12 +275,19 @@ fn encode_kind(
     let payloads = variants.iter().zip(layouts.payloads).map(|(variant, placed)| match (&variant.payload, placed) {
         (Payload::Newtype(field), _) => {
             let check = forms::newtype_check(form, &field.ty, Trait::Encode, path);
-            let kind = field_kind(&field.ty, field.coding(), Trait::Encode, path);
+            let kind = field_kind(
+                &field.ty,
+                field.coding(),
+                via(field, Site::new(&owner(ident, variant), named), Trait::Encode).as_ref(),
+                Trait::Encode,
+                path,
+            );
             quote!(Some({ #check #kind }))
         }
         (Payload::Struct(fields), Some(Placed { reference, .. })) => {
             let name = layout_ident(&variant.ident);
-            let kinds = arranged(&name, mode, fields.iter().map(|field| field_encode(field, path)));
+            let owner = owner(ident, variant);
+            let kinds = arranged(&name, mode, fields.iter().map(|field| field_encode(field, Site::new(&owner, named), path)));
             quote!(Some(&__p::EncKind::Struct { ops: &__p::ENCODE_MAP, layout: #reference, kinds: #kinds, field_ptr: #field_ptr }))
         }
         (Payload::Unit | Payload::Struct(_), _) => quote!(None),
@@ -324,13 +357,19 @@ fn decode_kind(
         let payload = match (&variant.payload, placed) {
             (Payload::Newtype(field), _) => {
                 let check = forms::newtype_check(form, &field.ty, Trait::Decode, path);
-                let kind = field_kind(&field.ty, field.coding(), Trait::Decode, path);
+                let kind = field_kind(
+                    &field.ty,
+                    field.coding(),
+                    via(field, Site::new(&owner(ident, variant), named), Trait::Decode).as_ref(),
+                    Trait::Decode,
+                    path,
+                );
                 quote!(Some({ #check #kind }))
             }
             (Payload::Struct(fields), Some(Placed { reference, .. })) => {
                 let name = layout_ident(&variant.ident);
                 let owner = owner(ident, variant);
-                let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, &owner, named, path)));
+                let kinds = arranged(&name, mode, fields.iter().enumerate().map(|(index, field)| field_decode(field, index, Site::new(&owner, named), path)));
                 quote!(Some(&__p::DecKind::Struct { ops: __p::map_ops(#reference, false), layout: #reference, kinds: #kinds, drop: None }))
             }
             (Payload::Unit | Payload::Struct(_), _) => quote!(None),
@@ -377,7 +416,11 @@ fn stack(
     level(variants.iter().map(|variant| match &variant.payload {
         Payload::Unit if unit_frames => level(core::iter::empty()),
         Payload::Unit => (quote!(()), quote!(0)),
-        Payload::Newtype(field) => field_child(&field.ty, field.bytes, (which, path)),
+        Payload::Newtype(field) => field_child(
+            &field.ty,
+            (field.bytes, field.with_module.is_some()),
+            (which, path),
+        ),
         Payload::Struct(fields) => {
             level(fields.iter().map(|field| field_stack(field, which, path)))
         }

@@ -14,7 +14,7 @@ error[E0277]: `&'a str` has no maximum encoded length
             (A, B, C, D)
             Bounded<T, N>
             Box<T>
-            Event<'a>
+            Embedded<T>
           and $N others
 
 error[E0277]: `&'a [u8]` has no maximum encoded length

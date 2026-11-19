@@ -38,3 +38,27 @@ fn open(
 ) -> Result<Option<Child>, ErrorKind> {
     Err(stop(state, unsafe { &*at.cast::<ErrorKind>() }))
 }
+
+/// `kind` where [`stop`] can keep it.
+pub(crate) const fn promoted(kind: ErrorKind) -> &'static ErrorKind {
+    match kind {
+        ErrorKind::UnexpectedEnd => &ErrorKind::UnexpectedEnd,
+        ErrorKind::NotWellFormed => &ErrorKind::NotWellFormed,
+        ErrorKind::TypeMismatch => &ErrorKind::TypeMismatch,
+        ErrorKind::OutOfRange => &ErrorKind::OutOfRange,
+        ErrorKind::InvalidUtf8 => &ErrorKind::InvalidUtf8,
+        ErrorKind::DuplicateKey => &ErrorKind::DuplicateKey,
+        ErrorKind::MissingField => &ErrorKind::MissingField,
+        ErrorKind::UnknownVariant => &ErrorKind::UnknownVariant,
+        ErrorKind::UnexpectedTag => &ErrorKind::UnexpectedTag,
+        ErrorKind::IndefiniteString => &ErrorKind::IndefiniteString,
+        ErrorKind::NeedContiguous => &ErrorKind::NeedContiguous,
+        ErrorKind::Unsupported => &ErrorKind::Unsupported,
+        ErrorKind::LimitExceeded => &ErrorKind::LimitExceeded,
+        ErrorKind::BufferTooSmall => &ErrorKind::BufferTooSmall,
+        ErrorKind::TrailingInput => &ErrorKind::TrailingInput,
+        ErrorKind::UnknownField => &ErrorKind::UnknownField,
+        ErrorKind::NotDeterministic => &ErrorKind::NotDeterministic,
+        ErrorKind::OutOfMemory => &ErrorKind::OutOfMemory,
+    }
+}

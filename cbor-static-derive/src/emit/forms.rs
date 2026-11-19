@@ -174,6 +174,7 @@ pub fn decode_layout(
 fn variant_lead(variant: &Variant, path: &TokenStream) -> TokenStream {
     match &variant.payload {
         Payload::Unit => quote!(__p::Lead::NULL),
+        Payload::Newtype(field) if field.with_module.is_some() => quote!(__p::Lead::ANY),
         Payload::Newtype(field) if field.bytes => quote!(__p::Lead::BYTES),
         Payload::Newtype(field) => {
             let ty = &field.ty;
