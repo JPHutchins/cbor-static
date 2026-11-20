@@ -1,5 +1,6 @@
 """Symbols no cbor-static ELF the harness builds may link: ``core::panicking`` (R-132, D-24) and
-compiler-builtins floating-point routines (R-135, D-22a).
+compiler-builtins floating-point routines (R-135, D-22a); nor may the serde layer's link ``core::fmt``
+(D-23).
 
 Every ELF read must show engine machinery, so a broken symbol reader cannot pass, and each rule's
 control firmware must link a banned symbol, so a build that hides them cannot pass either.
@@ -9,25 +10,41 @@ import re
 import sys
 from typing import TYPE_CHECKING, Final, NamedTuple
 
+from harness.backends.cbor_static_serde import CBOR_STATIC_SERDE
 from harness.features import BY_TEMPLATE, built, fixture_name
 from harness.features import fixture as feature_fixture
-from harness.gate import INFORMATIONAL_TARGET
-from harness.measure import CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_label, elf_path, write_crate
+from harness.gate import INFORMATIONAL_TARGET, load
+from harness.measure import (
+	CRATES,
+	GATE_TARGET,
+	HARNESS,
+	PROFILES,
+	build,
+	elf_label,
+	elf_path,
+	measured_elf,
+	write_crate,
+)
 from harness.symbols import FIXTURES, MACHINERY, fixture, matched, names
 from harness.templates import render
-from harness.unused import allocating, control, gate, tokens
+from harness.unused import allocating, control, gate, serde, tokens
 
 if TYPE_CHECKING:
 	from collections.abc import Callable, Mapping
 	from pathlib import Path
 
+SERDE: Final = "serde layer"
+SERDE_MACHINERY: Final = (
+	"<cbor_static::serde::ser::Serializer>::put",
+	"<cbor_static::serde::de::Deserializer>::open_map",
+)
 SOFT_FLOAT: Final = re.compile(r"__aeabi_(?:[fdh]|c[fd]|u?[il]2[fd])\w*|__[a-z]+[sdh]f[a-z0-9]*")
 
 
 class Rule(NamedTuple):
 	"""A requirement's banned symbols, the report it writes, the control firmwares that must link
-	them, and the R-009 feature templates exempt from it, each of which must link alloc's
-	error panic.
+	them, the R-009 feature templates exempt from it, each of which must link alloc's error panic,
+	and the groups of ELFs it reads, every group when empty.
 	"""
 
 	requirement: str
@@ -37,6 +54,7 @@ class Rule(NamedTuple):
 	controls: tuple[str, ...]
 	targets: tuple[str, ...]
 	exempt: Mapping[str, tuple[str, ...]] = {}
+	within: tuple[str, ...] = ()
 
 	@property
 	def excluded(self) -> frozenset[str]:
@@ -69,6 +87,14 @@ def soft_float(symbol: str) -> bool:
 	return bool(SOFT_FLOAT.fullmatch(symbol.rsplit("::", 1)[-1])) or "compiler_builtins::float::" in symbol
 
 
+def formatting(symbol: str) -> bool:
+	"""
+	>>> formatting("core::fmt::write"), formatting("<u32 as core::fmt::Display>::fmt"), formatting("cbor_static::serde::ser::Serializer::put")
+	(True, True, False)
+	"""
+	return "core::fmt" in symbol
+
+
 EXEMPT_FROM_PANICS: Final = {"BTreeMap": ("btree_map", "btree_map_decode", "btree_max_len")}
 ALLOC_ERROR_PANIC: Final = "core::panicking::panic_nounwind_fmt"
 
@@ -90,10 +116,20 @@ RULES: Final = {
 		("soft_float",),
 		(GATE_TARGET, INFORMATIONAL_TARGET),
 	),
+	"formatting": Rule(
+		"D-23",
+		"`core::fmt` symbols",
+		formatting,
+		"formatting",
+		("formatting",),
+		(GATE_TARGET,),
+		within=(SERDE,),
+	),
 }
 
 
 def main(rule: Rule) -> int:
+	swept = serde_sweep(rule.targets)
 	groups = {
 		"gate": gate(rule.targets),
 		"R-006 fixtures": tuple(fixture(name, target) for name in FIXTURES for target in rule.targets),
@@ -104,6 +140,11 @@ def main(rule: Rule) -> int:
 		"token control": (tokens(),),
 		"alloc control": (allocating(),),
 		"R-009 feature cost fixtures (when built)": built(rule.excluded),
+		SERDE: (*swept, *(serde(profile) for profile in PROFILES)),
+	}
+	groups = {name: elfs for name, elfs in groups.items() if not rule.within or name in rule.within}
+	machinery = {
+		elf: SERDE_MACHINERY if name == SERDE else MACHINERY for name, elfs in groups.items() for elf in elfs
 	}
 	read = {elf: names(elf) for elfs in groups.values() for elf in elfs}
 	linked = sorted(
@@ -112,7 +153,7 @@ def main(rule: Rule) -> int:
 		for symbol in found
 		if rule.banned(symbol)
 	)
-	blind = sorted(elf_label(elf) for elf, found in read.items() if not matched(found, MACHINERY))
+	blind = sorted(elf_label(elf) for elf, found in read.items() if not matched(found, machinery[elf]))
 	controls = {
 		f"{target}/{elf_label(elf)}": sorted(filter(rule.banned, names(elf)))
 		for target in rule.targets
@@ -126,7 +167,8 @@ def main(rule: Rule) -> int:
 		for elf in exempt_elfs(template)
 	}
 	passed = (
-		bool(groups["gate"])
+		("gate" not in groups or bool(groups["gate"]))
+		and (SERDE not in groups or bool(swept))
 		and not linked
 		and not blind
 		and all(controls.values())
@@ -158,6 +200,13 @@ def main(rule: Rule) -> int:
 	(HARNESS / f"{rule.report}.md").write_text(text + "\n")
 	print(text)
 	return 0 if passed else 1
+
+
+def serde_sweep(targets: tuple[str, ...]) -> tuple[Path, ...]:
+	"""Every swept ELF of the serde layer's backend for `targets`."""
+	return tuple(
+		measured_elf(m) for m in load() if m.backend == CBOR_STATIC_SERDE.name and m.target in targets
+	)
 
 
 def exempt_elfs(template: str) -> tuple[Path, ...]:

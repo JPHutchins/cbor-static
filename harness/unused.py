@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 from harness.backends.backend import ROOT, path_dependency
 from harness.backends.cbor_static import VARIANTS
+from harness.backends.cbor_static_serde import CBOR_STATIC_SERDE
 from harness.features import ALLOC, FEATURES, fixture
 from harness.gate import load
 from harness.measure import (
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
 CONTROL: Final = "r009-positive-control"
 TOKENS: Final = "tokens-control"
 ALLOCATING: Final = "allocating-control"
+SERDE: Final = "serde-control"
 
 
 class Anchored(NamedTuple):
@@ -178,6 +180,24 @@ def tokens() -> Path:
 	return elf_path(HARNESS / TOKENS, GATE_TARGET, "release", TOKENS)
 
 
+def serde(profile: str = "release") -> Path:
+	"""A firmware that decodes and encodes every shape of serde's data model through cbor-static."""
+	build(
+		write_crate(
+			CRATES / SERDE,
+			{
+				"Cargo.toml": render("Cargo.toml", name=SERDE, dependencies=CBOR_STATIC_SERDE.dependencies()),
+				"src/main.rs": render("serde.rs"),
+			},
+		),
+		GATE_TARGET,
+		profile,
+		(),
+		HARNESS / SERDE,
+	)
+	return elf_path(HARNESS / SERDE, GATE_TARGET, profile, SERDE)
+
+
 def allocating() -> Path:
 	"""A firmware that decodes every alloc type and encodes it back with `to_vec` and `to_vec_in`."""
 	build(
@@ -222,6 +242,57 @@ ANCHORED: Final = (
 		),
 		"a firmware that copies tokens from Tokens to a TokenWriter",
 		tokens,
+	),
+	Anchored(
+		"serde layer functions",
+		frozenset(
+			{
+				*(
+					f"<cbor_static::serde::de::Deserializer>::{name}"
+					for name in (
+						"boolean",
+						"bytes",
+						"character",
+						"digits",
+						"double",
+						"identifier",
+						"ignored",
+						"leave",
+						"leave_variant",
+						"left",
+						"more",
+						"next_key",
+						"null",
+						"open_array",
+						"open_map",
+						"open_variant",
+						"past_head",
+						"refused",
+						"rest",
+						"single",
+						"text",
+						"token",
+						"took_null",
+						"unit_variant_next",
+						"variant_form",
+						"variant_name",
+						"wide_signed",
+						"wide_unsigned",
+						"with_depth_limit",
+					)
+				),
+				*(
+					f"<cbor_static::serde::ser::Serializer>::{name}"
+					for name in ("bignum", "compound", "head", "put", "signed", "text", "variant")
+				),
+				"<cbor_static::serde::error::Error>::reported",
+				*(f"<cbor_static::token::Tokens>::{name}" for name in ("head_end", "initial", "skip_item")),
+			}
+		),
+		"a firmware that decodes and encodes every shape of serde's data model",
+		serde,
+		" or in the token-only firmware",
+		(tokens,),
 	),
 	Anchored(
 		"`with` window functions",
