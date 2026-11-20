@@ -15,13 +15,12 @@ impl<'de> Deserializer<'de> {
         if core::mem::take(&mut self.skipped_key) {
             return Ok(None);
         }
-        self.text().map(Some).map_err(|error| match error.kind {
-            ErrorKind::IndefiniteString => Error {
-                kind: ErrorKind::Unsupported,
-                ..error
-            },
-            _ => self.copied(error),
-        })
+        match self.token().map_err(|error| self.copied(error))? {
+            (Token::Text(name), _) => Ok(Some(name)),
+            (Token::TextIndefinite, at) => Err(self.past_head(ErrorKind::Unsupported, at)),
+            (Token::Bytes(_), _) => Err(self.here(ErrorKind::TypeMismatch)),
+            (_, at) => Err(self.refused(at)),
+        }
     }
 
     /// Whether another entry follows. Before a struct's key, one that is not text is skipped, so

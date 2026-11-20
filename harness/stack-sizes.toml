@@ -156,7 +156,7 @@
 "<cbor_static::engine::text::Utf8>::feed" = 24
 "<cbor_static::serde::de::Deserializer>::boolean" = 48
 "<cbor_static::serde::de::Deserializer>::bytes" = 48
-"<cbor_static::serde::de::Deserializer>::identifier" = 32
+"<cbor_static::serde::de::Deserializer>::identifier" = 48
 "<cbor_static::serde::de::Deserializer>::ignored" = 16
 "<cbor_static::serde::de::Deserializer>::integer::<i32>" = 48
 "<cbor_static::serde::de::Deserializer>::integer::<u32>" = 48
@@ -249,7 +249,7 @@
 "<cbor_static::engine::text::Utf8>::feed" = 16
 "<cbor_static::serde::de::Deserializer>::boolean" = 48
 "<cbor_static::serde::de::Deserializer>::bytes" = 48
-"<cbor_static::serde::de::Deserializer>::identifier" = 32
+"<cbor_static::serde::de::Deserializer>::identifier" = 48
 "<cbor_static::serde::de::Deserializer>::ignored" = 16
 "<cbor_static::serde::de::Deserializer>::integer::<i32>" = 56
 "<cbor_static::serde::de::Deserializer>::integer::<u32>" = 48

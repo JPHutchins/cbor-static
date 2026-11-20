@@ -1,14 +1,15 @@
 #![forbid(unsafe_code)]
 
 mod access;
+mod any;
 mod read;
 
 use serde_core::de::{self, Deserialize, Visitor};
 
 use access::{Map, Seq, Variant};
+use any::{visit_bytes, visit_text};
 use read::Entries;
 
-use crate::ErrorKind;
 use crate::serde::Error;
 use crate::token::Tokens;
 
@@ -20,7 +21,7 @@ const DEFAULT_DEPTH: u8 = 32;
 
 /// A serde Deserializer over [`Tokens`], borrowing definite strings from its input. It applies the
 /// native decoder's type checks (D-12) and nests at most 32 arrays and maps deep, or a limit of
-/// its own, past which a container is [`ErrorKind::LimitExceeded`] (R-303).
+/// its own, past which a container is [`crate::ErrorKind::LimitExceeded`] (R-303).
 ///
 /// ```
 /// use cbor_static::serde::Deserializer;
@@ -126,7 +127,7 @@ impl<'de> Deserializer<'de> {
     /// ```
     ///
     /// # Errors
-    /// [`ErrorKind::TrailingInput`] for bytes after the item, and any error decoding it.
+    /// [`crate::ErrorKind::TrailingInput`] for bytes after the item, and any error decoding it.
     pub fn decode<T: Deserialize<'de>>(self) -> Result<T, crate::Error> {
         self.decoded(true).map(|(value, _)| value)
     }
@@ -179,8 +180,8 @@ impl<'de> Deserializer<'de> {
 impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     type Error = Error;
 
-    fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Error> {
-        Err(Error::new(ErrorKind::Unsupported, self.tokens.offset()))
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        self.any(visitor)
     }
 
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -240,19 +241,19 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     }
 
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_str(self.text()?)
+        visit_text(visitor, self.text()?)
     }
 
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_str(self.text()?)
+        visit_text(visitor, self.text()?)
     }
 
     fn deserialize_bytes<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_bytes(self.bytes()?)
+        visit_bytes(visitor, self.bytes()?)
     }
 
     fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_bytes(self.bytes()?)
+        visit_bytes(visitor, self.bytes()?)
     }
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {

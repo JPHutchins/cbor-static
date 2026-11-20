@@ -4,8 +4,12 @@
 
 use crate::wire::Major;
 
+pub(super) use any::{Any, Value};
+
+mod any;
 mod container;
 mod scalar;
+mod strings;
 mod token;
 
 /// Whose entries a map holds: any keys, or a struct's fields, whose keys are text.

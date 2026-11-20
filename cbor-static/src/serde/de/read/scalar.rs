@@ -5,7 +5,8 @@ use crate::ErrorKind;
 use crate::serde::{Deserializer, Error};
 use crate::token::Token;
 
-use super::NULL;
+use super::any::Value;
+use super::strings::{Digits, Utf8};
 
 impl<'de> Deserializer<'de> {
     #[inline(never)]
@@ -37,6 +38,8 @@ impl<'de> Deserializer<'de> {
     /// Whether the next item is null, which it then reads.
     #[inline(never)]
     pub(in crate::serde::de) fn took_null(&mut self) -> Result<bool, Error> {
+        use super::NULL;
+
         match self.tokens.initial() {
             Some(NULL) => self.null().map(|()| true),
             _ => Ok(false),
@@ -84,21 +87,13 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    /// A bignum's magnitude: a byte string of at most 16 digits past its leading zeros.
-    fn digits(&mut self) -> Result<u128, Error> {
+    /// A bignum's magnitude: a byte string, whole or in chunks, of at most 16 digits past its
+    /// leading zeros.
+    pub(super) fn digits(&mut self) -> Result<u128, Error> {
         match self.token().map_err(|error| self.copied(error))? {
-            (Token::Bytes(digits), _) => {
-                let significant = digits
-                    .get(digits.iter().take_while(|&&digit| digit == 0).count()..)
-                    .unwrap_or_default();
-                match significant.len() {
-                    0..=16 => Ok(significant
-                        .iter()
-                        .fold(0, |magnitude, &digit| magnitude << 8 | u128::from(digit))),
-                    _ => Err(self.here(ErrorKind::OutOfRange)),
-                }
-            }
-            (Token::BytesIndefinite, at) => Err(self.past_head(ErrorKind::IndefiniteString, at)),
+            (head @ (Token::Bytes(_) | Token::BytesIndefinite), _) => self
+                .fold_string(head, Digits::default(), Digits::step)
+                .map(Digits::magnitude),
             (_, at) => Err(self.refused(at)),
         }
     }
@@ -120,33 +115,44 @@ impl<'de> Deserializer<'de> {
             .ok_or(self.past_head(ErrorKind::OutOfRange, at))
     }
 
+    /// Text, borrowed, or with `alloc` assembled from chunks (D-13a).
     #[inline(never)]
-    pub(in crate::serde::de) fn text(&mut self) -> Result<&'de str, Error> {
+    pub(in crate::serde::de) fn text(&mut self) -> Result<Value<'de, str>, Error> {
         match self.token()? {
-            (Token::Text(text), _) => Ok(text),
-            (Token::Bytes(_), _) => Err(self.here(ErrorKind::TypeMismatch)),
+            (Token::Text(text), _) => Ok(text.into()),
+            #[cfg(feature = "alloc")]
+            (Token::TextIndefinite, _) => self.assembled_text(),
+            #[cfg(not(feature = "alloc"))]
             (Token::TextIndefinite, at) => Err(self.past_head(ErrorKind::IndefiniteString, at)),
+            (Token::Bytes(_), _) => Err(self.here(ErrorKind::TypeMismatch)),
             (_, at) => Err(self.refused(at)),
         }
     }
 
+    /// Bytes, borrowed, or with `alloc` assembled from chunks (D-13a).
     #[inline(never)]
-    pub(in crate::serde::de) fn bytes(&mut self) -> Result<&'de [u8], Error> {
+    pub(in crate::serde::de) fn bytes(&mut self) -> Result<Value<'de, [u8]>, Error> {
         match self.token()? {
-            (Token::Bytes(bytes), _) => Ok(bytes),
-            (Token::Text(_), _) => Err(self.here(ErrorKind::TypeMismatch)),
+            (Token::Bytes(bytes), _) => Ok(bytes.into()),
+            #[cfg(feature = "alloc")]
+            (Token::BytesIndefinite, _) => self.assembled().map(alloc::borrow::Cow::Owned),
+            #[cfg(not(feature = "alloc"))]
             (Token::BytesIndefinite, at) => Err(self.past_head(ErrorKind::IndefiniteString, at)),
+            (Token::Text(_), _) => Err(self.here(ErrorKind::TypeMismatch)),
             (_, at) => Err(self.refused(at)),
         }
     }
 
-    /// Text of exactly one character.
+    /// Text, whole or in chunks, of exactly one character.
     #[inline(never)]
     pub(in crate::serde::de) fn character(&mut self) -> Result<char, Error> {
-        let mut chars = self.text().map_err(|error| self.copied(error))?.chars();
-        match (chars.next(), chars.next()) {
-            (Some(only), None) => Ok(only),
-            _ => Err(self.here(ErrorKind::TypeMismatch)),
+        match self.token().map_err(|error| self.copied(error))? {
+            (head @ (Token::Text(_) | Token::TextIndefinite), _) => self
+                .fold_string(head, Utf8::default(), |utf8, piece| Ok(utf8.step(piece)))?
+                .only()
+                .ok_or_else(|| self.here(ErrorKind::TypeMismatch)),
+            (Token::Bytes(_), _) => Err(self.here(ErrorKind::TypeMismatch)),
+            (_, at) => Err(self.refused(at)),
         }
     }
 }

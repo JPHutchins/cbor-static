@@ -274,6 +274,7 @@ ANCHORED: Final = (
 						"boolean",
 						"bytes",
 						"character",
+						"chunk",
 						"digits",
 						"double",
 						"identifier",
@@ -282,6 +283,7 @@ ANCHORED: Final = (
 						"leave_variant",
 						"left",
 						"more",
+						"next_any",
 						"next_key",
 						"null",
 						"open_array",
@@ -308,6 +310,7 @@ ANCHORED: Final = (
 						"bignum",
 						"close",
 						"close_declared",
+						"compound",
 						"counted",
 						"head",
 						"named",
@@ -320,6 +323,9 @@ ANCHORED: Final = (
 					)
 				),
 				"<cbor_static::serde::error::Error>::reported",
+				"<cbor_static::serde::ser::compound::Compound>::close",
+				"<cbor_static::serde::ser::compound::Compound>::close_declared",
+				"<cbor_static::serde::de::read::strings::Digits>::step",
 				*(f"<cbor_static::token::Tokens>::{name}" for name in ("head_end", "initial", "skip_item")),
 			}
 		),

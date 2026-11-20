@@ -53,6 +53,15 @@ impl serde::Serialize for UnsizedMap<'_> {
     }
 }
 
+/// Whatever item comes, read through `deserialize_any`.
+pub struct Anything;
+
+impl<'de> serde::Deserialize<'de> for Anything {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(serde::de::IgnoredAny).map(|_| Self)
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     let input: &[u8] = unsafe { core::slice::from_raw_parts(black_box(0x2000_0000usize) as *const u8, black_box(256)) };
@@ -66,6 +75,7 @@ pub extern "C" fn _start() -> ! {
                 cbor_static::serde::to_slice(&UnsizedMap(&value.list), out).ok()
             }),
     );
+    black_box(cbor_static::serde::from_slice::<Anything>(input).is_ok());
     black_box(
         cbor_static::serde::Deserializer::with_depth_limit(input, black_box(4))
             .decode_partial::<Shape>()
