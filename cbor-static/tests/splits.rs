@@ -30,7 +30,7 @@ enum State {
 }
 
 /// One item of each major type and form, from RFC 8949 Appendix A where it has one.
-const ITEMS: [&[u8]; 20] = [
+const ITEMS: [&[u8]; 22] = [
     b"\x00",
     b"\x18\x64",
     b"\x1b\x00\x00\x00\x01\x00\x00\x00\x00",
@@ -50,6 +50,8 @@ const ITEMS: [&[u8]; 20] = [
     b"\xc2\x49\x01\x00\x00\x00\x00\x00\x00\x00\x00",
     b"\xf4",
     b"\xf6",
+    b"\xf9\x3c\x00",
+    b"\xfa\x47\xc3\x50\x00",
     b"\xfb\x3f\xf1\x99\x99\x99\x99\x99\x9a",
 ];
 
@@ -80,12 +82,19 @@ fn fed<'a, T: for<'de> Decode<'de> + Default>(
 }
 
 fn splits_as_whole<T: for<'de> Decode<'de> + Default + PartialEq + Debug>(bytes: &[u8]) {
+    splits_as_whole_by(bytes, core::convert::identity::<T>);
+}
+
+fn splits_as_whole_by<T: for<'de> Decode<'de> + Default, K: PartialEq + Debug>(
+    bytes: &[u8],
+    key: fn(T) -> K,
+) {
     assert!(!<T as Decode<'_>>::CONTIGUOUS, "claims contiguous input");
-    let expected = whole::<T>(bytes);
+    let expected = whole::<T>(bytes).map(key);
     for at in 0..=bytes.len() {
         let (head, tail) = bytes.split_at(at);
         assert_eq!(
-            fed::<T>(bytes, [head, tail]),
+            fed::<T>(bytes, [head, tail]).map(key),
             expected,
             "{name} {bytes:x?} split at {at}",
             name = core::any::type_name::<T>()
@@ -93,7 +102,7 @@ fn splits_as_whole<T: for<'de> Decode<'de> + Default + PartialEq + Debug>(bytes:
     }
     for chunk in 1..=bytes.len() {
         assert_eq!(
-            fed::<T>(bytes, bytes.chunks(chunk)),
+            fed::<T>(bytes, bytes.chunks(chunk)).map(key),
             expected,
             "{name} {bytes:x?} in chunks of {chunk}",
             name = core::any::type_name::<T>()
@@ -109,7 +118,8 @@ fn every_type(bytes: &[u8]) {
     splits_as_whole::<i128>(bytes);
     splits_as_whole::<bool>(bytes);
     splits_as_whole::<()>(bytes);
-    splits_as_whole::<f64>(bytes);
+    splits_as_whole_by(bytes, f32::to_bits);
+    splits_as_whole_by(bytes, f64::to_bits);
     splits_as_whole::<char>(bytes);
     splits_as_whole::<Option<u16>>(bytes);
     splits_as_whole::<[u8; 2]>(bytes);
@@ -133,6 +143,18 @@ fn every_type(bytes: &[u8]) {
 fn every_item_splits_as_it_decodes_whole_into_every_type() {
     for item in ITEMS {
         every_type(item);
+    }
+}
+
+#[test]
+fn a_nan_splits_as_it_decodes_whole_into_every_type() {
+    for nan in [
+        b"\xf9\x7c\x01".as_slice(),
+        b"\xf9\x7f\xb5",
+        b"\xfa\x7f\x80\x00\x01",
+        b"\xfb\x7f\xf0\x00\x00\x00\x00\x00\x01",
+    ] {
+        every_type(nan);
     }
 }
 
