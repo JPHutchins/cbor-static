@@ -252,45 +252,6 @@ fn a_tuple_variant_is_its_name_over_an_array() {
 }
 
 #[test]
-fn unknown_lengths_are_unsupported_until_backpatching() {
-    struct Unsized;
-
-    impl Serialize for Unsized {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            use serde::ser::SerializeSeq;
-            serializer.serialize_seq(None)?.end()
-        }
-    }
-
-    struct Displayed;
-
-    impl Serialize for Displayed {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            serializer.collect_str(&7)
-        }
-    }
-
-    let unsupported = (
-        cbor_static::ErrorKind::Unsupported,
-        u32::try_from(b"\x82\x01".len()).expect("short"),
-    );
-    assert_eq!(
-        cbor_static::serde::to_slice(&(1u8, Unsized), &mut [0u8; 8])
-            .map_err(|e| (e.kind, e.offset)),
-        Err(unsupported)
-    );
-    assert_eq!(
-        cbor_static::serde::to_slice(&(1u8, Displayed), &mut [0u8; 8])
-            .map_err(|e| (e.kind, e.offset)),
-        Err(unsupported)
-    );
-    assert_eq!(
-        cbor_static::serde::to_vec(&(1u8, Unsized)).map_err(|e| (e.kind, e.offset)),
-        Err(unsupported)
-    );
-}
-
-#[test]
 fn a_custom_error_is_placed_where_encoding_stopped() {
     struct Refusing;
 

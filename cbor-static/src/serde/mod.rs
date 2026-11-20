@@ -44,8 +44,8 @@ pub use ser::{Compound, Serializer};
 ///
 /// # Errors
 /// [`crate::ErrorKind::BufferTooSmall`] when `out` cannot hold the encoding,
-/// [`crate::ErrorKind::Unsupported`] for a sequence or map of unknown length, and any error the
-/// value's serde impl raises, at the offset reached.
+/// [`crate::ErrorKind::NotWellFormed`] for a sequence or map whose items are not the number it
+/// declared, and any error the value's serde impl raises, at the offset reached.
 pub fn to_slice<T: ?Sized + Serialize>(value: &T, out: &mut [u8]) -> Result<usize, crate::Error> {
     let mut serializer = Serializer::new(out);
     match value.serialize(&mut serializer) {

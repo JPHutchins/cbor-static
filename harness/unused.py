@@ -32,6 +32,7 @@ CONTROL: Final = "r009-positive-control"
 TOKENS: Final = "tokens-control"
 ALLOCATING: Final = "allocating-control"
 SERDE: Final = "serde-control"
+SERDE_TEXT: Final = "serde-text-control"
 
 
 class Anchored(NamedTuple):
@@ -198,6 +199,26 @@ def serde(profile: str = "release") -> Path:
 	return elf_path(HARNESS / SERDE, GATE_TARGET, profile, SERDE)
 
 
+def serde_text(profile: str = "release") -> Path:
+	"""A firmware that writes text through serde's `collect_str`, which formats with `core::fmt`."""
+	build(
+		write_crate(
+			CRATES / SERDE_TEXT,
+			{
+				"Cargo.toml": render(
+					"Cargo.toml", name=SERDE_TEXT, dependencies=CBOR_STATIC_SERDE.dependencies()
+				),
+				"src/main.rs": render("serde_text.rs"),
+			},
+		),
+		GATE_TARGET,
+		profile,
+		(),
+		HARNESS / SERDE_TEXT,
+	)
+	return elf_path(HARNESS / SERDE_TEXT, GATE_TARGET, profile, SERDE_TEXT)
+
+
 def allocating() -> Path:
 	"""A firmware that decodes every alloc type and encodes it back with `to_vec` and `to_vec_in`."""
 	build(
@@ -283,7 +304,20 @@ ANCHORED: Final = (
 				),
 				*(
 					f"<cbor_static::serde::ser::Serializer>::{name}"
-					for name in ("bignum", "compound", "head", "put", "signed", "text", "variant")
+					for name in (
+						"bignum",
+						"close",
+						"close_declared",
+						"counted",
+						"head",
+						"named",
+						"open",
+						"patch",
+						"put",
+						"signed",
+						"text",
+						"variant",
+					)
 				),
 				"<cbor_static::serde::error::Error>::reported",
 				*(f"<cbor_static::token::Tokens>::{name}" for name in ("head_end", "initial", "skip_item")),
@@ -293,6 +327,19 @@ ANCHORED: Final = (
 		serde,
 		" or in the token-only firmware",
 		(tokens,),
+	),
+	Anchored(
+		"serde text of unknown length",
+		frozenset(
+			{
+				"<cbor_static::serde::ser::Serializer>::formatted",
+				"<cbor_static::serde::ser::backpatch::Text as core::fmt::Write>::write_str",
+			}
+		),
+		"a firmware that writes a number as text through `collect_str`",
+		serde_text,
+		" or in the token-only or serde firmware",
+		(tokens, serde),
 	),
 	Anchored(
 		"`with` window functions",

@@ -35,6 +35,24 @@ pub struct Everything<'a> {
     shapes: [Shape; 2],
 }
 
+/// Its items, as a sequence of unknown length.
+pub struct Unsized<'a>(&'a [u16]);
+
+impl serde::Serialize for Unsized<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().filter(|_| true))
+    }
+}
+
+/// Its items by their index, as a map of unknown length.
+pub struct UnsizedMap<'a>(&'a [u16]);
+
+impl serde::Serialize for UnsizedMap<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.0.iter().enumerate().filter(|_| true))
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     let input: &[u8] = unsafe { core::slice::from_raw_parts(black_box(0x2000_0000usize) as *const u8, black_box(256)) };
@@ -42,7 +60,11 @@ pub extern "C" fn _start() -> ! {
     black_box(
         cbor_static::serde::from_slice::<Everything>(input)
             .ok()
-            .and_then(|value| cbor_static::serde::to_slice(&value, out).ok()),
+            .and_then(|value| {
+                cbor_static::serde::to_slice(&value, &mut *out).ok()?;
+                cbor_static::serde::to_slice(&Unsized(&value.list), &mut *out).ok()?;
+                cbor_static::serde::to_slice(&UnsizedMap(&value.list), out).ok()
+            }),
     );
     black_box(
         cbor_static::serde::Deserializer::with_depth_limit(input, black_box(4))

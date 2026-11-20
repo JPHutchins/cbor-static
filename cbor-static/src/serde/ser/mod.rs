@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod backpatch;
 mod compound;
 
 use serde_core::ser::{self, Serialize};
@@ -11,7 +12,7 @@ use crate::serde::Error;
 use crate::wire::{Head, Major, float};
 
 /// A serde Serializer of preferred serialization (RFC 8949 §4.1), with definite lengths only
-/// (D-11), into a slice.
+/// (D-11), into a slice. A sequence, map or text of unknown length gets its length when it closes.
 ///
 /// ```
 /// use serde::Serialize;
@@ -126,13 +127,13 @@ impl<'s, 'a> ser::Serializer for &'s mut Serializer<'a> {
 
     fn serialize_f32(self, v: f32) -> Result<(), Error> {
         self.put(
-            Head::float(float::shortest(float::from_single(v.to_bits()))),
+            Head::float(float::shortest(float::from_single(v.to_bits()))).as_bytes(),
             &[],
         )
     }
 
     fn serialize_f64(self, v: f64) -> Result<(), Error> {
-        self.put(Head::float(float::shortest(v.to_bits())), &[])
+        self.put(Head::float(float::shortest(v.to_bits())).as_bytes(), &[])
     }
 
     fn serialize_char(self, v: char) -> Result<(), Error> {
@@ -144,7 +145,7 @@ impl<'s, 'a> ser::Serializer for &'s mut Serializer<'a> {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<(), Error> {
-        self.put(Head::new(Major::Bytes, v.len() as u64), v)
+        self.put(Head::new(Major::Bytes, v.len() as u64).as_bytes(), v)
     }
 
     fn serialize_none(self) -> Result<(), Error> {
@@ -239,8 +240,8 @@ impl<'s, 'a> ser::Serializer for &'s mut Serializer<'a> {
         self.compound(Major::Map, Some(len))
     }
 
-    fn collect_str<T: ?Sized + core::fmt::Display>(self, _: &T) -> Result<(), Error> {
-        Err(self.unsupported())
+    fn collect_str<T: ?Sized + core::fmt::Display>(self, value: &T) -> Result<(), Error> {
+        self.formatted(format_args!("{value}"))
     }
 
     fn is_human_readable(&self) -> bool {
@@ -252,15 +253,15 @@ impl<'a> Serializer<'a> {
     /// Appends `head` and `payload`, or when measuring, only counts them. When they do not fit,
     /// the error is at the end of the buffer, where the native encoder stops.
     #[inline(never)]
-    fn put(&mut self, head: Head, payload: &[u8]) -> Result<(), Error> {
-        let len = head.as_bytes().len() + payload.len();
+    fn put(&mut self, head: &[u8], payload: &[u8]) -> Result<(), Error> {
+        let len = head.len() + payload.len();
         let room = match &mut self.sink {
             #[cfg(feature = "alloc")]
             Sink::Measure => len,
             Sink::Write(out) => {
                 let rest = out.get_mut(self.at..).unwrap_or_default();
                 rest.iter_mut()
-                    .zip(head.as_bytes().iter().chain(payload))
+                    .zip(head.iter().chain(payload))
                     .for_each(|(slot, byte)| *slot = *byte);
                 rest.len()
             }
@@ -274,12 +275,15 @@ impl<'a> Serializer<'a> {
 
     #[inline(never)]
     fn head(&mut self, major: Major, arg: u64) -> Result<(), Error> {
-        self.put(Head::new(major, arg), &[])
+        self.put(Head::new(major, arg).as_bytes(), &[])
     }
 
     #[inline(never)]
     fn text(&mut self, text: &str) -> Result<(), Error> {
-        self.put(Head::new(Major::Text, text.len() as u64), text.as_bytes())
+        self.put(
+            Head::new(Major::Text, text.len() as u64).as_bytes(),
+            text.as_bytes(),
+        )
     }
 
     /// The opening of every variant but a unit one: a map of one entry, keyed by its name.
@@ -308,17 +312,17 @@ impl<'a> Serializer<'a> {
             .get(usize::try_from(magnitude.leading_zeros() / 8).unwrap_or(0)..)
             .unwrap_or(&be);
         self.head(Major::Tag, tag)?;
-        self.put(Head::new(Major::Bytes, digits.len() as u64), digits)
+        self.put(
+            Head::new(Major::Bytes, digits.len() as u64).as_bytes(),
+            digits,
+        )
     }
 
-    #[inline(never)]
     fn compound(&mut self, major: Major, len: Option<usize>) -> Result<Compound<'_, 'a>, Error> {
-        self.head(major, len.ok_or_else(|| self.unsupported())? as u64)?;
-        Ok(Compound { serializer: self })
-    }
-
-    fn unsupported(&self) -> Error {
-        Error::new(ErrorKind::Unsupported, self.at)
+        Ok(Compound {
+            open: self.open(major, len)?,
+            serializer: self,
+        })
     }
 }
 
