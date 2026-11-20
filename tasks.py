@@ -73,6 +73,11 @@ usize16 = Task(
 	},
 	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target; also the no-feature build, warnings denied",
 )
+serde_bare = Task(
+	"cargo test -p cbor-static --features serde",
+	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/serde-host", "RUSTFLAGS": "-D warnings"},
+	help="D-13a: the serde layer without alloc, which refuses strings in chunks it would assemble with it",
+)
 oneshot = Task(
 	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test oneshot --test sizes",
 	env={
@@ -106,7 +111,9 @@ miri = Parallel(
 )
 miri_doc = nightly_miri(f"cargo miri test {MIRI_PACKAGE} --doc", help="nextest runs no doctests")
 fix = rust_fmt | tasks_fix | nix_fmt | harness
-check = rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | oneshot | tasks_check | harness
+check = (
+	rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | serde_bare | oneshot | tasks_check | harness
+)
 f32 = Task(
 	"cargo test --release -p cbor-static --test floats -- --ignored",
 	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},

@@ -6,6 +6,7 @@ use serde_core::ser::{
 };
 
 use super::Serializer;
+use super::backpatch::Open;
 use crate::serde::Error;
 
 /// The items of an array or map whose head [`Serializer`] wrote, which serde hands over one by
@@ -26,16 +27,27 @@ use crate::serde::Error;
 #[derive(Debug)]
 pub struct Compound<'s, 'a> {
     pub(super) serializer: &'s mut Serializer<'a>,
+    pub(super) open: Open,
 }
 
 impl Compound<'_, '_> {
+    /// An array's item or a map's key, which [`Serializer::counted`] counts.
     fn item<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Error> {
+        self.serializer.counted(&mut self.open)?;
         value.serialize(&mut *self.serializer)
     }
 
     fn field<T: ?Sized + Serialize>(&mut self, key: &str, value: &T) -> Result<(), Error> {
-        self.serializer.text(key)?;
+        self.serializer.named(&mut self.open, key)?;
         value.serialize(&mut *self.serializer)
+    }
+
+    fn close(self) -> Result<(), Error> {
+        self.serializer.close(self.open)
+    }
+
+    fn close_declared(self) -> Result<(), Error> {
+        self.serializer.close_declared(self.open)
     }
 }
 
@@ -48,7 +60,7 @@ impl SerializeSeq for Compound<'_, '_> {
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close()
     }
 }
 
@@ -61,7 +73,7 @@ impl SerializeTuple for Compound<'_, '_> {
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close_declared()
     }
 }
 
@@ -74,7 +86,7 @@ impl SerializeTupleStruct for Compound<'_, '_> {
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close_declared()
     }
 }
 
@@ -87,7 +99,7 @@ impl SerializeTupleVariant for Compound<'_, '_> {
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close_declared()
     }
 }
 
@@ -100,11 +112,11 @@ impl SerializeMap for Compound<'_, '_> {
     }
 
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Error> {
-        self.item(value)
+        value.serialize(&mut *self.serializer)
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close()
     }
 }
 
@@ -121,7 +133,7 @@ impl SerializeStruct for Compound<'_, '_> {
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close_declared()
     }
 }
 
@@ -138,6 +150,6 @@ impl SerializeStructVariant for Compound<'_, '_> {
     }
 
     fn end(self) -> Result<(), Error> {
-        Ok(())
+        self.close_declared()
     }
 }

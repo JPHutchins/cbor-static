@@ -1,14 +1,16 @@
 #![forbid(unsafe_code)]
 
 mod access;
+mod any;
 mod read;
+mod strict;
 
 use serde_core::de::{self, Deserialize, Visitor};
 
 use access::{Map, Seq, Variant};
-use read::Entries;
+use any::{visit_bytes, visit_text};
+use read::{Entries, Keys};
 
-use crate::ErrorKind;
 use crate::serde::Error;
 use crate::token::Tokens;
 
@@ -20,7 +22,7 @@ const DEFAULT_DEPTH: u8 = 32;
 
 /// A serde Deserializer over [`Tokens`], borrowing definite strings from its input. It applies the
 /// native decoder's type checks (D-12) and nests at most 32 arrays and maps deep, or a limit of
-/// its own, past which a container is [`ErrorKind::LimitExceeded`] (R-303).
+/// its own, past which a container is [`crate::ErrorKind::LimitExceeded`] (R-303).
 ///
 /// ```
 /// use cbor_static::serde::Deserializer;
@@ -77,6 +79,10 @@ pub struct Deserializer<'de> {
     tokens: Tokens<'de>,
     depth: u8,
     skipped_key: bool,
+    strict: Option<&'static strict::StrictOps>,
+    /// Under Strict, the offset past a map's key that sorts before the key ahead of it, refused when
+    /// its value is read, unless it is an unknown field or a duplicate (see [`Self::next_key`]).
+    unordered: Option<usize>,
 }
 
 impl<'de> Deserializer<'de> {
@@ -88,6 +94,41 @@ impl<'de> Deserializer<'de> {
     #[must_use]
     pub const fn new(input: &'de [u8]) -> Self {
         Self::with_depth_limit(input, DEFAULT_DEPTH)
+    }
+
+    /// A deserializer of deterministic input only (RFC 8949 §4.2.1), as
+    /// [`crate::Decoder::new_strict`]: non-preferred heads and floats, bignums that a plain integer
+    /// or fewer digits would hold, indefinite lengths and map keys out of bytewise order are
+    /// [`crate::ErrorKind::NotDeterministic`], and an entry no field claims is
+    /// [`crate::ErrorKind::UnknownField`], as is any item read as serde's `IgnoredAny`. serde's
+    /// buffered forms (untagged, internally tagged, `flatten`) decode their entries with serde's
+    /// own code, so an unclaimed entry inside them passes (D-10c).
+    ///
+    /// ```
+    /// use cbor_static::serde::Deserializer;
+    /// use cbor_static::ErrorKind;
+    ///
+    /// #[derive(serde::Deserialize, Debug, PartialEq)]
+    /// struct Point {
+    ///     x: u8,
+    ///     y: u8,
+    /// }
+    ///
+    /// let strict = |input| Deserializer::new_strict(input).decode::<Point>().map_err(|e| (e.kind, e.offset));
+    /// assert_eq!(strict(b"\xa2\x61x\x01\x61y\x02"), Ok(Point { x: 1, y: 2 }));
+    /// assert_eq!(strict(b"\xa2\x61x\x18\x01\x61y\x02"), Err((ErrorKind::NotDeterministic, 5)));
+    /// assert_eq!(strict(b"\xa2\x61y\x02\x61x\x01"), Err((ErrorKind::NotDeterministic, 6)));
+    /// assert_eq!(
+    ///     strict(b"\xa3\x61x\x01\x61y\x02\x61z\x03"),
+    ///     Err((ErrorKind::UnknownField, 9))
+    /// );
+    /// ```
+    #[must_use]
+    pub const fn new_strict(input: &'de [u8]) -> Self {
+        Self {
+            strict: Some(&strict::STRICT),
+            ..Self::new(input)
+        }
     }
 
     /// A deserializer whose arrays and maps nest at most `limit` deep.
@@ -109,6 +150,8 @@ impl<'de> Deserializer<'de> {
             tokens: Tokens::new(input),
             depth: limit,
             skipped_key: false,
+            strict: None,
+            unordered: None,
         }
     }
 
@@ -126,7 +169,7 @@ impl<'de> Deserializer<'de> {
     /// ```
     ///
     /// # Errors
-    /// [`ErrorKind::TrailingInput`] for bytes after the item, and any error decoding it.
+    /// [`crate::ErrorKind::TrailingInput`] for bytes after the item, and any error decoding it.
     pub fn decode<T: Deserialize<'de>>(self) -> Result<T, crate::Error> {
         self.decoded(true).map(|(value, _)| value)
     }
@@ -166,12 +209,15 @@ impl<'de> Deserializer<'de> {
 
     fn map<V: Visitor<'de>>(&mut self, entries: Entries, visitor: V) -> Result<V::Value, Error> {
         let mut map = Map {
-            remaining: self.open_map()?,
+            keys: Keys {
+                remaining: self.open_map()?,
+                entries,
+                previous: &[],
+            },
             deserializer: self,
-            entries,
         };
         let value = visitor.visit_map(&mut map)?;
-        map.deserializer.leave(map.remaining)?;
+        map.deserializer.leave(map.keys.remaining)?;
         Ok(value)
     }
 }
@@ -179,8 +225,8 @@ impl<'de> Deserializer<'de> {
 impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     type Error = Error;
 
-    fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Error> {
-        Err(Error::new(ErrorKind::Unsupported, self.tokens.offset()))
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        self.any(visitor)
     }
 
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -240,19 +286,19 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     }
 
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_str(self.text()?)
+        visit_text(visitor, self.text()?)
     }
 
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_str(self.text()?)
+        visit_text(visitor, self.text()?)
     }
 
     fn deserialize_bytes<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_bytes(self.bytes()?)
+        visit_bytes(visitor, self.bytes()?)
     }
 
     fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_borrowed_bytes(self.bytes()?)
+        visit_bytes(visitor, self.bytes()?)
     }
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {

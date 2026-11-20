@@ -23,6 +23,7 @@ heapless = { version = "0.9.3", optional = true, default-features = false }
 serde_core = { version = "1.0.229", optional = true, default-features = false }
 
 [dev-dependencies]
+heapless = { version = "0.9.3", default-features = false, features = ["serde"] }
 proc-macro2 = "1"
 proptest = { version = "1", default-features = false, features = ["std"] }
 quote = "1"

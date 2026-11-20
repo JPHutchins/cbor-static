@@ -5,7 +5,7 @@ use serde_core::de::{
 };
 
 use super::Deserializer;
-use super::read::{Entries, Remaining};
+use super::read::{Keys, Remaining};
 use crate::serde::Error;
 
 /// The items of an array.
@@ -17,8 +17,7 @@ pub(super) struct Seq<'a, 'de> {
 /// The entries of a map, or of a struct.
 pub(super) struct Map<'a, 'de> {
     pub(super) deserializer: &'a mut Deserializer<'de>,
-    pub(super) remaining: Remaining,
-    pub(super) entries: Entries,
+    pub(super) keys: Keys<'de>,
 }
 
 /// An externally tagged variant: its bare name, or a map of its name to its payload (D-08).
@@ -49,10 +48,7 @@ impl<'de> MapAccess<'de> for Map<'_, 'de> {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Error> {
-        if !self
-            .deserializer
-            .next_key(&mut self.remaining, self.entries)?
-        {
+        if !self.deserializer.next_key(&mut self.keys)? {
             return Ok(None);
         }
         seed.deserialize(&mut *self.deserializer).map(Some)

@@ -25,6 +25,12 @@ impl<'de> Tokens<'de> {
             .unwrap_or(0)
     }
 
+    pub(crate) fn span(&self, at: usize, end: usize) -> &'de [u8] {
+        self.input
+            .span(at, end.saturating_sub(at))
+            .unwrap_or_default()
+    }
+
     /// The offset just past the payload of the string whose head starts at `at`.
     pub(crate) fn payload_end(&self, at: usize) -> usize {
         use crate::wire::parse;

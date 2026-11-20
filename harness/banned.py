@@ -1,6 +1,8 @@
 """Symbols no cbor-static ELF the harness builds may link: ``core::panicking`` (R-132, D-24) and
 compiler-builtins floating-point routines (R-135, D-22a); nor may the serde layer's link ``core::fmt``
-(D-23).
+(D-23), except its text through serde's ``collect_str``, which formats with ``core::fmt`` by design.
+The serde layer's ``alloc`` firmware may link exactly alloc's error panic, where serde's own ``Vec``
+growth ends (#6 Q20), as the R-009 BTreeMap templates may.
 
 Every ELF read must show engine machinery, so a broken symbol reader cannot pass, and each rule's
 control firmware must link a banned symbol, so a build that hides them cannot pass either.
@@ -27,13 +29,24 @@ from harness.measure import (
 )
 from harness.symbols import FIXTURES, MACHINERY, fixture, matched, names
 from harness.templates import render
-from harness.unused import allocating, control, gate, serde, tokens
+from harness.unused import (
+	SERDE_ALLOCATING,
+	allocating,
+	control,
+	gate,
+	serde,
+	serde_allocating,
+	serde_strict,
+	serde_text,
+	tokens,
+)
 
 if TYPE_CHECKING:
 	from collections.abc import Callable, Mapping
 	from pathlib import Path
 
 SERDE: Final = "serde layer"
+SERDE_TEXT: Final = "serde layer's collect_str text"
 SERDE_MACHINERY: Final = (
 	"<cbor_static::serde::ser::Serializer>::put",
 	"<cbor_static::serde::de::Deserializer>::open_map",
@@ -44,7 +57,8 @@ SOFT_FLOAT: Final = re.compile(r"__aeabi_(?:[fdh]|c[fd]|u?[il]2[fd])\w*|__[a-z]+
 class Rule(NamedTuple):
 	"""A requirement's banned symbols, the report it writes, the control firmwares that must link
 	them, the R-009 feature templates exempt from it, each of which must link alloc's error panic,
-	and the groups of ELFs it reads, every group when empty.
+	the groups of ELFs it reads, every group when empty, and the firmwares that must link exactly
+	the banned symbols named for them.
 	"""
 
 	requirement: str
@@ -55,6 +69,7 @@ class Rule(NamedTuple):
 	targets: tuple[str, ...]
 	exempt: Mapping[str, tuple[str, ...]] = {}
 	within: tuple[str, ...] = ()
+	tolerated: Mapping[str, frozenset[str]] = {}
 
 	@property
 	def excluded(self) -> frozenset[str]:
@@ -107,6 +122,7 @@ RULES: Final = {
 		("panicking", "alloc_panicking"),
 		(GATE_TARGET,),
 		EXEMPT_FROM_PANICS,
+		tolerated={SERDE_ALLOCATING: frozenset({ALLOC_ERROR_PANIC})},
 	),
 	"soft_float": Rule(
 		"R-135",
@@ -140,19 +156,34 @@ def main(rule: Rule) -> int:
 		"token control": (tokens(),),
 		"alloc control": (allocating(),),
 		"R-009 feature cost fixtures (when built)": built(rule.excluded),
-		SERDE: (*swept, *(serde(profile) for profile in PROFILES)),
+		SERDE: (
+			*swept,
+			*(
+				firmware(profile)
+				for firmware in (serde, serde_strict, serde_allocating)
+				for profile in PROFILES
+			),
+		),
+		SERDE_TEXT: tuple(serde_text(profile) for profile in PROFILES),
 	}
 	groups = {name: elfs for name, elfs in groups.items() if not rule.within or name in rule.within}
 	machinery = {
-		elf: SERDE_MACHINERY if name == SERDE else MACHINERY for name, elfs in groups.items() for elf in elfs
+		elf: SERDE_MACHINERY if name in {SERDE, SERDE_TEXT} else MACHINERY
+		for name, elfs in groups.items()
+		for elf in elfs
 	}
 	read = {elf: names(elf) for elfs in groups.values() for elf in elfs}
 	linked = sorted(
 		f"{elf_label(elf)}: {symbol}"
 		for elf, found in read.items()
 		for symbol in found
-		if rule.banned(symbol)
+		if rule.banned(symbol) and symbol not in rule.tolerated.get(elf.name, frozenset())
 	)
+	tolerated = {
+		elf_label(elf): (rule.tolerated[elf.name], sorted(filter(rule.banned, found)))
+		for elf, found in read.items()
+		if elf.name in rule.tolerated
+	}
 	blind = sorted(elf_label(elf) for elf, found in read.items() if not matched(found, machinery[elf]))
 	controls = {
 		f"{target}/{elf_label(elf)}": sorted(filter(rule.banned, names(elf)))
@@ -173,6 +204,7 @@ def main(rule: Rule) -> int:
 		and not blind
 		and all(controls.values())
 		and all(ALLOC_ERROR_PANIC in found for found in exempt.values())
+		and all(required <= set(found) for required, found in tolerated.values())
 	)
 	text = "\n".join(
 		(
@@ -189,6 +221,11 @@ def main(rule: Rule) -> int:
 			*(
 				f"| {rule.what} in the control {name} | {', '.join(found) or 'none ❌'} |"
 				for name, found in controls.items()
+			),
+			*(
+				f"| {rule.what} in {label}, which must link exactly `{'`, `'.join(sorted(required))}` | "
+				f"{', '.join(found) if required <= set(found) else 'missing ❌'} |"
+				for label, (required, found) in tolerated.items()
 			),
 			*(
 				f"| {rule.what} in exempt {name}, which must link `{ALLOC_ERROR_PANIC}`, where "

@@ -34,7 +34,7 @@ pub enum Attr {
     Index,
     CborTag(u64),
     DenyUnknownFields,
-    Bytes,
+    Bytes(Bytes),
     Tag(String),
     Content(String),
     Untagged,
@@ -44,6 +44,15 @@ pub enum Attr {
     MaxEncodedLen,
     /// `with = module`: the module's `encode` and `decode` write and read the field (#5 Q19).
     With(Path),
+}
+
+/// Which attribute asks for a field's byte-string encoding; `#[cbor(bytes)]` overrides (D-08).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bytes {
+    /// `#[cbor(bytes)]`.
+    Cbor,
+    /// `#[serde(with = "serde_bytes")]`, which a `&[u8]` needs only through serde (D-08a).
+    SerdeBytes,
 }
 
 pub enum KeyLit {
@@ -85,7 +94,7 @@ pub struct FieldAttrs {
     pub skip_if_none: bool,
     pub role: Role,
     pub key: Option<KeyLit>,
-    pub bytes: bool,
+    pub bytes: Option<Bytes>,
     /// The lifetimes `borrow` names; empty for every one the field's type has.
     pub borrow: Option<Vec<String>>,
     pub max_len: Option<Expr>,
@@ -218,8 +227,11 @@ impl FieldAttrs {
                 key: Some(key),
                 ..self
             }),
-            Attr::Bytes => Ok(Self {
-                bytes: true,
+            Attr::Bytes(bytes) => Ok(Self {
+                bytes: Some(match self.bytes {
+                    Some(Bytes::Cbor) => Bytes::Cbor,
+                    Some(Bytes::SerdeBytes) | None => bytes,
+                }),
                 ..self
             }),
             Attr::Flatten => Ok(Self {
@@ -326,7 +338,7 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("key", true) => Attr::Key(key(&meta.value()?.parse::<Expr>()?)?),
                     ("keys", true) => Attr::Keys(meta.value()?.parse::<Path>()?),
                     ("array", true) => Attr::Array,
-                    ("bytes", true) => Attr::Bytes,
+                    ("bytes", true) => Attr::Bytes(Bytes::Cbor),
                     ("index", true) => Attr::Index,
                     ("offset_of_enum", true) => Attr::OffsetOfEnum,
                     ("other", true) => Attr::Other,
@@ -335,6 +347,14 @@ pub fn parse(attrs: &[Attribute]) -> syn::Result<Vec<Spanned<Attr>>> {
                     ("max_len", true) => Attr::MaxLen(meta.value()?.parse::<Expr>()?),
                     ("max_encoded_len", true) => Attr::MaxEncodedLen,
                     ("with", true) => Attr::With(meta.value()?.parse::<Path>()?),
+                    ("with", false) => {
+                        if meta.value()?.parse::<LitStr>()?.value() != "serde_bytes" {
+                            return Err(meta.error(
+                                "cbor-static: under `#[serde]`, only `with = \"serde_bytes\"`",
+                            ));
+                        }
+                        Attr::Bytes(Bytes::SerdeBytes)
+                    }
                     ("cbor_tag", true) => {
                         Attr::CborTag(meta.value()?.parse::<LitInt>()?.base10_parse()?)
                     }
@@ -405,4 +425,27 @@ fn misplaced(span: Span, position: &str) -> syn::Error {
         span,
         format!("cbor-static: this attribute does not apply to {position}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use syn::{Attribute, parse_quote};
+
+    use super::{Bytes, FieldAttrs, parse};
+
+    #[test]
+    fn cbor_bytes_overrides_serde_bytes_in_either_order() {
+        let cbor: Attribute = parse_quote!(#[cbor(bytes)]);
+        let serde: Attribute = parse_quote!(#[serde(with = "serde_bytes")]);
+        for attrs in [[cbor.clone(), serde.clone()], [serde, cbor]] {
+            let bytes = parse(&attrs)
+                .and_then(|parsed| {
+                    parsed
+                        .into_iter()
+                        .try_fold(FieldAttrs::default(), FieldAttrs::with)
+                })
+                .map(|field| field.bytes);
+            assert_eq!(bytes.ok(), Some(Some(Bytes::Cbor)));
+        }
+    }
 }

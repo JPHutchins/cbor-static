@@ -49,7 +49,7 @@ pub static STRICT: StrictOps = StrictOps {
     keys,
 };
 
-fn head(bytes: &[u8]) -> Result<Header, ErrorKind> {
+pub(crate) fn head(bytes: &[u8]) -> Result<Header, ErrorKind> {
     use crate::wire::{Head, INDEFINITE, Major, float, parse};
 
     let header = parse(bytes)?;
@@ -70,7 +70,7 @@ fn order(layout: &Layout, frame: &Frame, field: u8) -> Result<(), ErrorKind> {
 }
 
 /// More digits than a `u64` holds, the first of them not zero.
-fn bignum(magnitude: u128, digits: usize) -> Result<(), ErrorKind> {
+pub(crate) fn bignum(magnitude: u128, digits: usize) -> Result<(), ErrorKind> {
     deterministic(
         digits > size_of::<u64>()
             && u32::try_from(digits)
@@ -94,7 +94,7 @@ fn sorted(bytes: &[u8], count: u64) -> Result<(), ErrorKind> {
         .map(|_| ())
 }
 
-fn raw(item: &[u8]) -> Result<(), ErrorKind> {
+pub(crate) fn raw(item: &[u8]) -> Result<(), ErrorKind> {
     use crate::wire::{Major, header_len};
 
     let mut at = 0;

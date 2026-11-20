@@ -160,9 +160,19 @@ fn malformed_input_fails_where_native_reports_it() {
 }
 
 #[test]
-fn indefinite_strings_are_refused_until_assembly() {
-    serde_refused::<&str>(b"\x7f\x61a\xff", ErrorKind::IndefiniteString, 1);
-    serde_refused::<&[u8]>(b"\x5f\x41\x01\xff", ErrorKind::IndefiniteString, 1);
+fn a_borrowed_string_refuses_chunks() {
+    let native = |bytes| cbor_static::from_slice::<&str>(bytes).map_err(|e| (e.kind, e.offset));
+    assert_eq!(
+        native(b"\x7f\x61a\xff"),
+        Err((ErrorKind::IndefiniteString, 1))
+    );
+    if cfg!(feature = "alloc") {
+        serde_refused::<&str>(b"\x7f\x61a\xff", ErrorKind::TypeMismatch, 4);
+        serde_refused::<&[u8]>(b"\x5f\x41\x01\xff", ErrorKind::TypeMismatch, 4);
+    } else {
+        serde_refused::<&str>(b"\x7f\x61a\xff", ErrorKind::IndefiniteString, 1);
+        serde_refused::<&[u8]>(b"\x5f\x41\x01\xff", ErrorKind::IndefiniteString, 1);
+    }
 }
 
 #[test]
@@ -333,22 +343,6 @@ fn maps_and_variants_count_toward_depth() {
             .map(|e| (e.kind, e.offset)),
         Some((ErrorKind::LimitExceeded, 0))
     );
-}
-
-#[derive(Debug)]
-struct Anything;
-
-impl<'de> Deserialize<'de> for Anything {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer
-            .deserialize_any(serde::de::IgnoredAny)
-            .map(|_| Self)
-    }
-}
-
-#[test]
-fn any_waits_for_its_slice() {
-    serde_refused::<Anything>(b"\x01", ErrorKind::Unsupported, 0);
 }
 
 /// A struct whose hand-written visitor reads its keys as strings, not as identifiers.

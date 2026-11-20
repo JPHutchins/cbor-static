@@ -4,44 +4,50 @@ error: cbor-static: `alias` is an unsupported attribute
 3 |     #[serde(alias = "identifier")]
   |             ^^^^^
 
-error: cbor-static: `with` is an unsupported attribute
+error: cbor-static: under `#[serde]`, only `with = "serde_bytes"`
  --> tests/ui/serde_unsupported.rs:9:13
   |
 9 |     #[serde(with = "module")]
-  |             ^^^^
+  |             ^^^^^^^^^^^^^^^
 
-error: cbor-static: `serialize_with` is an unsupported attribute
+error: cbor-static: under `#[serde]`, only `with = "serde_bytes"`
   --> tests/ui/serde_unsupported.rs:15:13
    |
-15 |     #[serde(serialize_with = "module::serialize")]
+15 |     #[serde(with = "serde_bytes::ByteBuf")]
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: cbor-static: `serialize_with` is an unsupported attribute
+  --> tests/ui/serde_unsupported.rs:21:13
+   |
+21 |     #[serde(serialize_with = "module::serialize")]
    |             ^^^^^^^^^^^^^^
 
 error: cbor-static: `from` is an unsupported attribute
-  --> tests/ui/serde_unsupported.rs:20:9
+  --> tests/ui/serde_unsupported.rs:26:9
    |
-20 | #[serde(from = "u32")]
+26 | #[serde(from = "u32")]
    |         ^^^^
 
 error: cbor-static: `into` is an unsupported attribute
-  --> tests/ui/serde_unsupported.rs:26:9
+  --> tests/ui/serde_unsupported.rs:32:9
    |
-26 | #[serde(into = "u32")]
+32 | #[serde(into = "u32")]
    |         ^^^^
 
 error: cbor-static: `try_from` is an unsupported attribute
-  --> tests/ui/serde_unsupported.rs:32:9
+  --> tests/ui/serde_unsupported.rs:38:9
    |
-32 | #[serde(try_from = "u32")]
+38 | #[serde(try_from = "u32")]
    |         ^^^^^^^^
 
 error: cbor-static: `bound` is an unsupported attribute
-  --> tests/ui/serde_unsupported.rs:38:9
+  --> tests/ui/serde_unsupported.rs:44:9
    |
-38 | #[serde(bound = "")]
+44 | #[serde(bound = "")]
    |         ^^^^^
 
 error: cbor-static: `other` is an unsupported attribute
-  --> tests/ui/serde_unsupported.rs:46:13
+  --> tests/ui/serde_unsupported.rs:52:13
    |
-46 |     #[serde(other)]
+52 |     #[serde(other)]
    |             ^^^^^

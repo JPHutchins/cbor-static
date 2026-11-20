@@ -156,6 +156,34 @@
 //! # Ok::<(), cbor_static::Error>(())
 //! ```
 //!
+//! # `with = "serde_bytes"`
+//!
+//! It reads as `#[cbor(bytes)]`, so one type can derive both layers with a byte field. A `&[u8]` is
+//! a byte string natively already. Any other `with` under `#[serde]` is a compile error.
+//!
+//! ```
+//! #[derive(cbor_static::Encode)]
+//! struct Frame<'a> {
+//!     #[serde(with = "serde_bytes")]
+//!     id: [u8; 2],
+//!     #[serde(with = "serde_bytes")]
+//!     payload: &'a [u8],
+//! }
+//!
+//! let mut buf = [0; 24];
+//! let len = cbor_static::to_slice(&Frame { id: [1, 2], payload: b"ab" }, &mut buf)?;
+//! assert_eq!(&buf[..len], b"\xa2\x62id\x42\x01\x02\x67payload\x42ab");
+//! # Ok::<(), cbor_static::Error>(())
+//! ```
+//!
+//! ```compile_fail
+//! #[derive(cbor_static::Encode)]
+//! struct Frame {
+//!     #[serde(with = "hex")]
+//!     id: [u8; 2],
+//! }
+//! ```
+//!
 //! # `flatten`
 //!
 //! A field whose type is a derived map-form struct brings that struct's entries into its own

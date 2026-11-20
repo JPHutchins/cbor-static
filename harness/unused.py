@@ -6,7 +6,7 @@ import sys
 from functools import partial
 from typing import TYPE_CHECKING, Final, NamedTuple
 
-from harness.backends.backend import ROOT, path_dependency
+from harness.backends.backend import ROOT, path_dependency, serde_bytes_dependency, serde_dependency
 from harness.backends.cbor_static import VARIANTS
 from harness.backends.cbor_static_serde import CBOR_STATIC_SERDE
 from harness.features import ALLOC, FEATURES, fixture
@@ -32,6 +32,9 @@ CONTROL: Final = "r009-positive-control"
 TOKENS: Final = "tokens-control"
 ALLOCATING: Final = "allocating-control"
 SERDE: Final = "serde-control"
+SERDE_TEXT: Final = "serde-text-control"
+SERDE_STRICT: Final = "serde-strict-control"
+SERDE_ALLOCATING: Final = "serde-allocating-control"
 
 
 class Anchored(NamedTuple):
@@ -182,20 +185,53 @@ def tokens() -> Path:
 
 def serde(profile: str = "release") -> Path:
 	"""A firmware that decodes and encodes every shape of serde's data model through cbor-static."""
+	return serde_firmware(SERDE, "serde.rs", CBOR_STATIC_SERDE.dependencies(), profile)
+
+
+def serde_text(profile: str = "release") -> Path:
+	"""A firmware that writes text through serde's `collect_str`, which formats with `core::fmt`."""
+	return serde_firmware(SERDE_TEXT, "serde_text.rs", CBOR_STATIC_SERDE.dependencies(), profile)
+
+
+def serde_strict(profile: str = "release") -> Path:
+	"""A firmware that decodes through `Deserializer::new_strict`."""
+	return serde_firmware(SERDE_STRICT, "serde_strict.rs", CBOR_STATIC_SERDE.dependencies(), profile)
+
+
+def serde_allocating(profile: str = "release") -> Path:
+	"""A firmware that decodes owned strings, buffered forms and `flatten` with `alloc`, and encodes
+	them back with `to_vec`, as the native `allocating` firmware does (#5 Q9).
+	"""
+	return serde_firmware(
+		SERDE_ALLOCATING,
+		"serde_allocating.rs",
+		"\n".join(
+			(
+				path_dependency("cbor-static", ROOT / "cbor-static", ("serde", ALLOC)),
+				serde_dependency(ALLOC),
+				serde_bytes_dependency(ALLOC),
+			)
+		),
+		profile,
+	)
+
+
+def serde_firmware(name: str, template: str, dependencies: str, profile: str) -> Path:
+	"""The firmware `template` builds over cbor-static's serde layer, as the crate `name`."""
 	build(
 		write_crate(
-			CRATES / SERDE,
+			CRATES / name,
 			{
-				"Cargo.toml": render("Cargo.toml", name=SERDE, dependencies=CBOR_STATIC_SERDE.dependencies()),
-				"src/main.rs": render("serde.rs"),
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=dependencies),
+				"src/main.rs": render(template, allocator=render("allocator.rs")),
 			},
 		),
 		GATE_TARGET,
 		profile,
 		(),
-		HARNESS / SERDE,
+		HARNESS / name,
 	)
-	return elf_path(HARNESS / SERDE, GATE_TARGET, profile, SERDE)
+	return elf_path(HARNESS / name, GATE_TARGET, profile, name)
 
 
 def allocating() -> Path:
@@ -253,6 +289,7 @@ ANCHORED: Final = (
 						"boolean",
 						"bytes",
 						"character",
+						"chunk",
 						"digits",
 						"double",
 						"identifier",
@@ -261,11 +298,13 @@ ANCHORED: Final = (
 						"leave_variant",
 						"left",
 						"more",
+						"next_any",
 						"next_key",
 						"null",
 						"open_array",
 						"open_map",
 						"open_variant",
+						"ordered",
 						"past_head",
 						"refused",
 						"rest",
@@ -283,9 +322,26 @@ ANCHORED: Final = (
 				),
 				*(
 					f"<cbor_static::serde::ser::Serializer>::{name}"
-					for name in ("bignum", "compound", "head", "put", "signed", "text", "variant")
+					for name in (
+						"bignum",
+						"close",
+						"close_declared",
+						"compound",
+						"counted",
+						"head",
+						"named",
+						"open",
+						"patch",
+						"put",
+						"signed",
+						"text",
+						"variant",
+					)
 				),
 				"<cbor_static::serde::error::Error>::reported",
+				"<cbor_static::serde::ser::compound::Compound>::close",
+				"<cbor_static::serde::ser::compound::Compound>::close_declared",
+				"<cbor_static::serde::de::read::strings::Digits>::step",
 				*(f"<cbor_static::token::Tokens>::{name}" for name in ("head_end", "initial", "skip_item")),
 			}
 		),
@@ -293,6 +349,40 @@ ANCHORED: Final = (
 		serde,
 		" or in the token-only firmware",
 		(tokens,),
+	),
+	Anchored(
+		"serde text of unknown length",
+		frozenset(
+			{
+				"<cbor_static::serde::ser::Serializer>::formatted",
+				"<cbor_static::serde::ser::backpatch::Text as core::fmt::Write>::write_str",
+			}
+		),
+		"a firmware that writes a number as text through `collect_str`",
+		serde_text,
+		" or in the token-only or serde firmware",
+		(tokens, serde),
+	),
+	Anchored(
+		"serde string assembly",
+		frozenset({"<cbor_static::serde::de::Deserializer>::assembled"}),
+		"a firmware that decodes owned strings and buffered forms with `alloc`",
+		serde_allocating,
+		" or in the token-only or serde firmware",
+		(tokens, serde),
+	),
+	Anchored(
+		"serde Strict checks",
+		frozenset(
+			{
+				"cbor_static::serde::de::strict::STRICT",
+				"cbor_static::serde::de::strict::order",
+			}
+		),
+		"a firmware that decodes through `Deserializer::new_strict`",
+		serde_strict,
+		" or in the token-only or serde firmware",
+		(tokens, serde),
 	),
 	Anchored(
 		"`with` window functions",

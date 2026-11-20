@@ -11,6 +11,12 @@ struct With {
 }
 
 #[derive(cbor_static::Cbor)]
+struct WithinSerdeBytes {
+    #[serde(with = "serde_bytes::ByteBuf")]
+    id: u32,
+}
+
+#[derive(cbor_static::Cbor)]
 struct Serialize {
     #[serde(serialize_with = "module::serialize")]
     id: u32,
