@@ -7,17 +7,41 @@ use crate::token::Token;
 
 impl<'de> Deserializer<'de> {
     /// The next token, and the offset of its head. A struct's key that is not text, which
-    /// [`Self::next_key`] skipped, can be read only as an identifier or ignored.
+    /// [`Self::next_key`] skipped, can be read only as an identifier or ignored. Under Strict, its
+    /// head must be deterministic, and a key out of order is refused before its value.
     pub(super) fn token(&mut self) -> Result<(Token<'de>, usize), Error> {
+        self.ordered()?;
         let at = self.tokens.offset();
         if core::mem::take(&mut self.skipped_key) {
             return Err(Error::new(ErrorKind::TypeMismatch, at));
         }
         let end = at + self.tokens.rest().len();
         match self.tokens.next() {
-            Some(Ok(token)) => Ok((token, at)),
+            Some(Ok(token)) => self.deterministic(at).map(|()| (token, at)),
             Some(Err(error)) => Err(self.as_native(error.kind, at, end)),
             None => Err(Error::new(ErrorKind::UnexpectedEnd, at)),
+        }
+    }
+
+    /// Under Strict, refuses the map key [`Self::next_key`] found out of order, once reading has
+    /// passed it, at the offset just past it.
+    pub(super) fn ordered(&mut self) -> Result<(), Error> {
+        match self.unordered {
+            Some(past_key) if self.tokens.offset() >= past_key => {
+                self.unordered = None;
+                Err(Error::new(ErrorKind::NotDeterministic, past_key))
+            }
+            Some(_) | None => Ok(()),
+        }
+    }
+
+    /// Under Strict, refuses the head just read at `at` past it unless it is deterministic.
+    fn deterministic(&self, at: usize) -> Result<(), Error> {
+        match self.strict {
+            Some(strict) => (strict.head)(self.tokens.span(at, self.tokens.head_end(at)))
+                .map(|_| ())
+                .map_err(|kind| self.past_head(kind, at)),
+            None => Ok(()),
         }
     }
 
@@ -64,6 +88,9 @@ impl<'de> Deserializer<'de> {
     /// The input after an item decoded, which must be empty when the item was to span it `whole`.
     #[inline(never)]
     pub(in crate::serde::de) fn rest(&self, whole: bool) -> Result<&'de [u8], crate::Error> {
+        if let Some(past_key) = self.unordered {
+            return Err(Error::new(ErrorKind::NotDeterministic, past_key).into());
+        }
         match self.tokens.rest() {
             [_, ..] if whole => {
                 Err(Error::new(ErrorKind::TrailingInput, self.tokens.offset()).into())

@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! The reads of arrays, maps and variants.
 
-use super::{BREAK, Entries, Remaining};
+use super::{Entries, Keys, Remaining};
 use crate::ErrorKind;
 use crate::serde::{Deserializer, Error};
 use crate::token::Token;
@@ -23,20 +23,31 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    /// Whether another entry follows. Before a struct's key, one that is not text is skipped, so
-    /// [`Self::identifier`] names no field in its place (D-12).
+    /// Whether another entry of the map `keys` reads follows. Before a struct's key, one that is not
+    /// text is skipped, so [`Self::identifier`] names no field in its place (D-12). Under Strict, a
+    /// key that does not sort after the key before it is refused once its value is read: an
+    /// unknown field or a duplicate is refused as such first, as the native Strict decoder
+    /// refuses them. A key not text is checked whole before it is skipped, and refused past its
+    /// first head.
     #[inline(never)]
-    pub(in crate::serde::de) fn next_key(
-        &mut self,
-        remaining: &mut Remaining,
-        entries: Entries,
-    ) -> Result<bool, Error> {
-        if !self.more(remaining)? {
+    pub(in crate::serde::de) fn next_key(&mut self, keys: &mut Keys<'de>) -> Result<bool, Error> {
+        if !self.more(&mut keys.remaining)? {
             return Ok(false);
         }
-        match (entries, self.tokens.initial().map(Major::of)) {
+        let at = self.tokens.offset();
+        if let Some(strict) = self.strict {
+            let key = (strict.order)(keys.previous, self.tokens.rest());
+            self.unordered = self
+                .unordered
+                .or((!key.rises).then_some(at + key.encoding.len()));
+            keys.previous = key.encoding;
+        }
+        match (keys.entries, self.tokens.initial().map(Major::of)) {
             (Entries::Map, _) | (Entries::Struct, Some(Major::Text) | None) => {}
             (Entries::Struct, Some(_)) => {
+                if let Some(strict) = self.strict {
+                    (strict.raw)(keys.previous).map_err(|kind| self.past_head(kind, at))?;
+                }
                 self.tokens.skip_item()?;
                 self.skipped_key = true;
             }
@@ -113,6 +124,8 @@ impl<'de> Deserializer<'de> {
     /// Whether another item or entry follows in a container entered with `remaining`.
     #[inline(never)]
     pub(in crate::serde::de) fn more(&mut self, remaining: &mut Remaining) -> Result<bool, Error> {
+        use super::BREAK;
+
         match *remaining {
             Remaining::Count(0) => Ok(false),
             Remaining::Count(left) => {
@@ -149,6 +162,7 @@ impl<'de> Deserializer<'de> {
         mut remaining: Remaining,
         leftover: fn(&Self, usize) -> Error,
     ) -> Result<(), Error> {
+        self.ordered()?;
         let at = self.tokens.offset();
         if self.more(&mut remaining)? {
             Err(leftover(self, at))

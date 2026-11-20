@@ -17,7 +17,7 @@ mod pending;
 mod raw;
 mod skip;
 mod storage;
-mod strict;
+pub(crate) mod strict;
 mod strings;
 mod text;
 
@@ -100,7 +100,7 @@ pub use raw::{
     ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped, WithDecode, WithDecoding,
 };
 pub(crate) use skip::Skip;
-#[cfg(test)]
+#[cfg(any(test, feature = "serde"))]
 pub(crate) use skip::item_len;
 pub use storage::{as_slice, filled, gathered, get, set};
 use strict::STRICT;

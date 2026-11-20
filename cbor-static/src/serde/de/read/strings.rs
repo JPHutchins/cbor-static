@@ -15,11 +15,13 @@ pub(super) struct Utf8 {
     len: usize,
 }
 
-/// A bignum's magnitude as its digits arrive, and how many of them are past its leading zeros.
+/// A bignum's magnitude as its digits arrive, how many of them are past its leading zeros, and how
+/// many there are in all.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Digits {
     magnitude: u128,
     significant: usize,
+    len: usize,
 }
 
 impl<'de> Deserializer<'de> {
@@ -120,22 +122,34 @@ impl Utf8 {
 impl Digits {
     /// Takes the next piece of a bignum's digits, of which at most 16 follow its leading zeros.
     pub(super) fn step(self, piece: &[u8]) -> Result<Self, ErrorKind> {
-        piece.iter().try_fold(self, |digits, &digit| match digits {
-            Self { significant: 0, .. } if digit == 0 => Ok(digits),
-            Self {
-                significant: 16.., ..
-            } => Err(ErrorKind::OutOfRange),
-            Self {
-                magnitude,
-                significant,
-            } => Ok(Self {
-                magnitude: magnitude << 8 | u128::from(digit),
-                significant: significant + 1,
-            }),
-        })
+        piece
+            .iter()
+            .try_fold(self, |digits, &digit| match digits {
+                Self { significant: 0, .. } if digit == 0 => Ok(digits),
+                Self {
+                    significant: 16.., ..
+                } => Err(ErrorKind::OutOfRange),
+                Self {
+                    magnitude,
+                    significant,
+                    ..
+                } => Ok(Self {
+                    magnitude: magnitude << 8 | u128::from(digit),
+                    significant: significant + 1,
+                    ..digits
+                }),
+            })
+            .map(|digits| Self {
+                len: digits.len + piece.len(),
+                ..digits
+            })
     }
 
     pub(super) const fn magnitude(self) -> u128 {
         self.magnitude
+    }
+
+    pub(super) const fn len(self) -> usize {
+        self.len
     }
 }

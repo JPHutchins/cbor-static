@@ -33,6 +33,7 @@ TOKENS: Final = "tokens-control"
 ALLOCATING: Final = "allocating-control"
 SERDE: Final = "serde-control"
 SERDE_TEXT: Final = "serde-text-control"
+SERDE_STRICT: Final = "serde-strict-control"
 
 
 class Anchored(NamedTuple):
@@ -183,40 +184,35 @@ def tokens() -> Path:
 
 def serde(profile: str = "release") -> Path:
 	"""A firmware that decodes and encodes every shape of serde's data model through cbor-static."""
-	build(
-		write_crate(
-			CRATES / SERDE,
-			{
-				"Cargo.toml": render("Cargo.toml", name=SERDE, dependencies=CBOR_STATIC_SERDE.dependencies()),
-				"src/main.rs": render("serde.rs"),
-			},
-		),
-		GATE_TARGET,
-		profile,
-		(),
-		HARNESS / SERDE,
-	)
-	return elf_path(HARNESS / SERDE, GATE_TARGET, profile, SERDE)
+	return serde_firmware(SERDE, "serde.rs", profile)
 
 
 def serde_text(profile: str = "release") -> Path:
 	"""A firmware that writes text through serde's `collect_str`, which formats with `core::fmt`."""
+	return serde_firmware(SERDE_TEXT, "serde_text.rs", profile)
+
+
+def serde_strict(profile: str = "release") -> Path:
+	"""A firmware that decodes through `Deserializer::new_strict`."""
+	return serde_firmware(SERDE_STRICT, "serde_strict.rs", profile)
+
+
+def serde_firmware(name: str, template: str, profile: str) -> Path:
+	"""The firmware `template` builds over cbor-static's serde layer, as the crate `name`."""
 	build(
 		write_crate(
-			CRATES / SERDE_TEXT,
+			CRATES / name,
 			{
-				"Cargo.toml": render(
-					"Cargo.toml", name=SERDE_TEXT, dependencies=CBOR_STATIC_SERDE.dependencies()
-				),
-				"src/main.rs": render("serde_text.rs"),
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC_SERDE.dependencies()),
+				"src/main.rs": render(template),
 			},
 		),
 		GATE_TARGET,
 		profile,
 		(),
-		HARNESS / SERDE_TEXT,
+		HARNESS / name,
 	)
-	return elf_path(HARNESS / SERDE_TEXT, GATE_TARGET, profile, SERDE_TEXT)
+	return elf_path(HARNESS / name, GATE_TARGET, profile, name)
 
 
 def allocating() -> Path:
@@ -289,6 +285,7 @@ ANCHORED: Final = (
 						"open_array",
 						"open_map",
 						"open_variant",
+						"ordered",
 						"past_head",
 						"refused",
 						"rest",
@@ -344,6 +341,19 @@ ANCHORED: Final = (
 		),
 		"a firmware that writes a number as text through `collect_str`",
 		serde_text,
+		" or in the token-only or serde firmware",
+		(tokens, serde),
+	),
+	Anchored(
+		"serde Strict checks",
+		frozenset(
+			{
+				"cbor_static::serde::de::strict::STRICT",
+				"cbor_static::serde::de::strict::order",
+			}
+		),
+		"a firmware that decodes through `Deserializer::new_strict`",
+		serde_strict,
 		" or in the token-only or serde firmware",
 		(tokens, serde),
 	),

@@ -26,9 +26,13 @@ impl<'de> Deserializer<'de> {
     }
 
     /// Moves past the next item, or past nothing when it is a struct's key that is not text,
-    /// which [`Self::next_key`] skipped already.
+    /// which [`Self::next_key`] skipped already. Under Strict, an item no one reads is an entry no
+    /// field claims.
     #[inline(never)]
     pub(in crate::serde::de) fn ignored(&mut self) -> Result<(), Error> {
+        if self.strict.is_some() {
+            return Err(Error::new(ErrorKind::UnknownField, self.tokens.offset()));
+        }
         if core::mem::take(&mut self.skipped_key) {
             return Ok(());
         }
@@ -88,13 +92,19 @@ impl<'de> Deserializer<'de> {
     }
 
     /// A bignum's magnitude: a byte string, whole or in chunks, of at most 16 digits past its
-    /// leading zeros.
+    /// leading zeros; under Strict, of only the digits it needs, and more than a `u64` holds.
     pub(super) fn digits(&mut self) -> Result<u128, Error> {
-        match self.token().map_err(|error| self.copied(error))? {
-            (head @ (Token::Bytes(_) | Token::BytesIndefinite), _) => self
-                .fold_string(head, Digits::default(), Digits::step)
-                .map(Digits::magnitude),
-            (_, at) => Err(self.refused(at)),
+        let digits = match self.token().map_err(|error| self.copied(error))? {
+            (head @ (Token::Bytes(_) | Token::BytesIndefinite), _) => {
+                self.fold_string(head, Digits::default(), Digits::step)?
+            }
+            (_, at) => return Err(self.refused(at)),
+        };
+        match self.strict {
+            Some(strict) => (strict.bignum)(digits.magnitude(), digits.len())
+                .map(|()| digits.magnitude())
+                .map_err(|kind| self.here(kind)),
+            None => Ok(digits.magnitude()),
         }
     }
 

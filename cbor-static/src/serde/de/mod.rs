@@ -3,12 +3,13 @@
 mod access;
 mod any;
 mod read;
+mod strict;
 
 use serde_core::de::{self, Deserialize, Visitor};
 
 use access::{Map, Seq, Variant};
 use any::{visit_bytes, visit_text};
-use read::Entries;
+use read::{Entries, Keys};
 
 use crate::serde::Error;
 use crate::token::Tokens;
@@ -78,6 +79,10 @@ pub struct Deserializer<'de> {
     tokens: Tokens<'de>,
     depth: u8,
     skipped_key: bool,
+    strict: Option<&'static strict::StrictOps>,
+    /// Under Strict, the offset past a map's key that sorts before the key ahead of it, refused when
+    /// its value is read, unless it is an unknown field or a duplicate (see [`Self::next_key`]).
+    unordered: Option<usize>,
 }
 
 impl<'de> Deserializer<'de> {
@@ -89,6 +94,41 @@ impl<'de> Deserializer<'de> {
     #[must_use]
     pub const fn new(input: &'de [u8]) -> Self {
         Self::with_depth_limit(input, DEFAULT_DEPTH)
+    }
+
+    /// A deserializer of deterministic input only (RFC 8949 §4.2.1), as
+    /// [`crate::Decoder::new_strict`]: non-preferred heads and floats, bignums that a plain integer
+    /// or fewer digits would hold, indefinite lengths and map keys out of bytewise order are
+    /// [`crate::ErrorKind::NotDeterministic`], and an entry no field claims is
+    /// [`crate::ErrorKind::UnknownField`], as is any item read as serde's `IgnoredAny`. serde's
+    /// buffered forms (untagged, internally tagged, `flatten`) decode their entries with serde's
+    /// own code, so an unclaimed entry inside them passes (D-10c).
+    ///
+    /// ```
+    /// use cbor_static::serde::Deserializer;
+    /// use cbor_static::ErrorKind;
+    ///
+    /// #[derive(serde::Deserialize, Debug, PartialEq)]
+    /// struct Point {
+    ///     x: u8,
+    ///     y: u8,
+    /// }
+    ///
+    /// let strict = |input| Deserializer::new_strict(input).decode::<Point>().map_err(|e| (e.kind, e.offset));
+    /// assert_eq!(strict(b"\xa2\x61x\x01\x61y\x02"), Ok(Point { x: 1, y: 2 }));
+    /// assert_eq!(strict(b"\xa2\x61x\x18\x01\x61y\x02"), Err((ErrorKind::NotDeterministic, 5)));
+    /// assert_eq!(strict(b"\xa2\x61y\x02\x61x\x01"), Err((ErrorKind::NotDeterministic, 6)));
+    /// assert_eq!(
+    ///     strict(b"\xa3\x61x\x01\x61y\x02\x61z\x03"),
+    ///     Err((ErrorKind::UnknownField, 9))
+    /// );
+    /// ```
+    #[must_use]
+    pub const fn new_strict(input: &'de [u8]) -> Self {
+        Self {
+            strict: Some(&strict::STRICT),
+            ..Self::new(input)
+        }
     }
 
     /// A deserializer whose arrays and maps nest at most `limit` deep.
@@ -110,6 +150,8 @@ impl<'de> Deserializer<'de> {
             tokens: Tokens::new(input),
             depth: limit,
             skipped_key: false,
+            strict: None,
+            unordered: None,
         }
     }
 
@@ -167,12 +209,15 @@ impl<'de> Deserializer<'de> {
 
     fn map<V: Visitor<'de>>(&mut self, entries: Entries, visitor: V) -> Result<V::Value, Error> {
         let mut map = Map {
-            remaining: self.open_map()?,
+            keys: Keys {
+                remaining: self.open_map()?,
+                entries,
+                previous: &[],
+            },
             deserializer: self,
-            entries,
         };
         let value = visitor.visit_map(&mut map)?;
-        map.deserializer.leave(map.remaining)?;
+        map.deserializer.leave(map.keys.remaining)?;
         Ok(value)
     }
 }

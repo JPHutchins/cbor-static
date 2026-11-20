@@ -27,7 +27,7 @@ from harness.measure import (
 )
 from harness.symbols import FIXTURES, MACHINERY, fixture, matched, names
 from harness.templates import render
-from harness.unused import allocating, control, gate, serde, serde_text, tokens
+from harness.unused import allocating, control, gate, serde, serde_strict, serde_text, tokens
 
 if TYPE_CHECKING:
 	from collections.abc import Callable, Mapping
@@ -141,7 +141,7 @@ def main(rule: Rule) -> int:
 		"token control": (tokens(),),
 		"alloc control": (allocating(),),
 		"R-009 feature cost fixtures (when built)": built(rule.excluded),
-		SERDE: (*swept, *(serde(profile) for profile in PROFILES)),
+		SERDE: (*swept, *(firmware(profile) for firmware in (serde, serde_strict) for profile in PROFILES)),
 		SERDE_TEXT: tuple(serde_text(profile) for profile in PROFILES),
 	}
 	groups = {name: elfs for name, elfs in groups.items() if not rule.within or name in rule.within}

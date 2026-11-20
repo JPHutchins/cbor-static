@@ -19,6 +19,15 @@ pub(super) enum Entries {
     Struct,
 }
 
+/// A map as its keys are read: what remains of it, whose entries it holds, and the encoding of the
+/// key before, which under Strict the next must sort after.
+#[derive(Debug)]
+pub(super) struct Keys<'de> {
+    pub(super) remaining: Remaining,
+    pub(super) entries: Entries,
+    pub(super) previous: &'de [u8],
+}
+
 /// What remains of an array or map: a count of items or entries, or items until a break.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Remaining {
