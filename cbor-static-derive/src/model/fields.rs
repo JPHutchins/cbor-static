@@ -4,7 +4,7 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned as _;
 use syn::{Attribute, Fields, FieldsUnnamed, Ident, Index, Member, Path, Type};
 
-use super::attrs::{self, Attr, FieldAttrs, KeyLit, Role, VariantAttrs};
+use super::attrs::{self, Attr, Bytes, FieldAttrs, KeyLit, Role, VariantAttrs};
 use super::case::Case;
 use super::distinct;
 use super::{Fallback, Field, Key, MAX_FIELDS, Payload, StructForm, Unknown, Variant};
@@ -118,9 +118,13 @@ pub fn fields_of<'a>(
                 with_module: coded_with(
                     field,
                     attrs.with_module,
-                    [attrs.bytes, attrs.max_len.is_some(), attrs.skip_if_none],
+                    [
+                        attrs.bytes.is_some(),
+                        attrs.max_len.is_some(),
+                        attrs.skip_if_none,
+                    ],
                 )?,
-                bytes: attrs.bytes,
+                bytes: as_byte_string(attrs.bytes, &field.ty),
                 max_len: attrs.max_len,
             })
         })
@@ -176,7 +180,7 @@ fn skip(field: &syn::Field, ident: Ident, attrs: FieldAttrs) -> syn::Result<Fiel
             rename: None,
             key: None,
             skip_if_none: false,
-            bytes: false,
+            bytes: None,
             borrow: None,
             max_len: None,
             with_module: None,
@@ -223,7 +227,7 @@ fn flattened(
                 skip_if_none: false,
                 role: _,
                 key: None,
-                bytes: false,
+                bytes: None,
                 borrow: None,
                 max_len: None,
                 with_module: None,
@@ -266,7 +270,7 @@ fn other(
                 skip_if_none: false,
                 role: _,
                 key: None,
-                bytes: false,
+                bytes: None,
                 borrow: None,
                 max_len: None,
                 with_module: None,
@@ -324,8 +328,8 @@ pub fn lone(field: &syn::Field, member: Member) -> syn::Result<Field> {
                 key: Key::Position,
                 fallback: Fallback::Type,
                 omit_if_absent: false,
-                with_module: coded_with(field, with_module, [bytes, max_len.is_some()])?,
-                bytes,
+                with_module: coded_with(field, with_module, [bytes.is_some(), max_len.is_some()])?,
+                bytes: as_byte_string(bytes, &field.ty),
                 max_len,
             })
         }),
@@ -476,6 +480,32 @@ fn camel(field: &Ident) -> Ident {
     )
 }
 
+/// Whether a field of type `ty` is written as its type's byte string under the attribute `bytes`
+/// asks for it with: always under `#[cbor(bytes)]`, and under serde's `serde_bytes` unless it is a
+/// `&[u8]`, which is a byte string natively (D-08a).
+fn as_byte_string(bytes: Option<Bytes>, ty: &Type) -> bool {
+    match bytes {
+        None => false,
+        Some(Bytes::Cbor) => true,
+        Some(Bytes::SerdeBytes) => !is_byte_slice(ty),
+    }
+}
+
+fn is_byte_slice(ty: &Type) -> bool {
+    matches!(ungrouped(ty), Type::Reference(reference)
+        if matches!(ungrouped(&reference.elem), Type::Slice(slice)
+            if matches!(ungrouped(&slice.elem), Type::Path(path) if path.path.is_ident("u8"))))
+}
+
+/// `ty` without the parentheses, or the invisible group a macro's `$t:ty` adds, around it.
+fn ungrouped(ty: &Type) -> &Type {
+    match ty {
+        Type::Group(group) => ungrouped(&group.elem),
+        Type::Paren(paren) => ungrouped(&paren.elem),
+        other => other,
+    }
+}
+
 fn is_option(ty: &Type) -> bool {
     matches!(ty, Type::Path(path) if path.path.segments.last().is_some_and(|s| s.ident == "Option"))
 }
@@ -495,7 +525,7 @@ mod tests {
     use quote::format_ident;
     use syn::{Type, parse_quote};
 
-    use super::holds;
+    use super::{Bytes, as_byte_string, holds};
 
     #[test]
     fn a_field_holds_its_type_directly_or_through_the_vocabulary() {
@@ -521,5 +551,32 @@ mod tests {
         for ty in naming {
             assert!(!holds(&ty, &node), "{ty}", ty = quote::quote!(#ty));
         }
+    }
+
+    #[test]
+    fn serde_bytes_is_cbor_bytes_except_on_a_byte_slice() {
+        let grouped = Type::Group(syn::TypeGroup {
+            group_token: syn::token::Group::default(),
+            elem: Box::new(parse_quote!(&'a [u8])),
+        });
+        let slices: [Type; 4] = [
+            parse_quote!(&[u8]),
+            parse_quote!(&'a [u8]),
+            parse_quote!((&'a [u8])),
+            grouped,
+        ];
+        for ty in slices {
+            assert!(!as_byte_string(Some(Bytes::SerdeBytes), &ty));
+            assert!(as_byte_string(Some(Bytes::Cbor), &ty));
+        }
+        let owned: [Type; 3] = [
+            parse_quote!([u8; 4]),
+            parse_quote!(Vec<u8>),
+            parse_quote!(&'a [u16]),
+        ];
+        for ty in owned {
+            assert!(as_byte_string(Some(Bytes::SerdeBytes), &ty));
+        }
+        assert!(!as_byte_string(None, &parse_quote!([u8; 4])));
     }
 }

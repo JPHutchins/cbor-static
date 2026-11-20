@@ -257,8 +257,8 @@
 //! ```
 //!
 //! The serde attributes beyond names and keys (`rename_all`, `default`, `skip`, `transparent`,
-//! `borrow`, `flatten`) and the entries no field claims (`other`) are described in [`attributes`],
-//! and deterministic encoding in [`deterministic`].
+//! `borrow`, `with = "serde_bytes"`, `flatten`) and the entries no field claims (`other`) are
+//! described in [`attributes`], and deterministic encoding in [`deterministic`].
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
