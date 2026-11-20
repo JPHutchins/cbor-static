@@ -1,4 +1,4 @@
-"""Stack frames of the engine and the rich fixture, against the checked-in baseline."""
+"""Stack frames of the engine, the rich fixture and its serde twin, against the checked-in baseline."""
 
 import argparse
 import json
@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Final
 
 from harness.backends.backend import ROOT
 from harness.backends.cbor_static import CBOR_STATIC
+from harness.backends.cbor_static_serde import CBOR_STATIC_SERDE
 from harness.features import nightly_pin
 from harness.generate import crate_name, render_crate
 from harness.llvm import llvm_tool
@@ -18,6 +19,8 @@ from harness.measure import COUNTS, CRATES, GATE_TARGET, HARNESS, PROFILES, buil
 if TYPE_CHECKING:
 	from collections.abc import Sequence
 	from pathlib import Path
+
+	from harness.backends.backend import Backend
 
 type Frames = dict[str, dict[str, int]]
 
@@ -52,11 +55,22 @@ MODES: Final = {"fix": fix, "check": check}
 
 
 def measured() -> Frames:
-	crate = write_crate(
-		CRATES / "stack" / crate_name(SHAPE, CBOR_STATIC, DEEPEST),
-		{**render_crate(CBOR_STATIC, DEEPEST, SHAPE), **nightly_pin()},
+	"""The native fixture's frames under each profile's name, and the serde layer's (D-15a) under
+	the profile's name prefixed with `serde-`.
+	"""
+	return {
+		f"{prefix}{profile}": frames(crate, built(crate, profile))
+		for prefix, crate in (("", stack_crate(CBOR_STATIC)), ("serde-", stack_crate(CBOR_STATIC_SERDE)))
+		for profile in PROFILES
+	}
+
+
+def stack_crate(backend: Backend) -> Path:
+	"""The rich fixture at its deepest count, for `backend`, on the pinned nightly."""
+	return write_crate(
+		CRATES / "stack" / crate_name(SHAPE, backend, DEEPEST),
+		{**render_crate(backend, DEEPEST, SHAPE), **nightly_pin()},
 	)
-	return {profile: frames(crate, built(crate, profile)) for profile in PROFILES}
 
 
 def render(profiles: Frames) -> str:

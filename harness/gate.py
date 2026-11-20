@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 from harness.backends.backend import ROOT
 from harness.backends.cbor_static import CBOR_STATIC, CBOR_STATIC_ONESHOT, CBOR_STATIC_REPR
+from harness.backends.cbor_static_serde import CBOR_STATIC_SERDE
 from harness.backends.minicbor import MINICBOR_HAND_TEXTKEYS
+from harness.backends.serde import MINICBOR_SERDE
 from harness.elf import symbols
 from harness.fit import Fit, fits
 from harness.generate import crate_name
@@ -20,6 +22,7 @@ if TYPE_CHECKING:
 MARGINAL_REDUCTION: Final = 0.30
 FIXED_ALLOWANCE: Final = 2048
 OVERHEAD_LIMIT: Final = 0.10
+SERDE_MARGIN: Final = 0.10
 PROFILE_LABELS: Final = {"release": "z", "release-s": "s"}
 INFORMATIONAL_TARGET: Final = "thumbv6m-none-eabi"
 
@@ -47,6 +50,27 @@ class Verdict(NamedTuple):
 		False
 		"""
 		return self.reduction >= MARGINAL_REDUCTION and self.fixed <= self.baseline_fixed + FIXED_ALLOWANCE
+
+
+class SlopeVerdict(NamedTuple):
+	"""R-301: cbor-static's serde layer costs about what minicbor-serde costs per type."""
+
+	shape: str
+	profile: str
+	marginal: float
+	baseline_marginal: float
+
+	@property
+	def margin(self) -> float:
+		return self.marginal / self.baseline_marginal - 1
+
+	@property
+	def passes(self) -> bool:
+		"""
+		>>> SlopeVerdict("flat", "release", 1100.0, 1000.0).passes, SlopeVerdict("flat", "release", 1101.0, 1000.0).passes
+		(True, False)
+		"""
+		return self.marginal <= self.baseline_marginal * (1 + SERDE_MARGIN)
 
 
 class Flashes(NamedTuple):
@@ -88,17 +112,19 @@ def load() -> list[Measurement]:
 def report(rows: list[Measurement], measure: Callable[[Measurement], int]) -> tuple[str, bool]:
 	found = fits(rows, measure)
 	results = verdicts(found, GATE_TARGET)
-	compilers = {
-		m.rustc
-		for m in rows
-		if m.target == GATE_TARGET and m.backend in (CBOR_STATIC.name, MINICBOR_HAND_TEXTKEYS.name)
-	}
-	passed = len(compilers) == 1 and all(isinstance(v, Verdict) and v.passes for v in results)
+	compilers = built_by(rows, (CBOR_STATIC.name, MINICBOR_HAND_TEXTKEYS.name))
+	serde_compilers = built_by(rows, (CBOR_STATIC_SERDE.name, MINICBOR_SERDE.name))
+	slopes = serde_verdicts(found)
+	d06 = len(compilers) == 1 and all(isinstance(v, Verdict) and v.passes for v in results)
+	r301 = len(serde_compilers) == 1 and all(isinstance(v, SlopeVerdict) and v.passes for v in slopes)
 	text = "\n\n".join(
 		(
-			f"## D-06 gate: {'PASS' if passed else 'FAIL'}",
+			f"## D-06 gate: {'PASS' if d06 else 'FAIL'}",
 			f"Flash = every allocated PROGBITS section; {GATE_TARGET}; gated and baseline built by: {' AND '.join(sorted(compilers))}",
 			verdict_table(results),
+			f"## R-301 serde gate: {'PASS' if r301 else 'FAIL'}",
+			f"{GATE_TARGET}; both built by: {' AND '.join(sorted(serde_compilers))}",
+			slope_table(slopes),
 			f"### D-06 rule on {INFORMATIONAL_TARGET} (informational: not part of the verdict)",
 			verdict_table(verdicts(found, INFORMATIONAL_TARGET))
 			if any(f.target == INFORMATIONAL_TARGET for f in found)
@@ -119,7 +145,7 @@ def report(rows: list[Measurement], measure: Callable[[Measurement], int]) -> tu
 			breakdown(),
 		)
 	)
-	return text, passed
+	return text, d06 and r301
 
 
 def breakdown() -> str:
@@ -156,6 +182,42 @@ def verdicts(found: list[Fit], target: str) -> tuple[Verdict | str, ...]:
 		else f"missing {CBOR_STATIC.name} or {MINICBOR_HAND_TEXTKEYS.name} for {shape}/{profile}"
 		for shape in SHAPES
 		for profile in PROFILES
+	)
+
+
+def built_by(rows: list[Measurement], backends: tuple[str, ...]) -> set[str]:
+	"""The compilers that built `backends`' rows on the gate target, which one compiler must have.
+
+	>>> rows = [Measurement(b, "flat", GATE_TARGET, "release", 1, 0, 0, c) for b, c in (("a", "x"), ("b", "y"), ("c", "z"))]
+	>>> sorted(built_by(rows, ("a", "b")))
+	['x', 'y']
+	"""
+	return {m.rustc for m in rows if m.target == GATE_TARGET and m.backend in backends}
+
+
+def serde_verdicts(found: list[Fit]) -> tuple[SlopeVerdict | str, ...]:
+	return tuple(
+		SlopeVerdict(shape, profile, gated.per_type, baseline.per_type)
+		if (gated := find(found, CBOR_STATIC_SERDE.name, shape, profile))
+		and (baseline := find(found, MINICBOR_SERDE.name, shape, profile))
+		else f"missing {CBOR_STATIC_SERDE.name} or {MINICBOR_SERDE.name} for {shape}/{profile}"
+		for shape in SHAPES
+		for profile in PROFILES
+	)
+
+
+def slope_table(results: tuple[SlopeVerdict | str, ...]) -> str:
+	return "\n".join(
+		(
+			f"| shape | opt | marginal: {CBOR_STATIC_SERDE.name} / {MINICBOR_SERDE.name} | margin (need ≤ {SERDE_MARGIN:+.0%}) | pass |",
+			"|---|---|---:|---:|---|",
+			*(
+				f"| {v.shape} | {PROFILE_LABELS[v.profile]} | {v.marginal:,.0f} / {v.baseline_marginal:,.0f} | {v.margin:+.1%} | {'✅' if v.passes else '❌'} |"
+				if isinstance(v, SlopeVerdict)
+				else f"| {v} | | | | ❌ |"
+				for v in results
+			),
+		)
 	)
 
 

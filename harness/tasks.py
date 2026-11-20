@@ -38,7 +38,10 @@ encode_only = Task(
 )
 panics = Task("uv run python -m harness.banned panics", help="R-132: no core::panicking in a cbor-static ELF")
 soft_float = Task("uv run python -m harness.banned soft_float", help="R-135: no soft-float routine either")
-banned = panics + soft_float
+formatting = Task(
+	"uv run python -m harness.banned formatting", help="D-23: the serde layer links no core::fmt"
+)
+banned = panics + soft_float + formatting
 crosscheck = Task("uv run python -m harness.crosscheck")
 ram = Task("uv run python -m harness.ram")
 phase0 = (

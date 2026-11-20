@@ -288,6 +288,8 @@ mod limits;
 mod resumable;
 mod scalar;
 mod schema;
+#[cfg(feature = "serde")]
+pub mod serde;
 mod sizes;
 mod slices;
 mod stack;

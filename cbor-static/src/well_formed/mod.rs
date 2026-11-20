@@ -54,6 +54,8 @@ impl From<ErrorKind> for Class {
             | ErrorKind::UnknownField
             | ErrorKind::NotDeterministic
             | ErrorKind::OutOfMemory => panic!("{kind:?} is not a well-formedness error"),
+            #[cfg(feature = "serde")]
+            ErrorKind::Custom => panic!("{kind:?} is not a well-formedness error"),
         }
     }
 }
