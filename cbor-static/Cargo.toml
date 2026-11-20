@@ -9,21 +9,25 @@ repository.workspace = true
 publish = false
 
 [features]
-alloc = []
+alloc = ["serde_core?/alloc"]
 embedded-io = ["dep:embedded-io"]
 heapless = ["dep:heapless"]
 nightly = []
-std = ["alloc"]
+serde = ["dep:serde_core"]
+std = ["alloc", "serde_core?/std"]
 
 [dependencies]
 cbor-static-derive = { path = "../cbor-static-derive", version = "=0.0.0" }
 embedded-io = { version = "0.7.1", optional = true, default-features = false }
 heapless = { version = "0.9.3", optional = true, default-features = false }
+serde_core = { version = "1.0.229", optional = true, default-features = false }
 
 [dev-dependencies]
 proc-macro2 = "1"
 proptest = { version = "1", default-features = false, features = ["std"] }
 quote = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_bytes = "0.11.19"
 syn = { version = "2", features = ["full"] }
 trybuild = "1"
 

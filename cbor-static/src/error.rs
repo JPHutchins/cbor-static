@@ -60,6 +60,16 @@ assert_eq!(
 "
     )]
     OutOfMemory,
+    /// What a serde impl raised with `custom`, its message dropped unformatted (feature `serde`).
+    ///
+    /// ```
+    /// use serde::ser::Error as _;
+    ///
+    /// let error = cbor_static::serde::Error::custom(format_args!("{seven}", seven = 7));
+    /// assert_eq!(error.kind, cbor_static::ErrorKind::Custom);
+    /// ```
+    #[cfg(feature = "serde")]
+    Custom,
 }
 
 /// An [`ErrorKind`], the index of the field being processed, and the byte offset reached.

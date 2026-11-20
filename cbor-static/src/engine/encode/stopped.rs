@@ -60,5 +60,7 @@ pub(crate) const fn promoted(kind: ErrorKind) -> &'static ErrorKind {
         ErrorKind::UnknownField => &ErrorKind::UnknownField,
         ErrorKind::NotDeterministic => &ErrorKind::NotDeterministic,
         ErrorKind::OutOfMemory => &ErrorKind::OutOfMemory,
+        #[cfg(feature = "serde")]
+        ErrorKind::Custom => &ErrorKind::Custom,
     }
 }

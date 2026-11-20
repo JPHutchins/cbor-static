@@ -2,6 +2,8 @@
 //! CBOR as a flat stream of heads, each with its definite string's payload (D-20), over
 //! contiguous input, and typed items handed off in the middle of one (#5 Q11).
 
+#[cfg(feature = "serde")]
+mod serde;
 mod window;
 mod writer;
 
