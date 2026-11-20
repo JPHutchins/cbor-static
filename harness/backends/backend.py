@@ -11,8 +11,27 @@ if TYPE_CHECKING:
 	from collections.abc import Callable
 
 ROOT: Final = Path(__file__).resolve().parents[2]
-SERDE: Final = 'serde = { version = "=1.0.229", default-features = false, features = ["derive"] }'
-SERDE_BYTES: Final = 'serde_bytes = { version = "=0.11.19", default-features = false }'
+
+
+def pinned(crate: str, version: str, features: tuple[str, ...] = ()) -> str:
+	"""A dependency on exactly `version` of `crate`, with only `features`.
+
+	>>> pinned("serde_bytes", "0.11.19", ("alloc",))
+	'serde_bytes = { version = "=0.11.19", default-features = false, features = ["alloc"] }'
+	"""
+	return f'{crate} = {{ version = "={version}", default-features = false, features = [{", ".join(f'"{feature}"' for feature in features)}] }}'
+
+
+def serde_dependency(*features: str) -> str:
+	return pinned("serde", "1.0.229", ("derive", *features))
+
+
+def serde_bytes_dependency(*features: str) -> str:
+	return pinned("serde_bytes", "0.11.19", features)
+
+
+SERDE: Final = serde_dependency()
+SERDE_BYTES: Final = serde_bytes_dependency()
 
 
 class Backend(NamedTuple):

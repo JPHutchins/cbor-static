@@ -6,7 +6,7 @@ import sys
 from functools import partial
 from typing import TYPE_CHECKING, Final, NamedTuple
 
-from harness.backends.backend import ROOT, path_dependency
+from harness.backends.backend import ROOT, path_dependency, serde_bytes_dependency, serde_dependency
 from harness.backends.cbor_static import VARIANTS
 from harness.backends.cbor_static_serde import CBOR_STATIC_SERDE
 from harness.features import ALLOC, FEATURES, fixture
@@ -34,6 +34,7 @@ ALLOCATING: Final = "allocating-control"
 SERDE: Final = "serde-control"
 SERDE_TEXT: Final = "serde-text-control"
 SERDE_STRICT: Final = "serde-strict-control"
+SERDE_ALLOCATING: Final = "serde-allocating-control"
 
 
 class Anchored(NamedTuple):
@@ -184,27 +185,45 @@ def tokens() -> Path:
 
 def serde(profile: str = "release") -> Path:
 	"""A firmware that decodes and encodes every shape of serde's data model through cbor-static."""
-	return serde_firmware(SERDE, "serde.rs", profile)
+	return serde_firmware(SERDE, "serde.rs", CBOR_STATIC_SERDE.dependencies(), profile)
 
 
 def serde_text(profile: str = "release") -> Path:
 	"""A firmware that writes text through serde's `collect_str`, which formats with `core::fmt`."""
-	return serde_firmware(SERDE_TEXT, "serde_text.rs", profile)
+	return serde_firmware(SERDE_TEXT, "serde_text.rs", CBOR_STATIC_SERDE.dependencies(), profile)
 
 
 def serde_strict(profile: str = "release") -> Path:
 	"""A firmware that decodes through `Deserializer::new_strict`."""
-	return serde_firmware(SERDE_STRICT, "serde_strict.rs", profile)
+	return serde_firmware(SERDE_STRICT, "serde_strict.rs", CBOR_STATIC_SERDE.dependencies(), profile)
 
 
-def serde_firmware(name: str, template: str, profile: str) -> Path:
+def serde_allocating(profile: str = "release") -> Path:
+	"""A firmware that decodes owned strings, buffered forms and `flatten` with `alloc`, and encodes
+	them back with `to_vec`, as the native `allocating` firmware does (#5 Q9).
+	"""
+	return serde_firmware(
+		SERDE_ALLOCATING,
+		"serde_allocating.rs",
+		"\n".join(
+			(
+				path_dependency("cbor-static", ROOT / "cbor-static", ("serde", ALLOC)),
+				serde_dependency(ALLOC),
+				serde_bytes_dependency(ALLOC),
+			)
+		),
+		profile,
+	)
+
+
+def serde_firmware(name: str, template: str, dependencies: str, profile: str) -> Path:
 	"""The firmware `template` builds over cbor-static's serde layer, as the crate `name`."""
 	build(
 		write_crate(
 			CRATES / name,
 			{
-				"Cargo.toml": render("Cargo.toml", name=name, dependencies=CBOR_STATIC_SERDE.dependencies()),
-				"src/main.rs": render(template),
+				"Cargo.toml": render("Cargo.toml", name=name, dependencies=dependencies),
+				"src/main.rs": render(template, allocator=render("allocator.rs")),
 			},
 		),
 		GATE_TARGET,
@@ -341,6 +360,14 @@ ANCHORED: Final = (
 		),
 		"a firmware that writes a number as text through `collect_str`",
 		serde_text,
+		" or in the token-only or serde firmware",
+		(tokens, serde),
+	),
+	Anchored(
+		"serde string assembly",
+		frozenset({"<cbor_static::serde::de::Deserializer>::assembled"}),
+		"a firmware that decodes owned strings and buffered forms with `alloc`",
+		serde_allocating,
 		" or in the token-only or serde firmware",
 		(tokens, serde),
 	),
