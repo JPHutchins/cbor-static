@@ -91,7 +91,8 @@
         "minicbor": "minicbor",
         "nixpkgs": "nixpkgs",
         "postcard": "postcard",
-        "rust-overlay": "rust-overlay"
+        "rust-overlay": "rust-overlay",
+        "smp-records": "smp-records"
       }
     },
     "rust-overlay": {
@@ -111,6 +112,23 @@
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "smp-records": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794348195,
+        "narHash": "sha256-rUHRV42tbsCi0gQ0ZU5ArJeo4zPzBHv2uHKf54P5A4s=",
+        "owner": "JPHutchins",
+        "repo": "smp",
+        "rev": "4a98574e325a56d8e9b3206c4b49b3d5a764efb6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "JPHutchins",
+        "repo": "smp",
+        "rev": "4a98574e325a56d8e9b3206c4b49b3d5a764efb6",
         "type": "github"
       }
     }
