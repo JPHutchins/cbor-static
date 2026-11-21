@@ -414,3 +414,34 @@ fn collected_text_that_did_not_fit_stays_refused() {
         Ok(&b"\x67abcdefx"[..])
     );
 }
+
+/// A field and a flattened map's entry of one key.
+#[derive(Serialize, serde::Deserialize, Debug)]
+struct Spread {
+    a: u8,
+    #[serde(flatten)]
+    rest: BTreeMap<String, u8>,
+}
+
+/// #82: serde writes a map's entries as its `Serialize` impl gives them, as `serde_json` does, so a
+/// flattened map's key that repeats a field's is written twice, which decoding refuses.
+#[test]
+fn a_flattened_maps_key_that_repeats_a_field_is_written_as_given() {
+    let written = cbor_static::serde::to_vec(&Spread {
+        a: 1,
+        rest: BTreeMap::from([("a".to_owned(), 2)]),
+    })
+    .expect("encodes");
+    assert_eq!(
+        (
+            written.as_slice(),
+            cbor_static::serde::from_slice::<Spread>(&written)
+                .map(|_| ())
+                .map_err(|e| (e.kind, e.offset))
+        ),
+        (
+            b"\xa2\x61a\x01\x61a\x02".as_slice(),
+            Err((ErrorKind::DuplicateKey, 6))
+        )
+    );
+}

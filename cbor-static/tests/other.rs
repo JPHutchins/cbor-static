@@ -611,3 +611,339 @@ mod allocated {
         );
     }
 }
+
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+macro_rules! written_cases {
+    ($encode:ident: $($name:ident: $field:expr, $entries:expr => $expected:expr;)*) => {$(
+        #[test]
+        fn $name() {
+            assert_eq!($encode($field, $entries), $expected);
+        }
+    )*};
+}
+
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+macro_rules! agreed_cases {
+    ($($name:ident: $field:expr, $entries:expr => $written:expr;)*) => {$(
+        #[test]
+        fn $name() {
+            let entries: &[(&[u8], &[u8])] = $entries;
+            let written = labels($field, entries).expect("encodes");
+            assert_eq!(
+                (written.as_slice(), decoded_again(&written)),
+                ($written.as_slice(), Ok(entries.len()))
+            );
+        }
+    )*};
+}
+
+/// #82: a struct refuses to write a captured entry whose key one of its fields claims or an earlier
+/// captured entry holds, compared as the decoder compares them.
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+macro_rules! written_keys {
+    () => {
+        use cbor_static::{Cbor, Encoder, ErrorKind, Progress, RawCbor, RawEntry, to_slice};
+
+        use crate::common::decode;
+
+        #[derive(Cbor, Debug)]
+        struct Labels<'a> {
+            #[cbor(key = 1)]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            alg: Option<i8>,
+            #[cbor(other)]
+            rest: Rest<'a>,
+        }
+
+        #[derive(Cbor, Debug)]
+        struct Named<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            id: Option<u8>,
+            #[cbor(other)]
+            rest: Rest<'a>,
+        }
+
+        #[derive(Cbor, Debug)]
+        struct Trailing<'a> {
+            #[cbor(other)]
+            rest: Rest<'a>,
+            #[cbor(key = 1)]
+            alg: i8,
+        }
+
+        #[derive(Cbor, Debug)]
+        struct Nullable<'a> {
+            #[cbor(key = 1)]
+            alg: Option<i8>,
+            #[cbor(other)]
+            rest: Rest<'a>,
+        }
+
+        /// An integer-keyed map, whose text keys are unknown entries too.
+        #[derive(Cbor, Debug)]
+        struct SkippingLabels<'a> {
+            #[cbor(key = 1)]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            alg: Option<i8>,
+            #[serde(skip)]
+            cache: u8,
+            #[cbor(other)]
+            rest: Rest<'a>,
+        }
+
+        #[derive(Cbor, Debug)]
+        struct Skipping<'a> {
+            #[serde(skip)]
+            cache: u8,
+            #[cbor(other)]
+            rest: Rest<'a>,
+        }
+
+        #[derive(Cbor, Debug)]
+        struct Extra<'a> {
+            tag: u8,
+            #[cbor(other)]
+            rest: Rest<'a>,
+        }
+
+        #[derive(Cbor, Debug)]
+        struct Parent<'a> {
+            id: u8,
+            #[serde(flatten)]
+            extra: Extra<'a>,
+        }
+
+        #[derive(Cbor, Debug)]
+        enum External<'a> {
+            V(Extra<'a>),
+        }
+
+        const REST: u16 = 1;
+
+        fn raw(bytes: &'static [u8]) -> RawCbor<'static> {
+            decode(bytes).expect("an item")
+        }
+
+        fn rest(entries: &[(&'static [u8], &'static [u8])]) -> Rest<'static> {
+            entries
+                .iter()
+                .map(|&(key, value)| RawEntry {
+                    key: raw(key),
+                    value: raw(value),
+                })
+                .collect()
+        }
+
+        fn written<T: cbor_static::Encode>(value: &T) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            let mut out = [0u8; 64];
+            to_slice(value, &mut out)
+                .map(|len| out[..len].to_vec())
+                .map_err(|e| (e.kind, e.field, e.offset))
+        }
+
+        fn labels(
+            alg: Option<i8>,
+            entries: &[(&'static [u8], &'static [u8])],
+        ) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            written(&Labels {
+                alg,
+                rest: rest(entries),
+            })
+        }
+
+        fn named(
+            id: Option<u8>,
+            entries: &[(&'static [u8], &'static [u8])],
+        ) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            written(&Named {
+                id,
+                rest: rest(entries),
+            })
+        }
+
+        fn trailing(
+            alg: i8,
+            entries: &[(&'static [u8], &'static [u8])],
+        ) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            written(&Trailing {
+                rest: rest(entries),
+                alg,
+            })
+        }
+
+        fn nullable(
+            alg: Option<i8>,
+            entries: &[(&'static [u8], &'static [u8])],
+        ) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            written(&Nullable {
+                alg,
+                rest: rest(entries),
+            })
+        }
+
+        fn flattened(
+            id: u8,
+            entries: &[(&'static [u8], &'static [u8])],
+        ) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            written(&Parent {
+                id,
+                extra: Extra {
+                    tag: 2,
+                    rest: rest(entries),
+                },
+            })
+        }
+
+        fn external(
+            tag: u8,
+            entries: &[(&'static [u8], &'static [u8])],
+        ) -> Result<Vec<u8>, (ErrorKind, u16, u32)> {
+            written(&External::V(Extra {
+                tag,
+                rest: rest(entries),
+            }))
+        }
+
+        fn decoded_again(bytes: &[u8]) -> Result<usize, ErrorKind> {
+            cbor_static::from_slice::<Labels>(bytes)
+                .map(|labels| labels.rest.len())
+                .map_err(|e| e.kind)
+        }
+
+        mod refused {
+            use super::{ErrorKind, REST, external, flattened, labels, named, nullable, trailing};
+
+            written_cases! { labels:
+                a_written_label: Some(-7), &[(b"\x01", b"\x26")] => Err((ErrorKind::DuplicateKey, REST, 3));
+                the_label_of_a_field_not_written: None, &[(b"\x01", b"\x26")] => Err((ErrorKind::DuplicateKey, REST, 1));
+                a_written_label_in_a_wider_head: Some(-7), &[(b"\x18\x01", b"\x26")] => Err((ErrorKind::DuplicateKey, REST, 3));
+                a_captured_label: None, &[(b"\x20", b"\x01"), (b"\x20", b"\x02")] => Err((ErrorKind::DuplicateKey, REST, 3));
+                a_captured_label_in_a_wider_head: None, &[(b"\x20", b"\x01"), (b"\x38\x00", b"\x02")] => Err((ErrorKind::DuplicateKey, REST, 3));
+                a_captured_label_past_others: Some(-7), &[(b"\x20", b"\x01"), (b"\x61z", b"\x02"), (b"\x20", b"\x03")] => Err((ErrorKind::DuplicateKey, REST, 8));
+                a_captured_text_key_of_a_wider_length: None, &[(b"\x61z", b"\x01"), (b"\x78\x01z", b"\x02")] => Err((ErrorKind::DuplicateKey, REST, 4));
+            }
+
+            written_cases! { named:
+                a_written_text_key: Some(7), &[(b"\x62id", b"\x08")] => Err((ErrorKind::DuplicateKey, REST, 5));
+            }
+
+            written_cases! { trailing:
+                a_label_written_after_the_capture: -7, &[(b"\x01", b"\x26")] => Err((ErrorKind::DuplicateKey, 0, 1));
+            }
+
+            written_cases! { nullable:
+                a_label_written_as_null: None, &[(b"\x01", b"\x26")] => Err((ErrorKind::DuplicateKey, REST, 3));
+            }
+
+            written_cases! { flattened:
+                a_key_of_the_struct_it_is_flattened_into: 1, &[(b"\x62id", b"\x03")] => Err((ErrorKind::DuplicateKey, 2, 10));
+            }
+
+            written_cases! { external:
+                a_key_of_a_variants_payload: 2, &[(b"\x63tag", b"\x03")] => Err((ErrorKind::DuplicateKey, REST, 9));
+            }
+        }
+
+        /// What decoding accepts as distinct keys, encoding writes: the encodings of one key the
+        /// comparison does not equate.
+        mod agreed {
+            use super::{decoded_again, labels};
+
+            agreed_cases! {
+                a_distinct_label: Some(-7), &[(b"\x02", b"\x01")] => b"\xa2\x01\x26\x02\x01";
+                an_unsigned_and_a_negative_label_of_one_argument: Some(-7), &[(b"\x20", b"\x01")] => b"\xa2\x01\x26\x20\x01";
+                text_and_bytes_of_one_content: None, &[(b"\x61z", b"\x01"), (b"\x41z", b"\x02")] => b"\xa2\x61z\x01\x41z\x02";
+                a_non_preferred_head_nested_in_a_key: None, &[(b"\x81\x01", b"\x01"), (b"\x81\x18\x01", b"\x02")] => b"\xa2\x81\x01\x01\x81\x18\x01\x02";
+                one_float_in_two_widths: None, &[(b"\xf9\x3c\x00", b"\x01"), (b"\xfa\x3f\x80\x00\x00", b"\x02")] => b"\xa2\xf9\x3c\x00\x01\xfa\x3f\x80\x00\x00\x02";
+                definite_and_indefinite_text: None, &[(b"\x61z", b"\x01"), (b"\x7f\x61z\xff", b"\x02")] => b"\xa2\x61z\x01\x7f\x61z\xff\x02";
+            }
+        }
+
+        /// A field skipped from decoding claims no key, so a captured entry may take its name.
+        #[test]
+        fn the_name_of_a_skipped_field() {
+            let written = written(&Skipping {
+                cache: 1,
+                rest: rest(&[(b"\x65cache", b"\x02")]),
+            })
+            .expect("encodes");
+            assert_eq!(
+                (
+                    written.as_slice(),
+                    cbor_static::from_slice::<Skipping>(&written)
+                        .map(|skipping| (skipping.cache, skipping.rest.len()))
+                        .map_err(|e| e.kind)
+                ),
+                (b"\xa1\x65cache\x02".as_slice(), Ok((0, 1)))
+            );
+        }
+
+        /// No captured key is the reserved name of an `other` or a `skip`ped field, which is no
+        /// UTF-8 text, so neither name is a key any field claims.
+        mod reserved {
+            use super::{ErrorKind, SkippingLabels};
+
+            fn captured(bytes: &[u8]) -> Result<usize, (ErrorKind, u16, u32)> {
+                cbor_static::from_slice::<SkippingLabels>(bytes)
+                    .map(|labels| labels.rest.len())
+                    .map_err(|e| (e.kind, e.field, e.offset))
+            }
+
+            #[test]
+            fn the_name_of_the_other_field() {
+                assert_eq!(captured(b"\xa1\x61\xfe\x00"), Err((ErrorKind::InvalidUtf8, 1, 2)));
+            }
+
+            #[test]
+            fn the_name_of_a_skipped_field() {
+                assert_eq!(captured(b"\xa1\x61\xff\x00"), Err((ErrorKind::InvalidUtf8, 1, 2)));
+            }
+        }
+
+        /// The refusal stops the encoding at the repeated key, the entries before it written: each
+        /// later resume returns it again and writes nothing.
+        #[test]
+        fn a_refused_encoding_stays_stopped() {
+            let value = Labels {
+                alg: Some(-7),
+                rest: rest(&[(b"\x02", b"\x01"), (b"\x01", b"\x26")]),
+            };
+            let mut encoder = Encoder::new(&value);
+            let resumed = [(); 3].map(|()| {
+                let mut out = [0u8; 8];
+                (
+                    encoder
+                        .resume(&mut out)
+                        .map(|progress| match progress {
+                            Progress::Done(n) | Progress::NeedSpace(n) => n,
+                        })
+                        .map_err(|e| (e.kind, e.field, e.offset)),
+                    out,
+                )
+            });
+            let refused = Err((ErrorKind::DuplicateKey, REST, 5));
+            assert_eq!(
+                resumed,
+                [
+                    (refused, *b"\xa3\x01\x26\x02\x01\x00\x00\x00"),
+                    (refused, [0; 8]),
+                    (refused, [0; 8]),
+                ]
+            );
+        }
+    };
+}
+
+#[cfg(feature = "heapless")]
+mod written_once_into_heapless {
+    type Rest<'a> = heapless::Vec<cbor_static::RawEntry<'a>, 4>;
+
+    written_keys!();
+}
+
+#[cfg(feature = "alloc")]
+mod written_once_into_alloc {
+    type Rest<'a> = Vec<cbor_static::RawEntry<'a>>;
+
+    written_keys!();
+}

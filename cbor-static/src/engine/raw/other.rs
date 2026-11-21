@@ -122,7 +122,7 @@ unsafe fn whole<'de>(item: &Item<'_>) -> Result<(RawEntry<'de>, usize), ErrorKin
 
 #[cfg(any(feature = "heapless", feature = "alloc"))]
 #[inline(never)]
-fn distinct(captured: &[RawEntry<'_>], key: RawCbor<'_>) -> Result<(), ErrorKind> {
+pub(crate) fn distinct(captured: &[RawEntry<'_>], key: RawCbor<'_>) -> Result<(), ErrorKind> {
     let wanted = identity(key)?;
     captured.iter().try_for_each(|earlier| {
         if identity(earlier.key)? == wanted {
@@ -131,6 +131,17 @@ fn distinct(captured: &[RawEntry<'_>], key: RawCbor<'_>) -> Result<(), ErrorKind
             Ok(())
         }
     })
+}
+
+/// Refuses `key` when it is the key `claimed` encodes, compared as a field's key is.
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+#[inline(never)]
+pub(crate) fn distinct_from(key: RawCbor<'_>, claimed: &[u8]) -> Result<(), ErrorKind> {
+    if identity(key)? == identity(RawCbor { bytes: claimed })? {
+        Err(ErrorKind::DuplicateKey)
+    } else {
+        Ok(())
+    }
 }
 
 /// What two keys share when they are one key, as a field's key is matched.
@@ -338,7 +349,7 @@ mod tests {
 
     #[cfg(any(feature = "heapless", feature = "alloc"))]
     mod keys {
-        use super::super::{RawCbor, RawEntry, distinct, identity};
+        use super::super::{RawCbor, RawEntry, distinct, distinct_from, identity};
         use crate::error::ErrorKind;
 
         fn same(a: &[u8], b: &[u8]) -> bool {
@@ -382,6 +393,23 @@ mod tests {
                     distinct(&[], RawCbor { bytes: b"\x20" }),
                 ),
                 (Err(ErrorKind::DuplicateKey), Ok(()), Ok(()))
+            );
+        }
+
+        #[test]
+        fn a_key_is_refused_only_when_claimed() {
+            let key = RawCbor { bytes: b"\x01" };
+            assert_eq!(
+                (
+                    distinct_from(key, b"\x18\x01"),
+                    distinct_from(key, b"\x02"),
+                    distinct_from(key, b""),
+                ),
+                (
+                    Err(ErrorKind::DuplicateKey),
+                    Ok(()),
+                    Err(ErrorKind::Unsupported)
+                )
             );
         }
     }
