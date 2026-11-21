@@ -46,6 +46,7 @@
         examples = inputs.cose-wg-examples;
       };
       rfc-cddl = pkgs.callPackage ./nix/rfc-cddl.nix { };
+      rfc-vectors = pkgs.callPackage ./nix/rfc-vectors.nix { };
       devShell = pkgs.mkShell (
         pkgs.lib.mapAttrs' (
           name: input:
@@ -67,6 +68,7 @@
           CBOR_STATIC_DEV_SHELL = "1";
           COSE_WG_VECTORS = "${cose-wg-vectors}";
           RFC_CDDL = "${rfc-cddl}";
+          RFC_VECTORS = "${rfc-vectors}";
           UV_PYTHON = pkgs.lib.getExe python;
           UV_PYTHON_DOWNLOADS = "never";
           shellHook = ''
