@@ -14,6 +14,8 @@ use crate::schema::Decode;
 
 pub use embedded::EmbeddedDecoding;
 pub use other::{RawEntry, Skipped};
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(crate) use other::{distinct, distinct_from};
 pub use with::{WithDecode, WithDecoding};
 
 /// One well-formed item, borrowed from the input.

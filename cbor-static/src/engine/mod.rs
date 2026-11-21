@@ -99,6 +99,8 @@ pub(crate) use raw::EmbeddedDecoding;
 pub use raw::{
     ArrayIter, ArrayRef, MapIter, MapRef, RawCbor, RawEntry, Skipped, WithDecode, WithDecoding,
 };
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+pub(crate) use raw::{distinct, distinct_from};
 pub(crate) use skip::Skip;
 #[cfg(any(test, feature = "serde"))]
 pub(crate) use skip::item_len;
