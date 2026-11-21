@@ -8,7 +8,7 @@ from harness.workspace import TARGET_DIR, TOOLCHAIN, nightly_miri, seeded
 PACKAGE = "-p cbor-static-conformance"
 HOST_TARGET = {"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"}
 HOST_TEST = f"cargo test {PACKAGE} --features '{TOOLCHAIN['stable']['FEATURES']}'"
-MIRI_MODULES = ("messages", "headers", "keys")
+MIRI_MODULES = ("messages", "headers", "keys", "records")
 
 fix = Task("uv run ruff check --fix --exit-zero {paths}", paths="tasks.py", mutates=True) + Task(
 	"uv run ruff format {paths}", paths="tasks.py", mutates=True
