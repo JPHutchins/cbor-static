@@ -58,7 +58,8 @@ features = Parallel(
 )
 r009 = (sweep | features) + machinery + gate + Task("uv run python -m harness.r009") + banned
 daily_render = Task(
-	"uv run python -m harness.daily render", help="Q18: a sample daily job summary and issue body, rendered"
+	"uv run python -m harness.daily render",
+	help="Q18: the daily workflow's summaries and issue body, rendered from a sample",
 )
 ci = (check | crosscheck | pay_for_what_you_use | encode_only | size_gate + unused) + banned
 

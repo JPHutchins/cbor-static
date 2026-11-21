@@ -1,6 +1,7 @@
-"""The rolling `daily` issue: one body naming every job a run discovered, or nothing on a clean run."""
+"""The rolling daily-run issue: one body naming every job a run discovered, or nothing on a clean run."""
 
 from typing import TYPE_CHECKING, Final, NamedTuple
+from urllib.parse import quote_plus
 
 from harness.daily.report import REPORT, Report, Result, cell, code
 
@@ -32,8 +33,19 @@ class Clean(NamedTuple):
 
 
 class Failing(NamedTuple):
-	title: str
-	body: str
+	jobs: tuple[Job, ...]
+	run: Run
+
+	@property
+	def title(self) -> str:
+		return (
+			f"Daily run failed on {self.run.ref}: "
+			f"{', '.join(job.task for job in self.jobs if not passed(job)) or 'no jobs ran'} ({self.run.sha[:7]})"
+		)
+
+	@property
+	def body(self) -> str:
+		return fitted(self.jobs, self.run)
 
 
 type Verdict = Clean | Failing
@@ -110,6 +122,8 @@ def verdict(jobs: tuple[Job, ...], run: Run) -> Verdict:
 	>>> print(failing.body)
 	Daily run [42](https://github.com/o/r/actions/runs/42) on `main` at [`0123456`](https://github.com/o/r/commit/0123456789abcdef) failed. The next clean run on the default branch closes this issue.
 	<BLANKLINE>
+	Fix it with a named regression test built from the failing input below, not from the seed: a seed reproduces only while the generators draw in the same order.
+	<BLANKLINE>
 	| job | result | parameters | reproduce |
 	|---|---|---|---|
 	| daily_properties | ✅ passed | SEED=`7` | `nix develop -c camas properties --SEED=7` |
@@ -140,29 +154,35 @@ def verdict(jobs: tuple[Job, ...], run: Run) -> Verdict:
 	</details>
 	<BLANKLINE>
 	"""
-	failed = tuple(job.task for job in jobs if not passed(job))
-	if jobs and not failed:
-		return Clean()
-	return Failing(
-		title=f"Daily run failed on {run.ref}: {', '.join(failed) or 'no jobs ran'} ({run.sha[:7]})",
-		body=fitted(jobs, run),
-	)
+	return Clean() if jobs and all(map(passed, jobs)) else Failing(jobs, run)
 
 
-def summary(verdict: Verdict) -> str:
+def summary(verdict: Verdict, label: str) -> str:
 	r"""
-	>>> summary(Clean())
+	>>> from harness.daily.report import SAMPLE
+	>>> summary(Clean(), "rolling")
 	'### ✅ Daily run clean\n'
-	>>> print(summary(Failing("Daily run failed on main: daily_x (0123456)", "the body")))
+	>>> print(summary(Failing((Reported("daily_x", SAMPLE),), Run("https://github.com/o/r", "42", "0123456", "main")), "rolling"))
 	### ❌ Daily run failed on main: daily_x (0123456)
 	<BLANKLINE>
-	the body
+	| job | result | parameters | reproduce |
+	|---|---|---|---|
+	| daily_x | ❌ failed | SEED=`7` | `nix develop -c camas properties --SEED=7` |
+	<BLANKLINE>
+	Artifacts: [the run's artifacts](https://github.com/o/r/actions/runs/42#artifacts)
+	<BLANKLINE>
+	Rolling issue: [the `rolling` issues](https://github.com/o/r/issues?q=is%3Aissue+label%3A%22rolling%22)
+	<BLANKLINE>
 	"""
 	match verdict:
 		case Clean():
 			return "### ✅ Daily run clean\n"
-		case Failing(title=title, body=body):
-			return f"### ❌ {title}\n\n{body}"
+		case Failing(title=title, jobs=jobs, run=run):
+			return (
+				f"### ❌ {title}\n\n{results(jobs, run)}\n"
+				f"Rolling issue: [the {code(label)} issues]"
+				f"({run.repository_url}/issues?q={quote_plus(f'is:issue label:"{label}"')})\n"
+			)
 
 
 def passed(job: Job) -> bool:
@@ -193,14 +213,22 @@ def body(jobs: tuple[Job, ...], run: Run, output_limit: int | None) -> str:
 	return (
 		f"Daily run [{run.run_id}]({run.url}) on {code(run.ref)} at [`{run.sha[:7]}`]"
 		f"({run.repository_url}/commit/{run.sha}) failed. The next clean run on the default branch closes this issue.\n\n"
-		"| job | result | parameters | reproduce |\n|---|---|---|---|\n"
-		+ "\n".join(map(row, jobs))
-		+ f"\n\nArtifacts: [the run's artifacts]({run.url}#artifacts)\n"
+		"Fix it with a named regression test built from the failing input below, not from the seed: "
+		"a seed reproduces only while the generators draw in the same order.\n\n"
+		+ results(jobs, run)
 		+ "".join(
 			f"\n<details><summary>{job.task}</summary>\n\n{job.report.markdown(output_limit)}\n</details>\n"
 			for job in jobs
 			if isinstance(job, Reported) and not passed(job)
 		)
+	)
+
+
+def results(jobs: tuple[Job, ...], run: Run) -> str:
+	return (
+		"| job | result | parameters | reproduce |\n|---|---|---|---|\n"
+		+ "\n".join(map(row, jobs))
+		+ f"\n\nArtifacts: [the run's artifacts]({run.url}#artifacts)\n"
 	)
 
 
