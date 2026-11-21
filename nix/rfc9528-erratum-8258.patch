@@ -1,0 +1,41 @@
+RFC 9528 Appendix C.2 with erratum 8258 applied: https://www.rfc-editor.org/errata/eid8258
+Status: Reported (Technical), Brian Sipos, 2025-01-23. The hunks below are the erratum's
+"It should say" text and nothing else.
+
+--- rfc9528.cddl
++++ rfc9528-erratum-8258.cddl
+@@ -7,10 +7,10 @@
+   ? ead_value : bstr,
+ )
+ 
+-EAD_1 = 1* ead
+-EAD_2 = 1* ead
+-EAD_3 = 1* ead
+-EAD_4 = 1* ead
++EAD_1 = (+ ead)
++EAD_2 = (+ ead)
++EAD_3 = (+ ead)
++EAD_4 = (+ ead)
+ 
+ message_1 = (
+   METHOD : int,
+@@ -25,8 +25,8 @@
+ )
+ 
+ PLAINTEXT_2 = (
+-  C_R,
+-  ID_CRED_R : map / bstr / -24..23,
++  C_R : bstr / -24..23,
++  ID_CRED_R : header_map / bstr / -24..23,
+   Signature_or_MAC_2 : bstr,
+   ? EAD_2,
+ )
+@@ -36,7 +36,7 @@
+ )
+ 
+ PLAINTEXT_3 = (
+-  ID_CRED_I : map / bstr / -24..23,
++  ID_CRED_I : header_map / bstr / -24..23,
+   Signature_or_MAC_3 : bstr,
+   ? EAD_3,
+ )
