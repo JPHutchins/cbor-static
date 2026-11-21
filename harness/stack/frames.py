@@ -1,12 +1,12 @@
 """Stack frames of the engine, the rich fixture and its serde twin, against the checked-in baseline."""
 
-import argparse
 import json
 import subprocess
-import sys
 import tomllib
 from collections import Counter
 from typing import TYPE_CHECKING, Final
+
+from cyclopts import App
 
 from harness.backends.backend import ROOT
 from harness.backends.cbor_static import CBOR_STATIC
@@ -17,7 +17,6 @@ from harness.llvm import llvm_tool
 from harness.measure import COUNTS, CRATES, GATE_TARGET, HARNESS, PROFILES, build, elf_path, write_crate
 
 if TYPE_CHECKING:
-	from collections.abc import Sequence
 	from pathlib import Path
 
 	from harness.backends.backend import Backend
@@ -30,17 +29,22 @@ SHAPE: Final = "rich"
 DEEPEST: Final = max(COUNTS)
 
 
-def main(argv: Sequence[str]) -> int:
-	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("mode", choices=list(MODES))
-	return MODES[parser.parse_args(argv).mode]()
+app = App(help=__doc__)
 
 
+@app.default
+def unnamed() -> int:
+	app.help_print()
+	return 2
+
+
+@app.command
 def fix() -> int:
 	BASELINE.write_text(render(measured()))
 	return 0
 
 
+@app.command
 def check() -> int:
 	changes = drift(tomllib.loads(BASELINE.read_text()), measured())
 	print(
@@ -49,9 +53,6 @@ def check() -> int:
 		else f"{BASELINE.name}: unchanged"
 	)
 	return int(bool(changes))
-
-
-MODES: Final = {"fix": fix, "check": check}
 
 
 def measured() -> Frames:
@@ -220,4 +221,4 @@ def unique(sizes: tuple[tuple[str, int], ...]) -> dict[str, int]:
 
 
 if __name__ == "__main__":
-	sys.exit(main(sys.argv[1:]))
+	app()

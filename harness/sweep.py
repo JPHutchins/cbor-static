@@ -1,34 +1,50 @@
 """Build and measure one backend over N message types, both profiles; append rows to the results CSV."""
 
-import argparse
 import csv
-import sys
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Annotated, Final
+
+from cyclopts import App, Parameter
 
 from harness.backends import BACKENDS
 from harness.measure import COUNTS, GATE_TARGET, HARNESS, PROFILES, Measurement, measure
 from harness.model import SHAPES
 
 if TYPE_CHECKING:
-	from collections.abc import Sequence
 	from pathlib import Path
 
 RESULTS: Final = HARNESS / "results"
 
 
-def main(argv: Sequence[str]) -> int:
-	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--backend", choices=list(BACKENDS), required=True)
-	parser.add_argument("--shape", choices=list(SHAPES), required=True)
-	parser.add_argument("--target", default=GATE_TARGET)
-	parser.add_argument("--counts", nargs="+", type=int, default=list(COUNTS))
-	args = parser.parse_args(argv)
+def at_least_one_count(_: type, counts: tuple[int, ...]) -> None:
+	"""
+	>>> at_least_one_count(tuple, ())
+	Traceback (most recent call last):
+	...
+	ValueError: a sweep measures at least one count
+
+	Raises:
+		ValueError: no count to measure.
+	"""
+	if not counts:
+		raise ValueError("a sweep measures at least one count")
+
+
+app = App(help=__doc__)
+
+
+@app.default
+def main(
+	backend: Annotated[str, Parameter(choices=tuple(BACKENDS))],
+	shape: Annotated[str, Parameter(choices=tuple(SHAPES))],
+	target: str = GATE_TARGET,
+	counts: Annotated[
+		tuple[int, ...], Parameter(consume_multiple=True, negative_iterable=(), validator=at_least_one_count)
+	] = COUNTS,
+) -> int:
 	rows = [
-		measure(BACKENDS[args.backend], args.shape, args.target, profile, count)
-		for profile in PROFILES
-		for count in args.counts
+		measure(BACKENDS[backend], shape, target, profile, count) for profile in PROFILES for count in counts
 	]
-	path = results_path(args.target, args.shape, args.backend)
+	path = results_path(target, shape, backend)
 	path.parent.mkdir(parents=True, exist_ok=True)
 	with path.open("w", newline="") as handle:
 		writer = csv.writer(handle)
@@ -44,4 +60,4 @@ def results_path(target: str, shape: str, backend: str) -> Path:
 
 
 if __name__ == "__main__":
-	sys.exit(main(sys.argv[1:]))
+	app()
