@@ -3,12 +3,12 @@ gate ELFs link none of them, a positive control links them all, and each feature
 per-type flash is its fixture's delta against a reference fixture that lacks only the feature.
 """
 
-import argparse
 import csv
-import sys
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, NamedTuple
+from typing import TYPE_CHECKING, Annotated, Final, NamedTuple
+
+from cyclopts import App, Parameter
 
 from harness.backends.backend import ROOT, path_dependency
 from harness.backends.cbor_static import CBOR_STATIC, ROUNDTRIP, roundtrip
@@ -426,13 +426,14 @@ class Cost(NamedTuple):
 	per_type: float
 
 
-def main(argv: Sequence[str]) -> int:
-	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--feature", choices=list(BY_TEMPLATE), required=True)
-	feature = BY_TEMPLATE[parser.parse_args(argv).feature]
-	costs = [cost(feature, profile) for profile in PROFILES]
+app = App(help=__doc__)
+
+
+@app.default
+def main(feature: Annotated[str, Parameter(choices=tuple(BY_TEMPLATE))]) -> int:
+	costs = [cost(BY_TEMPLATE[feature], profile) for profile in PROFILES]
 	FEATURES_DIR.mkdir(parents=True, exist_ok=True)
-	with (FEATURES_DIR / f"{feature.template}.csv").open("w", newline="") as handle:
+	with (FEATURES_DIR / f"{feature}.csv").open("w", newline="") as handle:
 		writer = csv.writer(handle)
 		writer.writerow(Cost._fields)
 		writer.writerows(costs)
@@ -605,4 +606,4 @@ def load() -> list[Cost]:
 
 
 if __name__ == "__main__":
-	sys.exit(main(sys.argv[1:]))
+	app()
