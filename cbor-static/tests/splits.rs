@@ -20,6 +20,14 @@ struct Reading {
     flag: Option<bool>,
 }
 
+/// A map whose unknown entries are counted.
+#[derive(Decode, Clone, Debug, Default, PartialEq)]
+struct Counted {
+    id: u8,
+    #[cbor(other)]
+    unknown: cbor_static::Skipped,
+}
+
 #[derive(Decode, Clone, Debug, Default, PartialEq)]
 enum State {
     #[default]
@@ -126,6 +134,7 @@ fn every_type(bytes: &[u8]) {
     splits_as_whole::<(u8, bool)>(bytes);
     splits_as_whole::<Reading>(bytes);
     splits_as_whole::<State>(bytes);
+    splits_as_whole::<Counted>(bytes);
     #[cfg(feature = "heapless")]
     {
         splits_as_whole::<heapless::String<8>>(bytes);
@@ -144,6 +153,17 @@ fn every_item_splits_as_it_decodes_whole_into_every_type() {
     for item in ITEMS {
         every_type(item);
     }
+}
+
+/// An unknown entry's error names the `other` field whether one chunk holds the entry or not.
+#[test]
+fn an_unknown_entrys_malformed_value_names_the_other_field_in_any_chunks() {
+    let malformed = b"\xa2\x62id\x01\x61z\x62\xff\xfe";
+    assert_eq!(
+        whole::<Counted>(malformed),
+        Err((ErrorKind::InvalidUtf8, 1))
+    );
+    splits_as_whole::<Counted>(malformed);
 }
 
 #[test]

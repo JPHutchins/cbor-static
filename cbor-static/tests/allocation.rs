@@ -144,7 +144,13 @@ fn a_huge_map_of_unclaimed_entries_reserves_only_entries_it_reached() {
     }
 
     for completed in 0..40 {
-        let input = [HUGE_MAP, &[0u8; 80][..2 * completed]].concat();
+        let input = [
+            HUGE_MAP,
+            &(0..completed)
+                .flat_map(|label| [0x18, u8::try_from(label).expect("fits"), 0])
+                .collect::<Vec<u8>>(),
+        ]
+        .concat();
         let (live, largest) = measured(usize::MAX, || {
             let mut slot = MaybeUninit::<Captured>::uninit();
             assert_eq!(

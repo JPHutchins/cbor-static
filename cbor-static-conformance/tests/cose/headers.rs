@@ -145,10 +145,10 @@ fn a_raw_header_value_keeps_its_bytes() {
     );
 }
 
-/// RFC 9052 §3 rejects a message whose header map repeats a label. The order-keeping map does;
-/// the typed headers accept a repeated label they don't name, until #79 makes the capture reject it.
+/// RFC 9052 §3 rejects a message whose header map repeats a label: the order-keeping map and the
+/// typed headers both refuse it, a label the headers don't name included (#79).
 #[test]
-fn a_repeated_unnamed_label_passes_the_typed_headers_but_not_the_map() {
+fn a_repeated_unnamed_label_fails_the_typed_headers_and_the_map() {
     use cbor_static::ErrorKind;
 
     let repeated = b"\xa2\x20\x01\x20\x02";
@@ -157,8 +157,10 @@ fn a_repeated_unnamed_label_passes_the_typed_headers_but_not_the_map() {
             cbor_static::from_slice::<HeaderMap>(repeated)
                 .map(|_| ())
                 .map_err(|e| e.kind),
-            cbor_static::from_slice::<Headers>(repeated).map(|headers| headers.other.len()),
+            cbor_static::from_slice::<Headers>(repeated)
+                .map(|_| ())
+                .map_err(|e| e.kind),
         ),
-        (Err(ErrorKind::DuplicateKey), Ok(2))
+        (Err(ErrorKind::DuplicateKey), Err(ErrorKind::DuplicateKey))
     );
 }

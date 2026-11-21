@@ -136,13 +136,14 @@ fn the_examples_carry_ephemeral_and_static_keys() {
     );
 }
 
-/// RFC 9052 §3's unique labels apply to a key's map too; a key accepts a repeated label it doesn't
-/// name, until #79 makes the capture reject it.
+/// RFC 9052 §3's unique labels apply to a key's map too, a label the key doesn't name included
+/// (#79).
 #[test]
-fn a_repeated_unnamed_label_passes_the_key() {
+fn a_repeated_unnamed_label_fails_the_key() {
     assert_eq!(
         cbor_static::from_slice::<Key>(b"\xa3\x01\x01\x20\x01\x20\x02")
-            .map(|key| key.parameters.len()),
-        Ok(2)
+            .map(|_| ())
+            .map_err(|e| e.kind),
+        Err(cbor_static::ErrorKind::DuplicateKey)
     );
 }

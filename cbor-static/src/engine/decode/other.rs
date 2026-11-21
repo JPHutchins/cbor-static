@@ -50,8 +50,9 @@ pub(super) fn text_key<const INT: bool>(
     }
 }
 
-/// The unknown entry whose key's head, `key`, was just read: captured whole, or counted, then
-/// passed over when this chunk holds it whole, else skipped as `skip`'s (items, header) say.
+/// The unknown entry whose key's head, `key`, was just read: once admitted, when this chunk holds it
+/// whole, it is captured whole, or counted, past its key, then passed over; else counted, then
+/// skipped as `skip`'s (items, header) say.
 pub(super) fn unclaimed(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -59,14 +60,23 @@ pub(super) fn unclaimed(
     key: Header,
     (items, header): (u64, Option<Header>),
 ) -> Result<Flow, ErrorKind> {
+    let field = admit(state, frames)?;
     let entry = whole(input, key)?;
+    let key_rest = entry.map_or(0, |(_, key_rest)| key_rest);
+    input.take_exact(key_rest).ok_or(ErrorKind::Unsupported)?;
     match (
-        claim(state, frames, key, entry.unwrap_or(&[]))?,
-        entry.map(<[u8]>::len),
+        claim(
+            state,
+            frames,
+            field,
+            key,
+            entry.map_or(&[], |(bytes, _)| bytes),
+        )?,
+        entry.map(|(bytes, _)| bytes.len()),
     ) {
         (Next::Took(len), _) | (Next::Done, Some(len)) => {
             input
-                .take_exact(len - key.head_len()?)
+                .take_exact(len - key.head_len()? - key_rest)
                 .ok_or(ErrorKind::Unsupported)?;
             state.step = ops(desc(top(state.depth, frames)?))?.entry;
             Ok(Flow::Continue)
@@ -87,30 +97,42 @@ pub(super) fn unclaimed_name(
         info: 0,
         arg: 0,
     };
-    match claim(state, frames, behind, &[])? {
+    let field = admit(state, frames)?;
+    match claim(state, frames, field, behind, &[])? {
         Next::Done => start_skip(state, 1, None),
         Next::Took(_) | Next::Then(_) => Err(ErrorKind::Unsupported),
     }
 }
 
+/// The top frame's `other` field, which an unknown entry goes to unless `Strict` refuses it, and
+/// which from then on is the field an error names, however the entry was chunked.
+fn admit(state: &State, frames: &mut [MaybeUninit<Frame>]) -> Result<u8, ErrorKind> {
+    if let Some(strict) = state.strict {
+        (strict.unknown)(frames, state.depth)?;
+    }
+    let frame = top(state.depth, frames)?;
+    frame.field = desc(frame)
+        .layout()
+        .and_then(other_field)
+        .ok_or(ErrorKind::Unsupported)?;
+    Ok(frame.field)
+}
+
 /// Hands an unknown entry, `entry` when this chunk holds it whole, to the top frame's `other`
-/// field, which its default starts empty.
+/// `field`, which its default starts empty.
 fn claim(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
+    field: u8,
     key: Header,
     entry: &[u8],
 ) -> Result<Next, ErrorKind> {
     use crate::schema::Payload;
 
-    if let Some(strict) = state.strict {
-        (strict.unknown)(frames, state.depth)?;
-    }
     let frame = top(state.depth, frames)?;
     let DecKind::Struct { layout, kinds, .. } = desc(frame) else {
         return Err(ErrorKind::Unsupported);
     };
-    let field = other_field(layout).ok_or(ErrorKind::Unsupported)?;
     let Some(DecKind::Leaf {
         decode,
         default,
@@ -140,17 +162,21 @@ fn claim(
     }
 }
 
-/// The whole entry whose key's head, `key`, ends at the cursor, when this chunk holds it.
-fn whole<'a>(input: &Input<'a>, key: Header) -> Result<Option<&'a [u8]>, ErrorKind> {
+/// The whole entry whose key's head, `key`, ends at the cursor, and the length of the rest of its
+/// key, when this chunk holds it.
+fn whole<'a>(input: &Input<'a>, key: Header) -> Result<Option<(&'a [u8], usize)>, ErrorKind> {
     let head = key.head_len()?;
     let Some(start) = input.at.checked_sub(head) else {
         return Ok(None);
     };
     let rest = input.rest();
-    match rest_len(key, rest)
-        .and_then(|key_rest| Ok(key_rest + item_len(rest.get(key_rest..).unwrap_or(&[]))?))
-    {
-        Ok(len) => Ok(input.span(start, head + len)),
+    match rest_len(key, rest).and_then(|key_rest| {
+        Ok((
+            key_rest,
+            key_rest + item_len(rest.get(key_rest..).unwrap_or(&[]))?,
+        ))
+    }) {
+        Ok((key_rest, len)) => Ok(input.span(start, head + len).map(|entry| (entry, key_rest))),
         Err(ErrorKind::NeedContiguous) => Ok(None),
         Err(error) => Err(error),
     }

@@ -287,6 +287,174 @@ mod captured {
     }
 }
 
+/// #79: an `other` capture refuses a key it already holds, compared as a field's key is.
+#[cfg(feature = "heapless")]
+mod repeated {
+    use core::mem::MaybeUninit;
+
+    use cbor_static::{Cbor, Decoder, ErrorKind, Fed, RawEntry, decode_into, decode_strict_into};
+    use heapless::Vec;
+
+    /// An integer-keyed map, whose text keys are unknown entries too.
+    #[derive(Cbor, Debug)]
+    struct Labels<'a> {
+        #[cbor(key = 1)]
+        alg: Option<i8>,
+        #[cbor(other)]
+        rest: Vec<RawEntry<'a>, 4>,
+    }
+
+    /// A text-keyed map, whose text keys are matched before they are captured.
+    #[derive(Cbor, Debug)]
+    struct Named<'a> {
+        id: Option<u8>,
+        #[cbor(other)]
+        rest: Vec<RawEntry<'a>, 4>,
+    }
+
+    const REST: u16 = 1;
+
+    fn labels(bytes: &[u8]) -> Result<usize, (ErrorKind, u16, u32)> {
+        let mut slot = MaybeUninit::uninit();
+        decode_into::<Labels>(bytes, &mut slot)
+            .map(|labels| labels.rest.len())
+            .map_err(|e| (e.kind, e.field, e.offset))
+    }
+
+    fn named(bytes: &[u8]) -> Result<usize, (ErrorKind, u16, u32)> {
+        let mut slot = MaybeUninit::uninit();
+        decode_into::<Named>(bytes, &mut slot)
+            .map(|named| named.rest.len())
+            .map_err(|e| (e.kind, e.field, e.offset))
+    }
+
+    /// `bytes` fed one piece per `cut`, each entry whole in its piece.
+    fn labels_in_pieces(bytes: &[u8], cuts: &[usize]) -> Result<usize, (ErrorKind, u16, u32)> {
+        let mut slot = MaybeUninit::<Labels>::uninit();
+        let mut decoder = Decoder::new(&mut slot);
+        [0].iter()
+            .chain(cuts)
+            .zip(cuts.iter().chain([&bytes.len()]))
+            .try_for_each(|(&start, &end)| decoder.feed(&bytes[start..end]).map(|_: Fed| ()))
+            .and_then(|()| decoder.finish().map(|labels| labels.rest.len()))
+            .map_err(|e| (e.kind, e.field, e.offset))
+    }
+
+    macro_rules! cases {
+        ($decode:ident: $($name:ident: $bytes:expr => $expected:expr;)*) => {$(
+            #[test]
+            fn $name() {
+                assert_eq!($decode($bytes), $expected);
+            }
+        )*};
+    }
+
+    mod refused {
+        use super::{ErrorKind, REST, labels, named};
+
+        cases! { labels:
+            a_negative_label: b"\xa2\x20\x01\x20\x02" => Err((ErrorKind::DuplicateKey, REST, 4));
+            a_label_in_a_wider_head: b"\xa2\x20\x01\x38\x00\x02" => Err((ErrorKind::DuplicateKey, REST, 5));
+            a_text_key: b"\xa2\x61z\x01\x61z\x02" => Err((ErrorKind::DuplicateKey, REST, 6));
+            a_text_key_of_a_wider_length: b"\xa2\x61z\x01\x78\x01z\x02" => Err((ErrorKind::DuplicateKey, REST, 7));
+            an_array_key: b"\xa2\x81\x01\x01\x81\x01\x02" => Err((ErrorKind::DuplicateKey, REST, 6));
+            an_indefinite_text_key: b"\xa2\x7f\x61z\xff\x01\x7f\x61z\xff\x02" => Err((ErrorKind::DuplicateKey, REST, 10));
+            a_label_past_a_named_one: b"\xa3\x20\x01\x01\x26\x20\x02" => Err((ErrorKind::DuplicateKey, REST, 6));
+            a_label_once_the_capture_is_full: b"\xa5\x20\x00\x21\x00\x22\x00\x23\x00\x20\x00" => Err((ErrorKind::DuplicateKey, REST, 10));
+        }
+
+        cases! { named:
+            a_matched_text_key: b"\xa2\x61z\x01\x61z\x02" => Err((ErrorKind::DuplicateKey, REST, 6));
+            a_matched_text_key_past_a_named_one: b"\xa3\x61z\x01\x62id\x07\x61z\x02" => Err((ErrorKind::DuplicateKey, REST, 10));
+        }
+    }
+
+    mod refused_in_pieces {
+        use super::{ErrorKind, REST, labels_in_pieces};
+
+        #[test]
+        fn a_text_key_one_piece_per_entry() {
+            assert_eq!(
+                labels_in_pieces(b"\xa2\x61z\x01\x61z\x02", &[4]),
+                Err((ErrorKind::DuplicateKey, REST, 6))
+            );
+        }
+
+        /// A capture takes an entry only from a chunk that holds it whole.
+        #[test]
+        fn a_cut_inside_a_text_key_needs_contiguous_input() {
+            assert_eq!(
+                labels_in_pieces(b"\xa2\x61z\x01\x61z\x02", &[2]),
+                Err((ErrorKind::NeedContiguous, REST, 2))
+            );
+        }
+
+        #[test]
+        fn a_negative_label_one_piece_per_entry() {
+            assert_eq!(
+                labels_in_pieces(b"\xa2\x20\x01\x20\x02", &[3]),
+                Err((ErrorKind::DuplicateKey, REST, 4))
+            );
+        }
+    }
+
+    /// Distinct keys, and the encodings of one key this comparison does not equate: a non-preferred
+    /// head nested in a key, one float in two widths, and definite against indefinite text.
+    mod captured {
+        use super::labels;
+
+        cases! { labels:
+            distinct_labels: b"\xa2\x20\x01\x21\x02" => Ok(2);
+            an_unsigned_and_a_negative_label_of_one_argument: b"\xa2\x00\x01\x20\x02" => Ok(2);
+            text_and_bytes_of_one_content: b"\xa2\x61z\x01\x41z\x02" => Ok(2);
+            false_and_the_half_float_of_its_bits: b"\xa2\xf4\x01\xf9\x00\x14\x02" => Ok(2);
+            a_non_preferred_head_nested_in_a_key: b"\xa2\x81\x01\x01\x81\x18\x01\x02" => Ok(2);
+            one_float_in_two_widths: b"\xa2\xf9\x3c\x00\x01\xfa\x3f\x80\x00\x00\x02" => Ok(2);
+            definite_and_indefinite_text: b"\xa2\x61z\x01\x7f\x61z\xff\x02" => Ok(2);
+        }
+    }
+
+    /// A text key that overflows the capture is reported past the whole key.
+    #[test]
+    fn an_overflowing_text_key_is_reported_past_it() {
+        assert_eq!(
+            named(b"\xa5\x61a\x00\x61b\x00\x61c\x00\x61d\x00\x61e\x00"),
+            Err((ErrorKind::LimitExceeded, REST, 15))
+        );
+    }
+
+    /// Strict refuses the first unknown entry before any can repeat.
+    mod strict {
+        use super::{Decoder, ErrorKind, Labels, MaybeUninit, decode_strict_into};
+
+        /// Its key's head is all of the entry this chunk holds.
+        #[test]
+        fn a_text_key_whose_value_is_still_to_come() {
+            let mut slot = MaybeUninit::<Labels>::uninit();
+            assert_eq!(
+                Decoder::new_strict(&mut slot)
+                    .feed(b"\xa2\x61z")
+                    .map(|_| ())
+                    .map_err(|e| (e.kind, e.offset)),
+                Err((ErrorKind::UnknownField, 2))
+            );
+        }
+
+        fn strict(bytes: &[u8]) -> Result<usize, (ErrorKind, u32)> {
+            let mut slot = MaybeUninit::uninit();
+            decode_strict_into::<Labels>(bytes, &mut slot)
+                .map(|labels| labels.rest.len())
+                .map_err(|e| (e.kind, e.offset))
+        }
+
+        cases! { strict:
+            a_negative_label: b"\xa2\x20\x01\x20\x02" => Err((ErrorKind::UnknownField, 2));
+            a_label_in_a_wider_head: b"\xa2\x20\x01\x38\x00\x02" => Err((ErrorKind::UnknownField, 2));
+            a_text_key: b"\xa2\x61z\x01\x61z\x02" => Err((ErrorKind::UnknownField, 2));
+        }
+    }
+}
+
 #[cfg(feature = "alloc")]
 mod allocated {
     use core::mem::MaybeUninit;
@@ -354,6 +522,78 @@ mod allocated {
         assert_eq!(
             decoder.feed(&UNKNOWN[..6]).map_err(|e| e.kind),
             Err(ErrorKind::NeedContiguous)
+        );
+    }
+
+    #[derive(Cbor, Debug)]
+    struct Labels<'a> {
+        #[cbor(key = 1)]
+        alg: Option<i8>,
+        #[cbor(other)]
+        rest: Vec<RawEntry<'a>>,
+    }
+
+    const REST: u16 = 1;
+
+    fn labels(bytes: &[u8]) -> Result<usize, (ErrorKind, u16, u32)> {
+        from_slice::<Labels>(bytes)
+            .map(|labels| labels.rest.len())
+            .map_err(|e| (e.kind, e.field, e.offset))
+    }
+
+    /// `count` distinct unsigned labels from 2 in three-byte heads, then `last`, in a map of them all.
+    fn many_labels(count: u16, last: &[u8]) -> Vec<u8> {
+        [
+            [0xb9].as_slice(),
+            &(count + 1).to_be_bytes(),
+            &(2..count + 2)
+                .flat_map(|label| [[0x19].as_slice(), &label.to_be_bytes(), &[0xf6]].concat())
+                .collect::<Vec<u8>>(),
+            last,
+            &[0xf6],
+        ]
+        .concat()
+    }
+
+    const MANY: u16 = if cfg!(miri) { 64 } else { 2048 };
+
+    macro_rules! cases {
+        ($($name:ident: $bytes:expr => $expected:expr;)*) => {$(
+            #[test]
+            fn $name() {
+                assert_eq!(labels($bytes), $expected);
+            }
+        )*};
+    }
+
+    /// #79: each key is refused when the capture already holds it, compared as a field's key is,
+    /// and what the capture took is dropped.
+    mod refused {
+        use super::{ErrorKind, REST, labels};
+
+        cases! {
+            a_negative_label: b"\xa2\x20\x01\x20\x02" => Err((ErrorKind::DuplicateKey, REST, 4));
+            a_label_in_a_wider_head: b"\xa2\x20\x01\x38\x00\x02" => Err((ErrorKind::DuplicateKey, REST, 5));
+            a_text_key: b"\xa2\x61z\x01\x61z\x02" => Err((ErrorKind::DuplicateKey, REST, 6));
+            an_array_key_after_others: b"\xa4\x81\x01\x01\x61z\x02\x20\x03\x81\x01\x04" => Err((ErrorKind::DuplicateKey, REST, 11));
+        }
+    }
+
+    /// The capture is unbounded, and checks each key against every key it holds before it.
+    #[test]
+    fn an_unbounded_capture_checks_each_key_against_every_earlier_one() {
+        assert_eq!(
+            labels(&many_labels(MANY, b"\x20")),
+            Ok(usize::from(MANY) + 1)
+        );
+        let repeated = many_labels(MANY, b"\x02");
+        assert_eq!(
+            labels(&repeated),
+            Err((
+                ErrorKind::DuplicateKey,
+                REST,
+                u32::try_from(repeated.len() - 1).expect("fits")
+            ))
         );
     }
 
