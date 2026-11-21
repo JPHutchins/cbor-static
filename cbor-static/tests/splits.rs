@@ -166,6 +166,15 @@ fn an_unknown_entrys_malformed_value_names_the_other_field_in_any_chunks() {
     splits_as_whole::<Counted>(malformed);
 }
 
+/// #84: a counted unknown entry whose byte string key is longer than 16 bits can address is
+/// skipped past, in any chunks, so this map, cut short, ends early under any length limit.
+#[test]
+fn a_counted_entry_past_the_16_bit_limit_ends_early_in_any_chunks() {
+    let cut = b"\xb6\x5a\x7e\x40\x15\xdd\xac\x11\x34\xc7\x2d\xb4\xe2\x59\x55\xe5\x42\xa9\x69\xa0";
+    assert_eq!(whole::<Counted>(cut), Err((ErrorKind::UnexpectedEnd, 0)));
+    splits_as_whole::<Counted>(cut);
+}
+
 #[test]
 fn a_nan_splits_as_it_decodes_whole_into_every_type() {
     for nan in [

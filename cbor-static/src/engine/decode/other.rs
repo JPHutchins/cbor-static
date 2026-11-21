@@ -50,9 +50,9 @@ pub(super) fn text_key<const INT: bool>(
     }
 }
 
-/// The unknown entry whose key's head, `key`, was just read: once admitted, when this chunk holds it
-/// whole, it is captured whole, or counted, past its key, then passed over; else counted, then
-/// skipped as `skip`'s (items, header) say.
+/// The unknown entry whose key's head, `key`, was just read: once admitted, a capture takes it whole,
+/// past its key, when this chunk holds it, then it is passed over; otherwise its field is handed it
+/// empty, which a capture refuses, and a count's entry is then skipped as (items, header) say.
 pub(super) fn unclaimed(
     state: &mut State,
     frames: &mut [MaybeUninit<Frame>],
@@ -61,7 +61,11 @@ pub(super) fn unclaimed(
     (items, header): (u64, Option<Header>),
 ) -> Result<Flow, ErrorKind> {
     let field = admit(state, frames)?;
-    let entry = whole(input, key)?;
+    let entry = if captures(state, frames, field)? {
+        whole(input, key)?
+    } else {
+        None
+    };
     let key_rest = entry.map_or(0, |(_, key_rest)| key_rest);
     input.take_exact(key_rest).ok_or(ErrorKind::Unsupported)?;
     match (
@@ -116,6 +120,20 @@ fn admit(state: &State, frames: &mut [MaybeUninit<Frame>]) -> Result<u8, ErrorKi
         .and_then(other_field)
         .ok_or(ErrorKind::Unsupported)?;
     Ok(frame.field)
+}
+
+/// Whether the top frame's `other` `field` captures entries, each from the chunk that holds it whole;
+/// else it counts them, and each is skipped past any length, in any chunks, as a map without an
+/// `other` field skips one.
+fn captures(
+    state: &State,
+    frames: &mut [MaybeUninit<Frame>],
+    field: u8,
+) -> Result<bool, ErrorKind> {
+    Ok(desc(top(state.depth, frames)?)
+        .kinds()
+        .get(usize::from(field))
+        .is_some_and(|kind| kind.takes_payload()))
 }
 
 /// Hands an unknown entry, `entry` when this chunk holds it whole, to the top frame's `other`
