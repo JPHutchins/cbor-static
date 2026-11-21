@@ -4,52 +4,35 @@ import os
 import shlex
 import sys
 import tomllib
-from functools import partial
-from pathlib import Path
 
 from camas import Claude, Config, Parallel, Project, Task
+
+from harness.workspace import (
+	ENABLED,
+	ROOT,
+	SEED,
+	TARGET_DIR,
+	TOOLCHAIN,
+	TOOLCHAINS,
+	features,
+	nightly_miri,
+	seeded,
+)
 
 if "CBOR_STATIC_DEV_SHELL" not in os.environ and not any(
 	arg.startswith("--github-matrix") for arg in sys.argv
 ):
 	sys.exit("cbor-static: run camas inside the dev shell, e.g. `nix develop -c camas <task>`")
 
-ROOT = Path(__file__).parent
 TRIPLES = tuple(tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["targets"])
-FEATURES = frozenset(tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())["features"])
-RUSTS = {"stable": ".", "nightly": "nightly"}
-ENABLED = {rust: FEATURES - (RUSTS.keys() - {rust}) for rust in RUSTS}
-
-
-def features(enabled: frozenset[str]) -> str:
-	return " ".join(f"cbor-static/{feature}" for feature in sorted(enabled))
-
-
-TOOLCHAIN = {
-	rust: {"RUST": rust, "DIR": directory, "FEATURES": features(ENABLED[rust])}
-	for rust, directory in RUSTS.items()
-}
-TOOLCHAINS = tuple(TOOLCHAIN.values())
 BARE_TOOLCHAINS = tuple(
 	{**toolchain, "FEATURES": features(ENABLED[toolchain["RUST"]] - {"std"})} for toolchain in TOOLCHAINS
 )
-TARGET_DIR = f"{ROOT}/target"
-PROPTEST_RNG_SEED = "PROPTEST_RNG_SEED"
-PINNED_SEED = "20261120"
-SEED = "SEED"
-seeded = partial(Parallel, matrix={SEED: (PINNED_SEED,)}, env={PROPTEST_RNG_SEED: f"{{{SEED}}}"})
 MIRI_SHARDS = tuple(str(shard) for shard in range(1, 5))
 MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
-nightly_miri = partial(
-	Task,
-	cwd=TOOLCHAIN["nightly"]["DIR"],
-	env={
-		"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri",
-		PROPTEST_RNG_SEED: PINNED_SEED,
-		"MIRIFLAGS": f"-Zmiri-env-forward={PROPTEST_RNG_SEED}",
-	},
-)
 
+
+conformance = Project("cbor-static-conformance")
 harness = Project("harness")
 stack = Project("harness/stack")
 
@@ -76,7 +59,7 @@ clippy = Parallel(
 )
 unit = seeded(
 	Task(
-		f"cargo test --workspace --features '{TOOLCHAIN['stable']['FEATURES']}'",
+		f"cargo test --workspace --exclude cbor-static-conformance --features '{TOOLCHAIN['stable']['FEATURES']}'",
 		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
 	),
 )
@@ -109,7 +92,7 @@ oneshot = seeded(
 )
 test = seeded(
 	Task(
-		"cargo test --workspace --features '{FEATURES}'",
+		"cargo test --workspace --exclude cbor-static-conformance --features '{FEATURES}'",
 		cwd="{DIR}",
 		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/{{RUST}}-host"},
 	),
@@ -131,9 +114,18 @@ miri = Parallel(
 	matrix={"SHARD": MIRI_SHARDS},
 )
 miri_doc = nightly_miri(f"cargo miri test {MIRI_PACKAGE} --doc", help="nextest runs no doctests")
-fix = rust_fmt | tasks_fix | nix_fmt | harness
+fix = rust_fmt | tasks_fix | nix_fmt | harness | conformance
 check = (
-	rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | serde_bare | oneshot | tasks_check | harness
+	rust_fmt_check
+	| nix_fmt_check
+	| clippy
+	| unit
+	| usize16
+	| serde_bare
+	| oneshot
+	| tasks_check
+	| harness
+	| conformance
 )
 f32 = seeded(
 	Task(

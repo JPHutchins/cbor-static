@@ -1,0 +1,16 @@
+[package]
+name = "cbor-static-conformance"
+description = "Protocol types and vector suites that hold cbor-static to COSE, CWT, EDHOC and SMP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+cbor-static = { path = "../cbor-static", features = ["heapless"] }
+heapless = { version = "0.9.3", default-features = false }
+
+[lints]
+workspace = true

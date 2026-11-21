@@ -38,6 +38,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cbor-static-conformance"
+version = "0.0.0"
+dependencies = [
+ "cbor-static",
+ "heapless",
+]
+
+[[package]]
 name = "cbor-static-derive"
 version = "0.0.0"
 dependencies = [
