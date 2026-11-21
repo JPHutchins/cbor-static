@@ -1,0 +1,11 @@
+//! COSE against cose-wg/Examples: every message, header map, key and intermediate structure.
+
+#[path = "../common/mod.rs"]
+mod common;
+
+mod decoded;
+mod headers;
+mod intermediates;
+mod keys;
+mod messages;
+mod rfc9052;
