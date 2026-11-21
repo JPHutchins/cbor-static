@@ -3,6 +3,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod constructs;
 mod decoded;
 mod headers;
 mod intermediates;
