@@ -7,8 +7,11 @@ dependencies = []
 [dependency-groups]
 dev = [
     "camas[mcp]==0.1.31",
+    "cbor2>=6.1.4",
     "cyclopts>=5.5.2",
     "mypy",
+    "pydantic>=2.13.4",
+    "smp @ git+https://github.com/JPHutchins/smp@4a98574e325a56d8e9b3206c4b49b3d5a764efb6",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
@@ -23,10 +26,11 @@ module-root = ""
 
 [tool.mypy]
 strict = true
-files = ["harness", "tasks.py"]
+files = ["harness", "tasks.py", "nix"]
 
 [tool.ruff]
 line-length = 110
+per-file-target-version = { "nix/**/*.py" = "py314" }
 
 [tool.ruff.lint]
 preview = true
@@ -44,6 +48,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "*/tasks.py" = ["INP001"]
+"nix/**/*.py" = ["INP001"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+runtime-evaluated-decorators = ["cyclopts.App.default"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
