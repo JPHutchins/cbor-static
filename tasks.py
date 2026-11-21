@@ -1,6 +1,7 @@
 """Every check for cbor-static, local and CI."""
 
 import os
+import shlex
 import sys
 import tomllib
 from functools import partial
@@ -152,6 +153,11 @@ properties = test | usize16 | serde_bare | oneshot
 kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
 ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake | stack
 ci = ci_jobs | miri
+daily_properties = Task(
+	f"uv run python -m harness.daily seeded properties --axis {SEED} --out {shlex.quote(f'{TARGET_DIR}/daily')}",
+	help="Q18: the property suites on a fresh seed, reported for the daily workflow",
+)
+daily_jobs = Parallel(daily_properties)
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
