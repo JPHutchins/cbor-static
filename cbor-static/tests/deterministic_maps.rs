@@ -159,7 +159,7 @@ proptest! {
 
     #[test]
     fn any_insertion_order_sorts_to_one_encoding(
-        entries in proptest::collection::hash_map(any::<i32>(), any::<u8>(), 0..=16)
+        entries in proptest::collection::btree_map(any::<i32>(), any::<u8>(), 0..=16)
             .prop_map(|entries| entries.into_iter().collect::<Vec<_>>())
             .prop_shuffle(),
         chunk in 1usize..=8,
