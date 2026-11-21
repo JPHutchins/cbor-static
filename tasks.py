@@ -33,9 +33,21 @@ BARE_TOOLCHAINS = tuple(
 	{**toolchain, "FEATURES": features(ENABLED[toolchain["RUST"]] - {"std"})} for toolchain in TOOLCHAINS
 )
 TARGET_DIR = f"{ROOT}/target"
+PROPTEST_RNG_SEED = "PROPTEST_RNG_SEED"
+PINNED_SEED = "20261120"
+SEED = "SEED"
+seeded = partial(Parallel, matrix={SEED: (PINNED_SEED,)}, env={PROPTEST_RNG_SEED: f"{{{SEED}}}"})
 MIRI_SHARDS = tuple(str(shard) for shard in range(1, 5))
 MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
-nightly_miri = partial(Task, cwd=TOOLCHAIN["nightly"]["DIR"], env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri"})
+nightly_miri = partial(
+	Task,
+	cwd=TOOLCHAIN["nightly"]["DIR"],
+	env={
+		"CARGO_TARGET_DIR": f"{TARGET_DIR}/miri",
+		PROPTEST_RNG_SEED: PINNED_SEED,
+		"MIRIFLAGS": f"-Zmiri-env-forward={PROPTEST_RNG_SEED}",
+	},
+)
 
 harness = Project("harness")
 stack = Project("harness/stack")
@@ -61,32 +73,40 @@ clippy = Parallel(
 	),
 	variants=TOOLCHAINS,
 )
-unit = Task(
-	f"cargo test --workspace --features '{TOOLCHAIN['stable']['FEATURES']}'",
-	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+unit = seeded(
+	Task(
+		f"cargo test --workspace --features '{TOOLCHAIN['stable']['FEATURES']}'",
+		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+	),
 )
-usize16 = Task(
-	"cargo test -p cbor-static",
-	env={
-		"CARGO_TARGET_DIR": f"{TARGET_DIR}/usize16-host",
-		"RUSTFLAGS": "--cfg cbor_static_usize16 -D warnings",
-	},
+usize16 = seeded(
+	Task(
+		"cargo test -p cbor-static",
+		env={
+			"CARGO_TARGET_DIR": f"{TARGET_DIR}/usize16-host",
+			"RUSTFLAGS": "--cfg cbor_static_usize16 -D warnings",
+		},
+	),
 	help="R-103: wire lengths capped at u16::MAX, as on a 16-bit target; also the no-feature build, warnings denied",
 )
-serde_bare = Task(
-	"cargo test -p cbor-static --features serde",
-	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/serde-host", "RUSTFLAGS": "-D warnings"},
+serde_bare = seeded(
+	Task(
+		"cargo test -p cbor-static --features serde",
+		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/serde-host", "RUSTFLAGS": "-D warnings"},
+	),
 	help="D-13a: the serde layer without alloc, which refuses strings in chunks it would assemble with it",
 )
-oneshot = Task(
-	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test oneshot --test sizes",
-	env={
-		"CARGO_TARGET_DIR": f"{TARGET_DIR}/oneshot-host",
-		"RUSTFLAGS": "--cfg cbor_static_oneshot -D warnings",
-	},
+oneshot = seeded(
+	Task(
+		f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test oneshot --test sizes",
+		env={
+			"CARGO_TARGET_DIR": f"{TARGET_DIR}/oneshot-host",
+			"RUSTFLAGS": "--cfg cbor_static_oneshot -D warnings",
+		},
+	),
 	help="the one-shot engine build, on whole input",
 )
-test = Parallel(
+test = seeded(
 	Task(
 		"cargo test --workspace --features '{FEATURES}'",
 		cwd="{DIR}",
@@ -114,16 +134,21 @@ fix = rust_fmt | tasks_fix | nix_fmt | harness
 check = (
 	rust_fmt_check | nix_fmt_check | clippy | unit | usize16 | serde_bare | oneshot | tasks_check | harness
 )
-f32 = Task(
-	"cargo test --release -p cbor-static --test floats -- --ignored",
-	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},
+f32 = seeded(
+	Task(
+		"cargo test --release -p cbor-static --test floats -- --ignored",
+		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/release-host"},
+	),
 	help="R-101, R-135: all 2^32 binary32 patterns",
 )
-diagnostics = Task(
-	f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test diagnostics -- --ignored",
-	env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+diagnostics = seeded(
+	Task(
+		f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test diagnostics -- --ignored",
+		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+	),
 	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
 )
+properties = test | usize16 | serde_bare | oneshot
 kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
 ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake | stack
 ci = ci_jobs | miri
