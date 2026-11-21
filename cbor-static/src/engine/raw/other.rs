@@ -10,6 +10,8 @@ use super::RawCbor;
 use crate::engine::{ENCODE_SKIPPED, Item, Next, write_default};
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, EncKind, Order, Other, Payload, sealed};
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+use crate::wire::Major;
 
 /// An entry of a map that no field claims, captured by `#[cbor(other)]`: its key and its value,
 /// each the item it arrived as, which it encodes back as, verbatim (D-11a).
@@ -28,7 +30,7 @@ pub struct RawEntry<'de> {
 }
 
 /// How many entries of a map no field claimed, counted by `#[cbor(other)]` up to `u32::MAX`,
-/// which it then keeps. It is never written.
+/// which it then keeps. It is never written. It keeps no keys, so a repeated key counts again.
 ///
 /// ```
 /// #[derive(cbor_static::Cbor, Debug)]
@@ -41,6 +43,10 @@ pub struct RawEntry<'de> {
 /// let mut slot = core::mem::MaybeUninit::uninit();
 /// let header: &mut Header = cbor_static::decode_into(b"\xa3\x01\x02\x62id\x07\x61z\xf5", &mut slot)?;
 /// assert_eq!((header.id, header.unknown.count()), (7, 2));
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// let header: &mut Header = cbor_static::decode_into(b"\xa3\x20\x01\x62id\x07\x20\x02", &mut slot)?;
+/// assert_eq!(header.unknown.count(), 2);
 ///
 /// let mut out = [0u8; 8];
 /// let len = cbor_static::to_slice(&*header, &mut out)?;
@@ -114,12 +120,68 @@ unsafe fn whole<'de>(item: &Item<'_>) -> Result<(RawEntry<'de>, usize), ErrorKin
     ))
 }
 
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+#[inline(never)]
+fn distinct(captured: &[RawEntry<'_>], key: RawCbor<'_>) -> Result<(), ErrorKind> {
+    let wanted = identity(key)?;
+    captured.iter().try_for_each(|earlier| {
+        if identity(earlier.key)? == wanted {
+            Err(ErrorKind::DuplicateKey)
+        } else {
+            Ok(())
+        }
+    })
+}
+
+/// What two keys share when they are one key, as a field's key is matched.
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+#[derive(PartialEq, Eq)]
+struct KeyIdentity<'a> {
+    major: Major,
+    form: HeadForm,
+    arg: u64,
+    after_head: &'a [u8],
+}
+
+/// What a head's additional information says beyond its argument's width.
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+#[derive(PartialEq, Eq)]
+enum HeadForm {
+    Definite,
+    Indefinite,
+    SimpleOrFloat(u8),
+}
+
+#[cfg(any(feature = "heapless", feature = "alloc"))]
+#[inline(never)]
+fn identity(key: RawCbor<'_>) -> Result<KeyIdentity<'_>, ErrorKind> {
+    use crate::wire::{header_len, parse};
+
+    let (head, after_head) = key
+        .bytes
+        .split_at_checked(header_len(
+            *key.bytes.first().ok_or(ErrorKind::Unsupported)?,
+        )?)
+        .ok_or(ErrorKind::Unsupported)?;
+    let header = parse(head)?;
+    Ok(KeyIdentity {
+        major: header.major,
+        form: match (header.major, header.indefinite()) {
+            (Major::Simple, _) => HeadForm::SimpleOrFloat(header.info),
+            (_, true) => HeadForm::Indefinite,
+            (_, false) => HeadForm::Definite,
+        },
+        arg: header.arg,
+        after_head,
+    })
+}
+
 #[cfg(feature = "heapless")]
 mod captured {
     use heapless::{LenType, Vec};
 
     use super::super::RawCbor;
-    use super::{RawEntry, whole};
+    use super::{RawEntry, distinct, whole};
     use crate::engine::{ENCODE_ENTRIES, Item, Next, drop_fn, view, write_default};
     use crate::error::ErrorKind;
     use crate::schema::{DecKind, EncKind, Encode, Order, Other, Payload, sealed};
@@ -128,9 +190,10 @@ mod captured {
     impl<const N: usize, L: LenType> sealed::Other for Vec<RawEntry<'_>, N, L> {}
 
     /// Up to `N` entries no field claims, each taken whole from the chunk that holds it: an entry
-    /// split across chunks is [`ErrorKind::NeedContiguous`], and one more than `N` is
-    /// [`ErrorKind::LimitExceeded`]. They encode back in their field's place, verbatim; so under
-    /// deterministic encoding, which they cannot be sorted for, they are a compile error.
+    /// split across chunks is [`ErrorKind::NeedContiguous`], one more than `N` is
+    /// [`ErrorKind::LimitExceeded`], and a key it already holds is [`ErrorKind::DuplicateKey`].
+    /// They encode back in their field's place, verbatim; so under deterministic encoding, which
+    /// they cannot be sorted for, they are a compile error.
     ///
     /// ```
     /// use cbor_static::RawEntry;
@@ -156,6 +219,12 @@ mod captured {
     /// assert_eq!(
     ///     cbor_static::decode_into(b"\xa3\x01\x02\x03\x04\x05\x06", &mut slot).map(|_| ()).map_err(|e| e.kind),
     ///     Err(cbor_static::ErrorKind::LimitExceeded)
+    /// );
+    ///
+    /// let mut slot = core::mem::MaybeUninit::<Header>::uninit();
+    /// assert_eq!(
+    ///     cbor_static::decode_into(b"\xa3\x62id\x07\x20\x01\x20\x02", &mut slot).map(|_| ()).map_err(|e| e.kind),
+    ///     Err(cbor_static::ErrorKind::DuplicateKey)
     /// );
     /// # Ok::<(), cbor_static::Error>(())
     /// ```
@@ -183,9 +252,9 @@ mod captured {
         item: &Item<'_>,
     ) -> Result<Next, ErrorKind> {
         let (entry, len) = unsafe { whole(item) }?;
-        unsafe { &mut *dst.cast::<Vec<RawEntry<'_>, N, L>>() }
-            .push(entry)
-            .map_err(|_| ErrorKind::LimitExceeded)?;
+        let captured = unsafe { &mut *dst.cast::<Vec<RawEntry<'_>, N, L>>() };
+        distinct(captured, entry.key)?;
+        captured.push(entry).map_err(|_| ErrorKind::LimitExceeded)?;
         Ok(Next::Took(len))
     }
 }
@@ -195,7 +264,7 @@ mod allocated {
     use alloc::vec::Vec;
 
     use super::super::RawCbor;
-    use super::{RawEntry, whole};
+    use super::{RawEntry, distinct, whole};
     use crate::engine::{ENCODE_ENTRIES, Item, Next, drop_fn, push_heap, view_heap, write_default};
     use crate::error::ErrorKind;
     use crate::schema::{DecKind, EncKind, Encode, Order, Other, Payload, sealed};
@@ -204,9 +273,9 @@ mod allocated {
     impl sealed::Other for Vec<RawEntry<'_>> {}
 
     /// Every entry no field claims, each taken whole from the chunk that holds it: an entry split
-    /// across chunks is [`ErrorKind::NeedContiguous`]. They encode back in their field's place,
-    /// verbatim; so under deterministic encoding, which they cannot be sorted for, they are a
-    /// compile error.
+    /// across chunks is [`ErrorKind::NeedContiguous`], and a key it already holds is
+    /// [`ErrorKind::DuplicateKey`]. They encode back in their field's place, verbatim; so under
+    /// deterministic encoding, which they cannot be sorted for, they are a compile error.
     ///
     /// ```
     /// use cbor_static::RawEntry;
@@ -226,6 +295,11 @@ mod allocated {
     /// let mut out = [0u8; 16];
     /// let len = cbor_static::to_slice(&header, &mut out)?;
     /// assert_eq!(&out[..len], input);
+    ///
+    /// assert_eq!(
+    ///     cbor_static::from_slice::<Header>(b"\xa3\x62id\x07\x20\x01\x20\x02").map(|_| ()).map_err(|e| e.kind),
+    ///     Err(cbor_static::ErrorKind::DuplicateKey)
+    /// );
     /// # Ok::<(), cbor_static::Error>(())
     /// ```
     impl<'de> Other for Vec<RawEntry<'de>> {
@@ -249,7 +323,9 @@ mod allocated {
 
     unsafe fn capture(dst: *mut u8, item: &Item<'_>) -> Result<Next, ErrorKind> {
         let (entry, len) = unsafe { whole(item) }?;
-        push_heap(unsafe { &mut *dst.cast::<Vec<RawEntry<'_>>>() }, entry)?;
+        let captured = unsafe { &mut *dst.cast::<Vec<RawEntry<'_>>>() };
+        distinct(captured, entry.key)?;
+        push_heap(captured, entry)?;
         Ok(Next::Took(len))
     }
 }
@@ -259,6 +335,56 @@ mod tests {
     use super::{Skipped, count};
     use crate::engine::Item;
     use crate::wire::{Header, Major};
+
+    #[cfg(any(feature = "heapless", feature = "alloc"))]
+    mod keys {
+        use super::super::{RawCbor, RawEntry, distinct, identity};
+        use crate::error::ErrorKind;
+
+        fn same(a: &[u8], b: &[u8]) -> bool {
+            identity(RawCbor { bytes: a }).expect("a key")
+                == identity(RawCbor { bytes: b }).expect("a key")
+        }
+
+        macro_rules! cases {
+            ($($name:ident: $a:expr, $b:expr => $same:expr;)*) => {$(
+                #[test]
+                fn $name() {
+                    assert_eq!(same($a, $b), $same);
+                }
+            )*};
+        }
+
+        cases! {
+            one_label_in_two_widths: b"\x20", b"\x38\x00" => true;
+            one_label_in_the_widest_head: b"\x01", b"\x1b\x00\x00\x00\x00\x00\x00\x00\x01" => true;
+            one_text_of_two_length_widths: b"\x61z", b"\x78\x01z" => true;
+            one_tag_of_two_widths: b"\xc1\x00", b"\xd8\x01\x00" => true;
+            an_unsigned_and_a_negative_label: b"\x00", b"\x20" => false;
+            text_and_bytes: b"\x61z", b"\x41z" => false;
+            two_texts: b"\x61z", b"\x61y" => false;
+            false_and_a_half_float_of_its_bits: b"\xf4", b"\xf9\x00\x14" => false;
+            an_empty_text_and_an_empty_indefinite_one: b"\x60", b"\x7f\xff" => false;
+            one_float_in_two_widths: b"\xf9\x3c\x00", b"\xfa\x3f\x80\x00\x00" => false;
+            a_nested_head_in_two_widths: b"\x81\x01", b"\x81\x18\x01" => false;
+        }
+
+        #[test]
+        fn a_key_is_refused_only_when_held() {
+            let held = [RawEntry {
+                key: RawCbor { bytes: b"\x20" },
+                value: RawCbor { bytes: b"\x01" },
+            }];
+            assert_eq!(
+                (
+                    distinct(&held, RawCbor { bytes: b"\x38\x00" }),
+                    distinct(&held, RawCbor { bytes: b"\x21" }),
+                    distinct(&[], RawCbor { bytes: b"\x20" }),
+                ),
+                (Err(ErrorKind::DuplicateKey), Ok(()), Ok(()))
+            );
+        }
+    }
 
     #[test]
     fn the_count_saturates_at_its_most() {
