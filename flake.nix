@@ -11,6 +11,10 @@
       url = "github:cbor-wg/cbor-test-vectors/7e84843b646676a715d4da21c719f263e4c43440";
       flake = false;
     };
+    cose-wg-examples = {
+      url = "github:cose-wg/Examples/53c9d634333bb4f529d78f5980fffa2667ee2c12";
+      flake = false;
+    };
     minicbor = {
       url = "github:twittner/minicbor/0432e74b1c85edf45db3c64da9f8b0d0897cdfda";
       flake = false;
@@ -38,6 +42,9 @@
       };
       python = pkgs.python315;
       kani = pkgs.callPackage ./nix/kani.nix { };
+      cose-wg-vectors = pkgs.callPackage ./nix/cose-wg-vectors.nix {
+        examples = inputs.cose-wg-examples;
+      };
       devShell = pkgs.mkShell (
         pkgs.lib.mapAttrs' (
           name: input:
@@ -57,6 +64,7 @@
             pkgs.cargo-fuzz
           ];
           CBOR_STATIC_DEV_SHELL = "1";
+          COSE_WG_VECTORS = "${cose-wg-vectors}";
           UV_PYTHON = pkgs.lib.getExe python;
           UV_PYTHON_DOWNLOADS = "never";
           shellHook = ''

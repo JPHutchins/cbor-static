@@ -17,6 +17,23 @@
         "type": "github"
       }
     },
+    "cose-wg-examples": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1710335802,
+        "narHash": "sha256-4CjYezj0LVOZM2okv6BunQ+GTCg5b4K2t404sI4UY2Y=",
+        "owner": "cose-wg",
+        "repo": "Examples",
+        "rev": "53c9d634333bb4f529d78f5980fffa2667ee2c12",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cose-wg",
+        "repo": "Examples",
+        "rev": "53c9d634333bb4f529d78f5980fffa2667ee2c12",
+        "type": "github"
+      }
+    },
     "minicbor": {
       "flake": false,
       "locked": {
@@ -70,6 +87,7 @@
     "root": {
       "inputs": {
         "cbor-test-vectors": "cbor-test-vectors",
+        "cose-wg-examples": "cose-wg-examples",
         "minicbor": "minicbor",
         "nixpkgs": "nixpkgs",
         "postcard": "postcard",
