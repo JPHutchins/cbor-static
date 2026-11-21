@@ -9,4 +9,6 @@ mod headers;
 mod intermediates;
 mod keys;
 mod messages;
+#[cfg(not(miri))]
+mod oracle;
 mod rfc9052;

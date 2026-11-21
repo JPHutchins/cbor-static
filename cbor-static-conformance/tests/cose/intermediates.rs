@@ -19,7 +19,7 @@ use crate::common::{encode, reencode};
 use crate::decoded::{Layer, layers, message};
 
 /// Additional authenticated data whose context string RFC 9052 §5.3 does not allow.
-const NOT_ENC_STRUCTURES: [&str; 9] = [
+pub const NOT_ENC_STRUCTURES: [&str; 9] = [
     "chacha-poly-examples/chacha-poly-enc-01",
     "hkdf-aes-examples/hmac-aes-128-03",
     "hkdf-aes-examples/hmac-aes-128-04",
