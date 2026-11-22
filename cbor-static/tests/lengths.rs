@@ -3,8 +3,8 @@
 
 mod common;
 
-use cbor_static::{ErrorKind, to_slice};
-use common::{chunked_decode, decode};
+use cbor_static::to_slice;
+use common::{beyond_16_bits, chunked_decode, decode};
 
 const LIMIT: usize = u16::MAX as usize;
 
@@ -73,14 +73,6 @@ fn contiguous_scans_convert_every_length() {
     };
     assert_eq!(decode::<Kind>(&tagged(LIMIT)), Ok(Kind::A));
     assert_eq!(decode::<Kind>(&tagged(LIMIT + 1)), beyond_16_bits(Kind::A));
-}
-
-fn beyond_16_bits<T>(decoded: T) -> Result<T, ErrorKind> {
-    if cfg!(cbor_static_usize16) {
-        Err(ErrorKind::LimitExceeded)
-    } else {
-        Ok(decoded)
-    }
 }
 
 fn encoded<T: cbor_static::Encode>(value: &T) -> Vec<u8> {
