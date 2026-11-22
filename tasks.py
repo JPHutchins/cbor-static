@@ -5,7 +5,7 @@ import shlex
 import sys
 import tomllib
 
-from camas import Claude, Config, Parallel, Project, Task
+from camas import Claude, Config, Parallel, Project, Task, by_glob
 
 from harness.workspace import (
 	ENABLED,
@@ -37,13 +37,16 @@ harness = Project("harness")
 stack = Project("harness/stack")
 
 rust_fmt = Task("cargo fmt --all", mutates=True)
-tasks_fix = Task("uv run ruff check --fix --exit-zero {paths}", paths="tasks.py", mutates=True) + Task(
-	"uv run ruff format {paths}", paths="tasks.py", mutates=True
+PYTHON = ("tasks.py", "nix")
+python_changes = by_glob(("tasks.py", "nix/**/*.py"), default=PYTHON)
+tasks_fix = Task("uv run ruff check --fix --exit-zero {paths}", paths=python_changes, mutates=True) + Task(
+	"uv run ruff format {paths}", paths=python_changes, mutates=True
 )
 tasks_check = (
-	Task("uv run ruff format --check {paths}", paths="tasks.py")
-	| Task("uv run ruff check {paths}", paths="tasks.py")
-	| Task("uv run mypy tasks.py")
+	Task("uv run ruff format --check {paths}", paths=python_changes)
+	| Task("uv run ruff check {paths}", paths=python_changes)
+	| Task(f"uv run mypy {' '.join(PYTHON)}")
+	| Task("uv run pytest --doctest-modules -q nix")
 )
 rust_fmt_check = Task("cargo fmt --all --check")
 nix_fmt = Task("treefmt", mutates=True)

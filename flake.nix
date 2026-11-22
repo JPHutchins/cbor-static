@@ -19,6 +19,10 @@
       url = "github:twittner/minicbor/0432e74b1c85edf45db3c64da9f8b0d0897cdfda";
       flake = false;
     };
+    smp-records = {
+      url = "github:JPHutchins/smp/4a98574e325a56d8e9b3206c4b49b3d5a764efb6";
+      flake = false;
+    };
     postcard = {
       url = "github:jamesmunns/postcard/718aa6a6850456017c19eeff67303c633f875736";
       flake = false;
@@ -47,6 +51,9 @@
       };
       rfc-cddl = pkgs.callPackage ./nix/rfc-cddl.nix { };
       rfc-vectors = pkgs.callPackage ./nix/rfc-vectors.nix { };
+      smp-vectors = pkgs.callPackage ./nix/smp-vectors.nix {
+        records = inputs.smp-records;
+      };
       devShell = pkgs.mkShell (
         pkgs.lib.mapAttrs' (
           name: input:
@@ -69,6 +76,7 @@
           COSE_WG_VECTORS = "${cose-wg-vectors}";
           RFC_CDDL = "${rfc-cddl}";
           RFC_VECTORS = "${rfc-vectors}";
+          SMP_VECTORS = "${smp-vectors}";
           UV_PYTHON = pkgs.lib.getExe python;
           UV_PYTHON_DOWNLOADS = "never";
           shellHook = ''
