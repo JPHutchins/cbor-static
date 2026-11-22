@@ -13,6 +13,9 @@ cbor-static = { path = "../cbor-static", features = ["heapless"] }
 heapless = { version = "0.9.3", default-features = false }
 
 [dev-dependencies]
+cbor-static = { path = "../cbor-static", features = ["heapless", "alloc"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 cddl = { git = "https://github.com/anweiss/cddl", rev = "848fd761180038d5d33faf1ed5566ddb8e7a0125", default-features = false, features = ["additional-controls", "ast-span", "cbor", "json"] }
 
 [lints]

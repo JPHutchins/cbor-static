@@ -7,7 +7,9 @@ from harness.workspace import TARGET_DIR, TOOLCHAIN, nightly_miri, seeded
 
 PACKAGE = "-p cbor-static-conformance"
 HOST_TARGET = {"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"}
-HOST_TEST = f"cargo test {PACKAGE} --features '{TOOLCHAIN['stable']['FEATURES']}'"
+HOST = f"{PACKAGE} --features '{TOOLCHAIN['stable']['FEATURES']}'"
+HOST_TEST = f"cargo test {HOST}"
+HOST_RUN = f"cargo run -q {HOST}"
 MIRI_MODULES = ("messages", "headers", "keys", "records")
 
 fix = Task("uv run ruff check --fix --exit-zero {paths}", paths="tasks.py", mutates=True) + Task(
@@ -19,11 +21,16 @@ slices_cover_the_tests = Task(
 	env=HOST_TARGET,
 	help="the Miri slices list exactly the host run's tests",
 )
+smp_oracle = Task(
+	f'uv run python -m harness.smp_oracle --example "{HOST_RUN} --example smp_encodings"',
+	env=HOST_TARGET,
+	help="JPHutchins/smp reads what the SMP types write exactly when cbor-static reads it, but pinned shapes",
+)
 check = (
 	Task("uv run ruff format --check {paths}", paths="tasks.py")
 	| Task("uv run ruff check {paths}", paths="tasks.py")
 	| Task("uv run mypy tasks.py")
-	| (test + slices_cover_the_tests)
+	| (test + slices_cover_the_tests + smp_oracle)
 )
 NIGHTLY = f"{PACKAGE} --features '{TOOLCHAIN['nightly']['FEATURES']}'"
 miri = Parallel(
