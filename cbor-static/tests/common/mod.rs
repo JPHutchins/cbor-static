@@ -162,6 +162,14 @@ pub fn decode<'de, T: Decode<'de> + Copy>(bytes: &'de [u8]) -> Result<T, ErrorKi
         .map_err(|e| e.kind)
 }
 
+pub fn beyond_16_bits<T>(decoded: T) -> Result<T, ErrorKind> {
+    if cfg!(cbor_static_usize16) {
+        Err(ErrorKind::LimitExceeded)
+    } else {
+        Ok(decoded)
+    }
+}
+
 pub fn decode_strict<'de, T: Decode<'de> + Copy>(bytes: &'de [u8]) -> Result<T, ErrorKind> {
     let mut slot = MaybeUninit::uninit();
     decode_strict_into(bytes, &mut slot)

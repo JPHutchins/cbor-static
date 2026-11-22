@@ -4,11 +4,14 @@
 //! a block freed on another thread than allocated it wraps both counts alike.
 #![cfg(feature = "alloc")]
 
+mod common;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::mem::MaybeUninit;
 
 use cbor_static::{Cbor, Decoder, ErrorKind, Fed, from_slice, to_vec};
+use common::beyond_16_bits;
 
 struct Counting;
 
@@ -125,11 +128,11 @@ fn a_huge_byte_string_header_reserves_only_what_arrived() {
         ]
         .concat();
         let (live, largest) = measured(usize::MAX, || {
-            assert_eq!(fed::<Blob>(&input), Ok(Fed::NeedInput));
+            assert_eq!(fed::<Blob>(&input), beyond_16_bits(Fed::NeedInput));
         });
         assert_eq!(live, 0, "{delivered} bytes");
         assert!(
-            largest <= min_non_zero_cap::<u8>().max(2 * delivered),
+            largest <= reserved_at_most(delivered),
             "{delivered} bytes: {largest} reserved"
         );
     }
@@ -172,14 +175,18 @@ fn a_huge_string_header_reserves_only_what_arrived() {
     for delivered in 0..40 {
         let input = [HUGE_TEXT, &b"a".repeat(40)[..delivered]].concat();
         let (live, largest) = measured(usize::MAX, || {
-            assert_eq!(fed::<String>(&input), Ok(Fed::NeedInput));
+            assert_eq!(fed::<String>(&input), beyond_16_bits(Fed::NeedInput));
         });
         assert_eq!(live, 0, "{delivered} bytes");
         assert!(
-            largest <= min_non_zero_cap::<u8>().max(2 * delivered),
+            largest <= reserved_at_most(delivered),
             "{delivered} bytes: {largest} reserved"
         );
     }
+}
+
+fn reserved_at_most(delivered: usize) -> usize {
+    beyond_16_bits(min_non_zero_cap::<u8>().max(2 * delivered)).unwrap_or(0)
 }
 
 #[test]
