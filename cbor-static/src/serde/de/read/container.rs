@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! The reads of arrays, maps and variants.
 
+use super::token::{STRINGS, STRINGS_AND_MAPS};
 use super::{Entries, Keys, Remaining};
 use crate::ErrorKind;
 use crate::serde::{Deserializer, Error};
@@ -61,7 +62,7 @@ impl<'de> Deserializer<'de> {
         match self.tokens.initial() {
             Some(initial) if definite_text(initial) => Ok(()),
             Some(_) | None => {
-                let (_, at) = self.token()?;
+                let (_, at) = self.token_not(STRINGS)?;
                 Err(self.refused(at))
             }
         }
@@ -87,7 +88,7 @@ impl<'de> Deserializer<'de> {
     /// The head of an array, entered one level deeper (R-303).
     #[inline(never)]
     pub(in crate::serde::de) fn open_array(&mut self) -> Result<Remaining, Error> {
-        match self.token()? {
+        match self.token_not(STRINGS_AND_MAPS)? {
             (Token::Array(len), at) => self.enter(at, len),
             (_, at) => Err(self.refused(at)),
         }
@@ -96,7 +97,7 @@ impl<'de> Deserializer<'de> {
     /// The head of a map, entered one level deeper (R-303).
     #[inline(never)]
     pub(in crate::serde::de) fn open_map(&mut self) -> Result<Remaining, Error> {
-        match self.token()? {
+        match self.token_not(STRINGS)? {
             (Token::Map(len), at) => self.enter(at, len),
             (_, at) => Err(self.refused(at)),
         }

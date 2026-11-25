@@ -4,17 +4,52 @@
 use crate::ErrorKind;
 use crate::serde::{Deserializer, Error};
 use crate::token::Token;
+use crate::wire::{INDEFINITE, Major, header_len};
+
+/// The majors of the strings: a read neither satisfies refuses either at its head.
+pub(super) const STRINGS: &[Major] = &[Major::Bytes, Major::Text];
+/// The strings' majors and a map's: a scalar or an array refuses each at its head.
+pub(super) const STRINGS_AND_MAPS: &[Major] = &[Major::Bytes, Major::Text, Major::Map];
 
 impl<'de> Deserializer<'de> {
     /// The next token, and the offset of its head. A struct's key that is not text, which
     /// [`Self::next_key`] skipped, can be read only as an identifier or ignored. Under Strict, its
     /// head must be deterministic, and a key out of order is refused before its value.
     pub(super) fn token(&mut self) -> Result<(Token<'de>, usize), Error> {
+        let at = self.ready()?;
+        self.next_token(at)
+    }
+
+    /// [`Self::token`] for a read that a definite string of a major in `refused` never satisfies,
+    /// which decides at the string's head as the native leaf does: once the head is whole, the
+    /// string is a type mismatch just past it, whatever its payload holds and however much of it
+    /// arrived. A head cut short is still the end of the input.
+    pub(super) fn token_not(&mut self, refused: &[Major]) -> Result<(Token<'de>, usize), Error> {
+        let at = self.ready()?;
+        match self.tokens.initial() {
+            Some(initial)
+                if refused.contains(&Major::of(initial))
+                    && initial & 0x1f != INDEFINITE
+                    && header_len(initial).is_ok_and(|len| len <= self.tokens.rest().len()) =>
+            {
+                self.deterministic(at)?;
+                Err(self.refused(at))
+            }
+            Some(_) | None => self.next_token(at),
+        }
+    }
+
+    /// Where the next token starts, once a key out of order or skipped allows reading it.
+    fn ready(&mut self) -> Result<usize, Error> {
         self.ordered()?;
         let at = self.tokens.offset();
         if core::mem::take(&mut self.skipped_key) {
             return Err(Error::new(ErrorKind::TypeMismatch, at));
         }
+        Ok(at)
+    }
+
+    fn next_token(&mut self, at: usize) -> Result<(Token<'de>, usize), Error> {
         let end = at + self.tokens.rest().len();
         match self.tokens.next() {
             Some(Ok(token)) => self.deterministic(at).map(|()| (token, at)),

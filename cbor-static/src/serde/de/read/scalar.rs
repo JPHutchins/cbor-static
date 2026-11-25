@@ -4,14 +4,16 @@
 use crate::ErrorKind;
 use crate::serde::{Deserializer, Error};
 use crate::token::Token;
+use crate::wire::Major;
 
 use super::any::Value;
 use super::strings::{Digits, Utf8};
+use super::token::STRINGS_AND_MAPS;
 
 impl<'de> Deserializer<'de> {
     #[inline(never)]
     pub(in crate::serde::de) fn boolean(&mut self) -> Result<bool, Error> {
-        match self.token()? {
+        match self.token_not(STRINGS_AND_MAPS)? {
             (Token::Bool(value), _) => Ok(value),
             (_, at) => Err(self.refused(at)),
         }
@@ -19,7 +21,7 @@ impl<'de> Deserializer<'de> {
 
     #[inline(never)]
     pub(in crate::serde::de) fn null(&mut self) -> Result<(), Error> {
-        match self.token()? {
+        match self.token_not(STRINGS_AND_MAPS)? {
             (Token::Null, _) => Ok(()),
             (_, at) => Err(self.refused(at)),
         }
@@ -53,7 +55,7 @@ impl<'de> Deserializer<'de> {
     /// An integer as `N`, which floats are not (D-12).
     #[inline(never)]
     pub(in crate::serde::de) fn integer<N: TryFrom<i128>>(&mut self) -> Result<N, Error> {
-        let (token, at) = self.token()?;
+        let (token, at) = self.token_not(STRINGS_AND_MAPS)?;
         match token {
             Token::Unsigned(n) => Ok(i128::from(n)),
             Token::Negative(n) => Ok(!i128::from(n)),
@@ -65,7 +67,7 @@ impl<'de> Deserializer<'de> {
     /// A `u128`: an integer, or a bignum of tag 2 (D-12).
     #[inline(never)]
     pub(in crate::serde::de) fn wide_unsigned(&mut self) -> Result<u128, Error> {
-        match self.token()? {
+        match self.token_not(STRINGS_AND_MAPS)? {
             (Token::Unsigned(n), _) => Ok(n.into()),
             (Token::Tag(2), _) => self.digits(),
             (Token::Negative(_) | Token::Tag(3), at) => {
@@ -78,7 +80,7 @@ impl<'de> Deserializer<'de> {
     /// An `i128`: an integer, or a bignum of tag 2 or 3 (D-12).
     #[inline(never)]
     pub(in crate::serde::de) fn wide_signed(&mut self) -> Result<i128, Error> {
-        match self.token()? {
+        match self.token_not(STRINGS_AND_MAPS)? {
             (Token::Unsigned(n), _) => Ok(n.into()),
             (Token::Negative(n), _) => Ok(!i128::from(n)),
             (Token::Tag(2), _) => {
@@ -94,7 +96,10 @@ impl<'de> Deserializer<'de> {
     /// A bignum's magnitude: a byte string, whole or in chunks, of at most 16 digits past its
     /// leading zeros; under Strict, of only the digits it needs, and more than a `u64` holds.
     pub(super) fn digits(&mut self) -> Result<u128, Error> {
-        let digits = match self.token().map_err(|error| self.copied(error))? {
+        let digits = match self
+            .token_not(&[Major::Text, Major::Map])
+            .map_err(|error| self.copied(error))?
+        {
             (head @ (Token::Bytes(_) | Token::BytesIndefinite), _) => {
                 self.fold_string(head, Digits::default(), Digits::step)?
             }
@@ -111,7 +116,7 @@ impl<'de> Deserializer<'de> {
     /// A float's binary64 bits, which integers are not (D-12).
     #[inline(never)]
     pub(in crate::serde::de) fn double(&mut self) -> Result<u64, Error> {
-        match self.token()? {
+        match self.token_not(STRINGS_AND_MAPS)? {
             (Token::Float(value), _) => Ok(value.to_bits()),
             (_, at) => Err(self.refused(at)),
         }
@@ -128,7 +133,7 @@ impl<'de> Deserializer<'de> {
     /// Text, borrowed, or with `alloc` assembled from chunks (D-13a).
     #[inline(never)]
     pub(in crate::serde::de) fn text(&mut self) -> Result<Value<'de, str>, Error> {
-        match self.token()? {
+        match self.token_not(&[Major::Map])? {
             (Token::Text(text), _) => Ok(text.into()),
             #[cfg(feature = "alloc")]
             (Token::TextIndefinite, _) => self.assembled_text(),
@@ -142,7 +147,15 @@ impl<'de> Deserializer<'de> {
     /// Bytes, borrowed, or with `alloc` assembled from chunks (D-13a).
     #[inline(never)]
     pub(in crate::serde::de) fn bytes(&mut self) -> Result<Value<'de, [u8]>, Error> {
-        match self.token()? {
+        match self
+            .token_not(&[Major::Map])
+            .map_err(|error| match error.kind {
+                ErrorKind::InvalidUtf8 => Error {
+                    kind: ErrorKind::TypeMismatch,
+                    ..error
+                },
+                _ => error,
+            })? {
             (Token::Bytes(bytes), _) => Ok(bytes.into()),
             #[cfg(feature = "alloc")]
             (Token::BytesIndefinite, _) => self.assembled().map(alloc::borrow::Cow::Owned),
@@ -156,7 +169,10 @@ impl<'de> Deserializer<'de> {
     /// Text, whole or in chunks, of exactly one character.
     #[inline(never)]
     pub(in crate::serde::de) fn character(&mut self) -> Result<char, Error> {
-        match self.token().map_err(|error| self.copied(error))? {
+        match self
+            .token_not(&[Major::Bytes, Major::Map])
+            .map_err(|error| self.copied(error))?
+        {
             (head @ (Token::Text(_) | Token::TextIndefinite), _) => self
                 .fold_string(head, Utf8::default(), |utf8, piece| Ok(utf8.step(piece)))?
                 .only()
