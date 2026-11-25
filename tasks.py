@@ -10,6 +10,7 @@ from camas import Claude, Config, Parallel, Project, Task, by_glob
 from harness.workspace import (
 	CONFORMANCE_HOST,
 	ENABLED,
+	FUZZ_TARGETS,
 	ROOT,
 	SEED,
 	STABLE_HOST,
@@ -185,6 +186,16 @@ daily_properties = Task(
 daily_differential = Task(
 	f"uv run python -m harness.daily seeded differential_wide --axis {SEED} --out {shlex.quote(f'{TARGET_DIR}/daily')}",
 	help="the differential oracles on a fresh seed and many more items, reported for the daily workflow",
+)
+DAILY_FUZZ_SECONDS = 900
+RUNNER_CPUS = 4
+daily_fuzz = Parallel(
+	Task(
+		f"uv run python -m harness.daily fuzz {{TARGET}} --seconds {DAILY_FUZZ_SECONDS} --fork {RUNNER_CPUS} "
+		f"--out {shlex.quote(f'{TARGET_DIR}/daily')}"
+	),
+	matrix={"TARGET": FUZZ_TARGETS},
+	help=f"each fuzz target for {DAILY_FUZZ_SECONDS} s on a GitHub runner's {RUNNER_CPUS} CPUs, reported for the daily workflow",
 )
 daily_jobs = daily_properties | daily_differential
 all = fix + check

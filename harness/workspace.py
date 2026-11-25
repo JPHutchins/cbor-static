@@ -38,6 +38,7 @@ CONFORMANCE: Final = "-p cbor-static-conformance"
 FUZZ_TARGETS: Final = tuple(target.name for target in FuzzManifest.read(ROOT).targets)
 FUZZ_TARGET_DIR: Final = f"{TARGET_DIR}/fuzz"
 FUZZ_SEEDS: Final = f"{FUZZ_TARGET_DIR}/seeds"
+FUZZ_CORPUS: Final = f"{FUZZ_TARGET_DIR}/corpus"
 CONFORMANCE_HOST: Final = f"{CONFORMANCE} --features '{TOOLCHAIN['stable']['FEATURES']}'"
 PROPTEST_RNG_SEED: Final = "PROPTEST_RNG_SEED"
 PINNED_SEED: Final = "20261120"

@@ -4,6 +4,7 @@ from camas import Claude, Config, Parallel, Task
 
 from harness.manifests import RootManifest
 from harness.workspace import (
+	FUZZ_CORPUS,
 	FUZZ_SEEDS,
 	FUZZ_TARGET_DIR,
 	FUZZ_TARGETS,
@@ -16,6 +17,8 @@ NIGHTLY = ROOT / TOOLCHAIN["nightly"]["DIR"]
 CARGO_FUZZ = f"cargo fuzz {{}} --fuzz-dir {ROOT / 'fuzz'} --debug-assertions"
 FUZZ_ENV = {"CARGO_TARGET_DIR": FUZZ_TARGET_DIR}
 SEEDS = f"{FUZZ_SEEDS}/{{TARGET}}"
+CORPUS = f"{FUZZ_CORPUS}/{{TARGET}}"
+ARTIFACTS = f"{FUZZ_TARGET_DIR}/artifacts"
 
 fixtures = Task("uv run python -m harness.fuzz fixtures", cwd=ROOT)
 fix = Task("uv run ruff check --fix --exit-zero {paths}", paths="tasks.py", mutates=True) + Task(
@@ -45,6 +48,30 @@ replay = Parallel(
 	Task(f"{CARGO_FUZZ.format('run')} {{TARGET}} {SEEDS} -- -runs=0", cwd=NIGHTLY, env=FUZZ_ENV),
 	matrix={"TARGET": FUZZ_TARGETS},
 	help="each target's seeds, run once each without mutation",
+)
+reproduce = Parallel(
+	Task(f"{CARGO_FUZZ.format('run')} {{TARGET}} {{INPUT}} -- -runs=0", cwd=NIGHTLY, env=FUZZ_ENV),
+	matrix={"TARGET": FUZZ_TARGETS, "INPUT": (ARTIFACTS,)},
+	help="one target on the crash inputs fuzz.fuzz wrote, or with --INPUT=<file> on one the daily run uploaded",
+)
+fuzz = Parallel(
+	fixtures
+	+ Task("uv run python -m harness.fuzz seeds {TARGET}", cwd=ROOT)
+	+ build
+	+ Task(
+		f"{CARGO_FUZZ.format('run')} {{TARGET}} {CORPUS} {SEEDS} -- -fork={{FORK}} -max_total_time={{SECONDS}} "
+		"-rss_limit_mb=2048 -artifact_prefix={ARTIFACTS}/",
+		cwd=NIGHTLY,
+		env=FUZZ_ENV,
+	)
+	+ Task(f"{CARGO_FUZZ.format('cmin')} {{TARGET}} {CORPUS}", cwd=NIGHTLY, env=FUZZ_ENV),
+	matrix={
+		"TARGET": FUZZ_TARGETS,
+		"SECONDS": ("60",),
+		"FORK": ("1",),
+		"ARTIFACTS": (ARTIFACTS,),
+	},
+	help="fuzz one target from its seeds and its corpus, which it minimizes after; crash inputs go to ARTIFACTS",
 )
 ci = fixtures + (static | lints | test | build) + seeds + replay
 all = fix + check

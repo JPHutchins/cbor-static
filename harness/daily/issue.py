@@ -1,7 +1,11 @@
 """The rolling daily-run issue: one body naming every job a run discovered, or nothing on a clean run."""
 
-from typing import TYPE_CHECKING, Final, NamedTuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Annotated, Final, NamedTuple
 from urllib.parse import quote_plus
+
+from cyclopts import Parameter
+from pydantic import BaseModel, ConfigDict
 
 from harness.daily.report import REPORT, Report, Result, cell, code
 
@@ -9,6 +13,21 @@ if TYPE_CHECKING:
 	from pathlib import Path
 
 BODY_LIMIT: Final = 60000
+
+
+class Tasks(BaseModel):
+	"""camas's `--github-matrix=tasks`."""
+
+	model_config = ConfigDict(extra="forbid", frozen=True)
+	task: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Matrices:
+	"""The discover job's matrices, which name every job the run should report."""
+
+	matrix: Annotated[str, Parameter(help='the {"task": [...]} matrix, as JSON')]
+	fuzz_matrix: Annotated[str, Parameter(help="the fuzz jobs' include matrix, as JSON")]
 
 
 class Reported(NamedTuple):

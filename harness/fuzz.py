@@ -23,7 +23,7 @@ from harness.measure import CRATES, HARNESS, write_crate
 from harness.model import SHAPES
 from harness.templates import render
 from harness.values import value
-from harness.workspace import FUZZ_SEEDS, ROOT
+from harness.workspace import FUZZ_CORPUS, FUZZ_SEEDS, ROOT
 
 FUZZ: Final = ROOT / "fuzz"
 FIXTURES: Final = CRATES / "fuzz-fixtures"
@@ -51,7 +51,8 @@ def seeds(
 		),
 	] = (),
 ) -> int:
-	"""Gather each target's seed corpus from the vectors its manifest names, one file per input.
+	"""Gather each target's seed corpus from the vectors its manifest names, one file per input, and
+	make room for the corpus fuzzing grows.
 
 	Raises:
 		SystemExit: a target names no seeds, or a source holds no input.
@@ -64,6 +65,7 @@ def seeds(
 	for target in targets or tuple(named):
 		shutil.rmtree(Path(FUZZ_SEEDS) / target, ignore_errors=True)
 		(Path(FUZZ_SEEDS) / target).mkdir(parents=True)
+		(Path(FUZZ_CORPUS) / target).mkdir(parents=True, exist_ok=True)
 		for source in named[target]:
 			if not (inputs := sorted(resolved(source).rglob("*.cbor"))):
 				raise SystemExit(f"fuzz: the seed source {source!r} of {target!r} holds no .cbor file")
