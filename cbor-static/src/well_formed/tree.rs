@@ -67,14 +67,14 @@ pub(crate) fn tree() -> impl Strategy<Value = Tree> {
     ];
     leaf.prop_recursive(4, 24, 4, |inner| {
         prop_oneof![
-            (many(inner.clone(), 0..4), any::<bool>(), 0u8..5).prop_map(
+            10 => (many(inner.clone(), 0..4), any::<bool>(), 0u8..5).prop_map(
                 |(items, indefinite, width)| Tree::Array {
                     items,
                     indefinite,
                     width
                 }
             ),
-            (
+            10 => (
                 many((inner.clone(), inner.clone()), 0..3),
                 any::<bool>(),
                 0u8..5
@@ -84,13 +84,29 @@ pub(crate) fn tree() -> impl Strategy<Value = Tree> {
                     indefinite,
                     width
                 }),
-            (0u64..300, 0u8..5, inner).prop_map(|(number, width, content)| Tree::Tag {
+            10 => (0u64..300, 0u8..5, inner).prop_map(|(number, width, content)| Tree::Tag {
                 number,
                 width,
                 content: Box::new(content),
             }),
+            1 => bignum(),
         ]
     })
+}
+
+/// A tag 2 or 3 over byte strings on either side of the lengths where a bignum outgrows a `u64`
+/// and where it outgrows what ciborium reads as an integer.
+fn bignum() -> impl Strategy<Value = Tree> {
+    (2u64..=3, 0u8..5, many(any::<u8>(), 9..=17), 0u8..5).prop_map(
+        |(number, width, payload, payload_width)| Tree::Tag {
+            number,
+            width,
+            content: Box::new(Tree::Bytes {
+                payload,
+                width: payload_width,
+            }),
+        },
+    )
 }
 
 /// A head of `major` and `arg`: its argument in the shortest form, widened to 1, 2, 4 or 8 bytes by

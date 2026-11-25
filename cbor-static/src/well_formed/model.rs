@@ -7,7 +7,7 @@ use std::vec::Vec;
 use proptest::collection::vec as many;
 use proptest::prelude::*;
 
-use super::tree::{encoded, tree};
+use super::tree::{Tree, encoded, tree};
 use super::{agree, chunk_sizes, oracle};
 
 #[derive(Clone, Debug)]
@@ -49,6 +49,47 @@ fn mutated(mut bytes: Vec<u8>, mutations: &[Mutation]) -> Vec<u8> {
         }
     }
     bytes
+}
+
+/// Whether `tree` holds a tag 2 or 3 over at least `len` bytes.
+fn has_bignum_of(len: usize, tree: &Tree) -> bool {
+    match tree {
+        Tree::Tag {
+            number: 2 | 3,
+            content,
+            ..
+        } if matches!(&**content, Tree::Bytes { payload, .. } if payload.len() >= len) => true,
+        Tree::Tag { content, .. } => has_bignum_of(len, content),
+        Tree::Array { items, .. } => items.iter().any(|item| has_bignum_of(len, item)),
+        Tree::Map { entries, .. } => entries
+            .iter()
+            .any(|(key, value)| has_bignum_of(len, key) || has_bignum_of(len, value)),
+        Tree::Int { .. }
+        | Tree::Bytes { .. }
+        | Tree::Text { .. }
+        | Tree::Chunked { .. }
+        | Tree::Simple(_)
+        | Tree::Float { .. } => false,
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn the_generator_reaches_bignums_of_16_bytes_and_more() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let trees = tree();
+    assert!((0..10_000).any(|_| {
+        has_bignum_of(
+            16,
+            &trees
+                .new_tree(&mut runner)
+                .expect("a tree generates")
+                .current(),
+        )
+    }));
 }
 
 proptest! {
