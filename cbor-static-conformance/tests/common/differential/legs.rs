@@ -4,18 +4,31 @@
 
 use core::fmt;
 
-use super::{Data, cbor2, python, readers};
+use super::{Data, SHORT_BIGNUM, cbor2, python, readers};
 
-/// A normalization that applied to an item: each is counted, so a run shows which rows it reached.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Row {
+macro_rules! rows {
+    ($($(#[doc = $doc:literal])* $row:ident,)*) => {
+        /// A normalization that applied to an item: each is counted, so a run shows which rows it
+        /// reached.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+        pub enum Row {
+            $($(#[doc = $doc])* $row,)*
+        }
+
+        impl Row {
+            pub const ALL: &[Self] = &[$(Self::$row,)*];
+        }
+    };
+}
+
+rows! {
     /// ciborium reads `undefined` as null.
     CiboriumUndefinedIsNull,
     /// ciborium refuses an item holding an unassigned simple value.
     CiboriumRefusesUnassignedSimple,
-    /// ciborium reads a tag 2 or 3 over at most 16 definite bytes as its integer.
+    /// ciborium reads a tag 2 or 3 over a short definite byte string as its integer.
     CiboriumBignum,
-    /// ciborium refuses a tag 3 over 16 bytes whose integer is below `i128::MIN`.
+    /// ciborium refuses a tag 3 whose integer is below `i128::MIN`.
     CiboriumRefusesBignum,
     /// ciborium flattens indefinite lengths and chunked strings.
     CiboriumFlattens,
@@ -77,27 +90,23 @@ pub fn agree(bytes: &[u8]) -> Vec<Row> {
 /// ciborium's `Value` against `ours`.
 #[track_caller]
 pub fn ciborium(bytes: &[u8], ours: &Data) -> Vec<Row> {
-    let theirs = readers::ciborium(bytes);
-    let rows = [
-        rows_if(ours.has_undefined(), Row::CiboriumUndefinedIsNull),
-        rows_if(ours.has_indefinite(), Row::CiboriumFlattens),
-        rows_if(
-            theirs.as_ref().is_ok_and(Data::has_any_nan),
-            Row::NanIsAnyNan,
-        ),
-    ]
-    .concat();
-    match (for_ciborium(ours.clone()), theirs) {
+    match (for_ciborium(ours.clone()), readers::ciborium(bytes)) {
         (Ok(expected), Ok(theirs)) => {
             assert_eq!(theirs, expected.flattened(), "ciborium reads {bytes:02x?}");
-            [rows, rows_if(ours.has_short_bignum(), Row::CiboriumBignum)].concat()
+            [
+                rows_if(ours.has_undefined(), Row::CiboriumUndefinedIsNull),
+                rows_if(ours.has_indefinite(), Row::CiboriumFlattens),
+                rows_if(ours.has_short_bignum(), Row::CiboriumBignum),
+                rows_if(theirs.has_any_nan(), Row::NanIsAnyNan),
+            ]
+            .concat()
         }
         (Err(refusal), Err(error)) => {
             assert!(
                 error.contains(refusal.says()),
                 "ciborium refuses {bytes:02x?} as {error:?}, not for {refusal:?}"
             );
-            [rows, vec![refusal.row()]].concat()
+            vec![refusal.row()]
         }
         (Ok(expected), Err(error)) => {
             panic!("ciborium refuses {bytes:02x?} ({error}), expected {expected:?}")
@@ -144,7 +153,7 @@ pub fn for_ciborium(ours: Data) -> Result<Data, Refusal> {
         Data::Undefined => Ok(Data::Null),
         Data::Simple(_) => Err(Refusal::UnassignedSimple),
         Data::Tag(tag @ (2 | 3), content) => match *content {
-            Data::Bytes(bytes) if bytes.len() <= 16 => bignum(tag, &bytes),
+            Data::Bytes(bytes) if bytes.len() <= SHORT_BIGNUM => bignum(tag, &bytes),
             content => Ok(Data::Tag(tag, Box::new(for_ciborium(content)?))),
         },
         Data::Tag(tag, content) => Ok(Data::Tag(tag, Box::new(for_ciborium(*content)?))),
@@ -162,11 +171,18 @@ pub fn for_ciborium(ours: Data) -> Result<Data, Refusal> {
                 .collect::<Result<_, _>>()?,
             length,
         )),
-        leaf => Ok(leaf),
+        leaf @ (Data::Integer(_)
+        | Data::Bytes(_)
+        | Data::Text(_)
+        | Data::BytesChunks(_)
+        | Data::TextChunks(_)
+        | Data::Bool(_)
+        | Data::Null
+        | Data::Float(_)) => Ok(leaf),
     }
 }
 
-/// ciborium's reading of tag 2 or 3 over at most 16 bytes: the integer where `ciborium::Value`'s
+/// ciborium's reading of tag 2 or 3 over a short byte string: the integer where `ciborium::Value`'s
 /// integer holds it, else the tag over the magnitude's bytes without leading zeros; a tag 3 whose
 /// integer is below `i128::MIN` is refused.
 fn bignum(tag: u64, bytes: &[u8]) -> Result<Data, Refusal> {

@@ -1,16 +1,20 @@
 """A camas task run on a fresh seed, which the report names so a failure reproduces locally."""
 
+import os
 import secrets
 import subprocess
 from typing import TYPE_CHECKING, Final
 
-from harness.daily.report import REPORT, SUMMARY, Report, Result, to_step_summary
+from harness.daily.report import REPORT, SUMMARY, Report, Result, Tally, to_step_summary
 
 if TYPE_CHECKING:
+	from collections.abc import Mapping
 	from pathlib import Path
 
 TAIL_LINES: Final = 120
 LOG: Final = "output.log"
+TALLY: Final = "tally.json"
+TALLY_VARIABLE: Final = "DAILY_TALLY"
 
 
 def main(axis: str, task: str, out: Path, seed: int | None) -> int:
@@ -18,22 +22,42 @@ def main(axis: str, task: str, out: Path, seed: int | None) -> int:
 	print(f"{axis}={drawn}", flush=True)
 	directory = out / task
 	directory.mkdir(parents=True, exist_ok=True)
-	returncode = run(("camas", task, f"--{axis}={drawn}", "--effects=(Status(),)"), directory / LOG)
-	written = report(axis, task, drawn, returncode, (directory / LOG).read_text(errors="replace"))
+	(directory / TALLY).unlink(missing_ok=True)
+	returncode = run(
+		("camas", task, f"--{axis}={drawn}", "--effects=(Status(),)"),
+		directory / LOG,
+		{**os.environ, TALLY_VARIABLE: str(directory / TALLY)},
+	)
+	written = report(axis, task, drawn, returncode, (directory / LOG).read_text(errors="replace"))._replace(
+		counts=counted(directory / TALLY)
+	)
 	(directory / REPORT).write_text(written.dumps())
 	(directory / SUMMARY).write_text(written.markdown())
 	to_step_summary(written.markdown())
 	return returncode
 
 
-def run(argv: tuple[str, ...], log: Path) -> int:
+def counted(tally: Path) -> Tally:
+	"""
+	>>> import tempfile
+	>>> from pathlib import Path
+	>>> with tempfile.TemporaryDirectory() as tmp:
+	...     written = Path(tmp) / TALLY
+	...     _ = written.write_text('{"rows": {"refused": 2, "collapsed": 0}}')
+	...     counted(written), counted(Path(tmp) / "none.json")
+	(Tally(rows={'refused': 2, 'collapsed': 0}), Tally(rows={}))
+	"""
+	return Tally.model_validate_json(tally.read_text()) if tally.is_file() else Tally(rows={})
+
+
+def run(argv: tuple[str, ...], log: Path, env: Mapping[str, str]) -> int:
 	r"""
 	>>> import sys
 	>>> import tempfile
 	>>> from pathlib import Path
 	>>> with tempfile.TemporaryDirectory() as tmp:
 	...     log = Path(tmp) / LOG
-	...     code = run((sys.executable, "-c", "print('drawn'); raise SystemExit(3)"), log)
+	...     code = run((sys.executable, "-c", "print('drawn'); raise SystemExit(3)"), log, {})
 	...     code, log.read_text()
 	drawn
 	(3, 'drawn\n')
@@ -41,7 +65,7 @@ def run(argv: tuple[str, ...], log: Path) -> int:
 	with (
 		log.open("w", buffering=1) as written,
 		subprocess.Popen(
-			argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace"
+			argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", env=env
 		) as process,
 	):
 		for line in process.stdout or ():
