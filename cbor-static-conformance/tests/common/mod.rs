@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[cfg(not(miri))]
+pub mod differential;
 pub mod vectors;
 
 use cbor_static::{Decode, Encode, Error};
