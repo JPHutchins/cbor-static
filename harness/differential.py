@@ -163,7 +163,9 @@ def files() -> dict[str, str]:
 		"tests/generated.rs": render(
 			"differential_generated.rs", common=str(COMMON), tests="\n".join(map(cases, SHAPES))
 		),
-		"tests/serde_forms.rs": render("differential_serde_forms.rs", common=str(COMMON)),
+		"tests/serde_forms.rs": render(
+			"differential_serde_forms.rs", common=str(COMMON), forms=render("serde_forms.rs")
+		),
 	}
 
 
