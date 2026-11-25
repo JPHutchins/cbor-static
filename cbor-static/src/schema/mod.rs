@@ -60,6 +60,57 @@ pub use order::Order;
 ///
 /// let _ = cbor_static::to_slice(&Liar(1), &mut [0u8; 8]);
 /// ```
+///
+/// A type whose stack needs more than 255 frames does not compile where it is encoded either. It
+/// takes a frame for each level it nests:
+///
+/// ```compile_fail,E0080
+/// #![recursion_limit = "1024"]
+/// # type By2<T> = [[T; 1]; 1];
+/// # type By4<T> = By2<By2<T>>;
+/// # type By8<T> = By4<By4<T>>;
+/// # type By16<T> = By8<By8<T>>;
+/// # type By32<T> = By16<By16<T>>;
+/// # type By64<T> = By32<By32<T>>;
+/// # type By128<T> = By64<By64<T>>;
+/// type Levels256 = By128<By64<By32<By16<By8<By4<By2<[[u8; 1]; 1]>>>>>>>;
+///
+/// let _ = cbor_static::to_slice(&Levels256::default(), &mut [0u8; 512]);
+/// ```
+#[cfg_attr(
+    feature = "heapless",
+    doc = r"
+A map also takes room for two of its keys, which it encodes to compare them, so keys that are
+structs holding maps keyed the same way double the frames at each level:
+
+```compile_fail,E0080
+use heapless::LinearMap;
+
+#[derive(cbor_static::Cbor, PartialEq, Eq)]
+struct K0 {
+    a: u8,
+}
+
+macro_rules! key {
+    ($name:ident, $inner:ty) => {
+        #[derive(cbor_static::Cbor, PartialEq, Eq)]
+        struct $name {
+            m: LinearMap<$inner, u8, 1>,
+        }
+    };
+}
+
+key!(K1, K0);
+key!(K2, K1);
+key!(K3, K2);
+key!(K4, K3);
+key!(K5, K4);
+key!(K6, K5);
+
+let _ = cbor_static::to_slice(&LinearMap::<K6, u8, 1>::new(), &mut [0u8; 8]);
+```
+"
+)]
 #[allow(unsafe_code)]
 pub unsafe trait Encode: Sized {
     #[doc(hidden)]
@@ -114,6 +165,23 @@ pub unsafe trait Encode: Sized {
 ///
 /// let mut slot = core::mem::MaybeUninit::uninit();
 /// let _ = cbor_static::decode_into::<Liar>(b"\x01", &mut slot);
+/// ```
+///
+/// A type whose stack needs more than 255 frames does not compile where it is decoded either:
+///
+/// ```compile_fail,E0080
+/// #![recursion_limit = "1024"]
+/// # type By2<T> = [[T; 1]; 1];
+/// # type By4<T> = By2<By2<T>>;
+/// # type By8<T> = By4<By4<T>>;
+/// # type By16<T> = By8<By8<T>>;
+/// # type By32<T> = By16<By16<T>>;
+/// # type By64<T> = By32<By32<T>>;
+/// # type By128<T> = By64<By64<T>>;
+/// type Levels256 = By128<By64<By32<By16<By8<By4<By2<[[u8; 1]; 1]>>>>>>>;
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// let _ = cbor_static::decode_into::<Levels256>(&[0x81; 257], &mut slot);
 /// ```
 #[allow(unsafe_code)]
 pub unsafe trait Decode<'de>: Sized {
