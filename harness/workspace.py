@@ -10,6 +10,8 @@ from typing import Final
 
 from camas import Parallel, Task
 
+from harness.manifests import FuzzManifest
+
 ROOT: Final = Path(__file__).parent.parent
 FEATURES: Final = frozenset(tomllib.loads((ROOT / "cbor-static" / "Cargo.toml").read_text())["features"])
 RUSTS: Final = {"stable": ".", "nightly": "nightly"}
@@ -33,6 +35,10 @@ TOOLCHAINS: Final = tuple(TOOLCHAIN.values())
 TARGET_DIR: Final = f"{ROOT}/target"
 STABLE_HOST: Final = {"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"}
 CONFORMANCE: Final = "-p cbor-static-conformance"
+FUZZ_TARGETS: Final = tuple(target.name for target in FuzzManifest.read(ROOT).targets)
+FUZZ_TARGET_DIR: Final = f"{TARGET_DIR}/fuzz"
+FUZZ_SEEDS: Final = f"{FUZZ_TARGET_DIR}/seeds"
+FUZZ_CORPUS: Final = f"{FUZZ_TARGET_DIR}/corpus"
 CONFORMANCE_HOST: Final = f"{CONFORMANCE} --features '{TOOLCHAIN['stable']['FEATURES']}'"
 PROPTEST_RNG_SEED: Final = "PROPTEST_RNG_SEED"
 PINNED_SEED: Final = "20261120"

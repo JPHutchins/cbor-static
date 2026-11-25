@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 mod common;
 
@@ -10,72 +10,7 @@ mod oracles;
 
 use common::{ciborium_bytes, serde_layer};
 
-#[derive(Serialize)]
-struct Unit;
-
-#[derive(Serialize)]
-struct Newtype(u32);
-
-#[derive(Serialize)]
-struct Tuple(u32, bool);
-
-#[derive(Serialize)]
-struct Fields {
-    a: u32,
-    b: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    c: Option<u32>,
-}
-
-#[derive(Serialize)]
-enum External {
-    Unit,
-    Newtype(u32),
-    Tuple(u32, bool),
-    Struct { x: u32 },
-}
-
-#[derive(Serialize)]
-#[serde(tag = "t")]
-enum Internal {
-    Unit,
-    Struct { x: u32 },
-    Newtype(Fields),
-}
-
-#[derive(Serialize)]
-#[serde(tag = "t", content = "c")]
-enum Adjacent {
-    Unit,
-    Newtype(u32),
-    Struct { x: u32 },
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-enum Untagged {
-    Int(u32),
-    Text(&'static str),
-    Pair(u32, u32),
-}
-
-/// A sequence serde cannot count ahead: its iterator gives no exact size, so `collect_seq` calls
-/// `serialize_seq(None)`.
-struct UnknownLength(Vec<u32>);
-
-impl Serialize for UnknownLength {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.0.iter().filter(|_| true))
-    }
-}
-
-#[derive(Serialize)]
-struct Flattened {
-    a: u32,
-    #[serde(flatten)]
-    rest: Fields,
-}
-
+$forms
 /// The serde layer and ciborium write the same bytes.
 fn same<T: Serialize>(value: &T) {
     assert_eq!(ciborium_bytes(value), serde_layer(value));
@@ -136,7 +71,7 @@ fn adjacently_tagged_variants() {
 #[test]
 fn untagged_variants() {
     same(&Untagged::Int(4_294_967_295));
-    same(&Untagged::Text("text"));
+    same(&Untagged::Text("text".to_owned()));
     same(&Untagged::Pair(1, 2));
 }
 

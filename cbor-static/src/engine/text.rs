@@ -6,7 +6,8 @@ const CONTINUATION_LOW: u8 = 0x80;
 const CONTINUATION_HIGH: u8 = 0xbf;
 
 /// UTF-8 validation (RFC 3629) across chunk boundaries: the continuation bytes still owed by the
-/// current code point, and the range the next one must fall in.
+/// current code point, and the range the next one must fall in. Invalid text is refused when it
+/// ends, wherever the bad byte was, so the refusal does not depend on how the text was chunked.
 #[derive(Clone, Copy, Debug)]
 pub struct Utf8 {
     owed: u8,
@@ -32,12 +33,17 @@ impl Utf8 {
         Self { owed, low, high }
     }
 
+    /// Text past an invalid byte: no byte continues it, and it owes one, so it never finishes.
+    const fn invalid() -> Self {
+        Self::expecting(1, CONTINUATION_HIGH, CONTINUATION_LOW)
+    }
+
     #[inline(never)]
-    pub fn feed(&mut self, segment: &[u8]) -> Result<(), ErrorKind> {
+    pub fn feed(&mut self, segment: &[u8]) {
         *self = segment
             .iter()
-            .try_fold(*self, |state, &byte| state.next(byte))?;
-        Ok(())
+            .try_fold(*self, |state, &byte| state.next(byte))
+            .unwrap_or(Self::invalid());
     }
 
     pub const fn finish(self) -> Result<(), ErrorKind> {
@@ -74,7 +80,7 @@ impl Utf8 {
 /// Validates a whole string.
 pub fn validate(bytes: &[u8]) -> Result<(), ErrorKind> {
     let mut utf8 = Utf8::new();
-    utf8.feed(bytes)?;
+    utf8.feed(bytes);
     utf8.finish()
 }
 
@@ -104,8 +110,8 @@ impl KeyMatch {
     }
 
     #[inline(never)]
-    pub fn feed(&mut self, layout: &Layout, segment: &[u8]) -> Result<(), ErrorKind> {
-        self.utf8.feed(segment)?;
+    pub fn feed(&mut self, layout: &Layout, segment: &[u8]) {
+        self.utf8.feed(segment);
         self.candidates = names(layout)
             .filter(|&(index, place)| {
                 self.candidates & bit(index) != 0
@@ -118,7 +124,6 @@ impl KeyMatch {
             .fold(0, |mask, (index, _)| mask | bit(index));
         self.at += segment.len();
         self.left -= u64::try_from(segment.len()).unwrap_or(self.left);
-        Ok(())
     }
 
     pub const fn left(&self) -> u64 {
@@ -156,9 +161,31 @@ mod tests {
     fn chunked(bytes: &[u8], split: usize) -> Result<(), ErrorKind> {
         let (head, tail) = bytes.split_at(split);
         let mut utf8 = Utf8::new();
-        utf8.feed(head)?;
-        utf8.feed(tail)?;
+        utf8.feed(head);
+        utf8.feed(tail);
         utf8.finish()
+    }
+
+    /// One test per segment fed after `a\xff`: the text stays invalid to its end.
+    macro_rules! stays_invalid {
+        ($($name:ident: $rest:expr;)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let mut utf8 = Utf8::new();
+                    utf8.feed(b"a\xff");
+                    utf8.feed($rest);
+                    assert_eq!(utf8.finish(), Err(ErrorKind::InvalidUtf8));
+                }
+            )*
+        };
+    }
+
+    stays_invalid! {
+        nothing_revives_text_past_an_invalid_byte: b"";
+        ascii_does_not_revive_text_past_an_invalid_byte: b"a";
+        a_whole_code_point_does_not_revive_text_past_an_invalid_byte: b"\xc3\xa9";
+        a_continuation_does_not_revive_text_past_an_invalid_byte: b"\x80";
     }
 
     #[test]

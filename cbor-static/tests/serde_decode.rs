@@ -127,6 +127,61 @@ fn a_refused_item_fails_where_native_reports_it() {
     refused::<&str>(b"\x01", ErrorKind::TypeMismatch, 1);
 }
 
+/// One test per input: both layers refuse it with `$kind` at `$offset`.
+macro_rules! refused_alike {
+    ($($name:ident: $ty:ty, $bytes:expr, $kind:ident, $offset:literal;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                refused::<$ty>($bytes, ErrorKind::$kind, $offset);
+            }
+        )*
+    };
+}
+
+refused_alike! {
+    a_byte_string_cut_short_into_a_u32: u32, b"\x41", TypeMismatch, 1;
+    a_text_cut_short_into_a_u32: u32, b"\x61", TypeMismatch, 1;
+    a_byte_string_cut_short_into_an_i128: i128, b"\x41", TypeMismatch, 1;
+    a_text_cut_short_into_a_u128: u128, b"\x61", TypeMismatch, 1;
+    a_byte_string_cut_short_into_an_f64: f64, b"\x41", TypeMismatch, 1;
+    a_text_cut_short_into_a_bool: bool, b"\x61", TypeMismatch, 1;
+    a_byte_string_cut_short_into_an_option: Option<u8>, b"\x41", TypeMismatch, 1;
+    a_text_cut_short_into_unit: (), b"\x61", TypeMismatch, 1;
+    a_byte_string_cut_short_into_an_array: [u8; 1], b"\x41", TypeMismatch, 1;
+    a_text_cut_short_into_a_map: Point, b"\x61", TypeMismatch, 1;
+    a_fields_byte_string_cut_short: Point, b"\xa1\x61x\x41", TypeMismatch, 4;
+    a_fields_text_cut_short: Point, b"\xa1\x61x\x61", TypeMismatch, 4;
+    invalid_text_into_a_u32: u32, b"\x62\xc3\x28", TypeMismatch, 1;
+    invalid_text_into_a_bool: bool, b"\x61\xff", TypeMismatch, 1;
+    invalid_text_into_an_array: [u8; 1], b"\x63a\xffb", TypeMismatch, 1;
+    invalid_text_into_a_map: Point, b"\x62\xc3\x28", TypeMismatch, 1;
+    a_fields_invalid_text: Point, b"\xa1\x61x\x62\xc3\x28", TypeMismatch, 4;
+    invalid_text_into_bytes_past_its_payload: &[u8], b"\x62\xc3\x28", TypeMismatch, 3;
+    bytes_into_a_char_at_their_head: char, b"\x41\xff", TypeMismatch, 1;
+    bytes_cut_short_into_a_char_at_their_head: char, b"\x42a", TypeMismatch, 1;
+    invalid_text_as_bignum_digits_at_its_head: u128, b"\xc2\x62\xc3\x28", TypeMismatch, 2;
+    text_cut_short_as_bignum_digits_at_its_head: u128, b"\xc2\x63ab", TypeMismatch, 2;
+    an_invalid_indefinite_text_into_a_u32: u32, b"\x7f\x62\xc3\x28\xff", TypeMismatch, 1;
+    an_indefinite_text_cut_short_into_a_u32: u32, b"\x7f\x61", TypeMismatch, 1;
+    an_indefinite_byte_string_cut_short_into_a_u32: u32, b"\x5f\x41", TypeMismatch, 1;
+    bytes_into_text_past_their_payload: &str, b"\x42\xc3\x28", TypeMismatch, 3;
+    invalid_text_into_a_char: char, b"\x62\xc3\x28", InvalidUtf8, 3;
+    bytes_cut_short_as_bignum_digits: u128, b"\xc2\x43ab", UnexpectedEnd, 4;
+    a_map_counted_past_2_63_into_a_u32: u32, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_a_bool: bool, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_an_f64: f64, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_an_option: Option<u32>, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_an_i128: i128, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_a_u128: u128, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_unit: (), b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_a_char: char, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_text: &str, b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_bytes: &[u8], b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_into_an_array: [u8; 1], b"\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 9;
+    a_map_counted_past_2_63_as_bignum_digits: u128, b"\xc2\xbb\xfa\x67\x17\x18\x03\x2d\x72\x63", TypeMismatch, 10;
+}
+
 #[test]
 fn malformed_input_fails_where_native_reports_it() {
     refused::<&str>(b"\x63ab", ErrorKind::UnexpectedEnd, 1);

@@ -107,7 +107,7 @@ fn copy(
         }
         unsafe { append(dst, copying.total, segment) }?;
         if copying.major == Major::Text {
-            copying.utf8.feed(segment)?;
+            copying.utf8.feed(segment);
         }
         copying.total += segment.len();
         copying.left -= taken;

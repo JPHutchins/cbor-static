@@ -26,7 +26,7 @@ pub(super) fn name(
     if cfg!(cbor_static_oneshot) && u64::try_from(segment.len()).unwrap_or(u64::MAX) < wanted {
         return Err(ErrorKind::UnexpectedEnd);
     }
-    key.feed(layout, segment)?;
+    key.feed(layout, segment);
     if key.left() > 0 {
         return Ok(Flow::NeedInput);
     }

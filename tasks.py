@@ -10,6 +10,7 @@ from camas import Claude, Config, Parallel, Project, Task, by_glob
 from harness.workspace import (
 	CONFORMANCE_HOST,
 	ENABLED,
+	FUZZ_TARGETS,
 	ROOT,
 	SEED,
 	STABLE_HOST,
@@ -35,6 +36,7 @@ MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
 
 
 conformance = Project("cbor-static-conformance")
+fuzz = Project("fuzz")
 harness = Project("harness")
 stack = Project("harness/stack")
 
@@ -144,7 +146,7 @@ differential_wide = (
 	| Task(f"cargo test {CONFORMANCE_HOST} --tests -- differential::", env=STABLE_HOST)
 	| differential_generated
 )
-fix = rust_fmt | tasks_fix | nix_fmt | harness | conformance
+fix = rust_fmt | tasks_fix | nix_fmt | harness | conformance | fuzz
 check = (
 	rust_fmt_check
 	| nix_fmt_check
@@ -156,6 +158,7 @@ check = (
 	| tasks_check
 	| harness
 	| conformance
+	| fuzz
 	| differential_generated
 )
 f32 = seeded(
@@ -183,6 +186,16 @@ daily_properties = Task(
 daily_differential = Task(
 	f"uv run python -m harness.daily seeded differential_wide --axis {SEED} --out {shlex.quote(f'{TARGET_DIR}/daily')}",
 	help="the differential oracles on a fresh seed and many more items, reported for the daily workflow",
+)
+DAILY_FUZZ_SECONDS = 900
+RUNNER_CPUS = 4
+daily_fuzz = Parallel(
+	Task(
+		f"uv run python -m harness.daily fuzz {{TARGET}} --seconds {DAILY_FUZZ_SECONDS} --fork {RUNNER_CPUS} "
+		f"--out {shlex.quote(f'{TARGET_DIR}/daily')}"
+	),
+	matrix={"TARGET": FUZZ_TARGETS},
+	help=f"each fuzz target for {DAILY_FUZZ_SECONDS} s on a GitHub runner's {RUNNER_CPUS} CPUs, reported for the daily workflow",
 )
 daily_jobs = daily_properties | daily_differential
 all = fix + check

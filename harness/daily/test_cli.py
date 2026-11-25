@@ -4,12 +4,14 @@ from typing import TYPE_CHECKING
 import pytest
 from cyclopts import CycloptsError
 
-from harness.daily import issue, seeded
+from harness.daily import fuzz, issue, seeded
 from harness.daily.__main__ import app
 from harness.daily.report import REPORT, SAMPLE, Report, Result
 
 if TYPE_CHECKING:
 	from pathlib import Path
+
+FUZZED = fuzz.report(fuzz.Fuzzing("oracle", 900, 4), 0, "", (), 0)
 
 
 def seeded_with(seed: int) -> list[str]:
@@ -50,6 +52,8 @@ def test_the_issue_command_writes_the_verdicts_summary_without_the_task_reports(
 	reported = SAMPLE._replace(result=result)
 	(tmp_path / "reports" / "daily_properties" / "properties").mkdir(parents=True)
 	(tmp_path / "reports" / "daily_properties" / "properties" / REPORT).write_text(reported.dumps())
+	(tmp_path / "reports" / "daily_fuzz-oracle" / "daily_fuzz-oracle").mkdir(parents=True)
+	(tmp_path / "reports" / "daily_fuzz-oracle" / "daily_fuzz-oracle" / REPORT).write_text(FUZZED.dumps())
 	monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
 	run = issue.Run("https://github.com/o/r", "42", "0123456789abcdef", "main")
 
@@ -59,6 +63,8 @@ def test_the_issue_command_writes_the_verdicts_summary_without_the_task_reports(
 				"issue",
 				"--matrix",
 				'{"task": ["daily_properties"]}',
+				"--fuzz-matrix",
+				fuzz.Matrix.of(fuzz.Axes(TARGET=("oracle",))).model_dump_json(),
 				"--reports",
 				str(tmp_path / "reports"),
 				"--repository-url",
@@ -76,7 +82,9 @@ def test_the_issue_command_writes_the_verdicts_summary_without_the_task_reports(
 			]
 		)
 
-	verdict = issue.verdict((issue.Reported("daily_properties", reported),), run)
+	verdict = issue.verdict(
+		(issue.Reported("daily_properties", reported), issue.Reported("daily_fuzz-oracle", FUZZED)), run
+	)
 	assert exited.value.code == 0
 	assert (tmp_path / "summary.md").read_text() == issue.summary(verdict, "rolling")
 	assert "<details>" not in (tmp_path / "summary.md").read_text()
@@ -89,3 +97,43 @@ def test_the_issue_command_writes_the_verdicts_summary_without_the_task_reports(
 			assert (tmp_path / "issue.md").read_text() == body
 			assert "label%3A%22rolling%22" in (tmp_path / "summary.md").read_text()
 			assert "| daily_properties | ❌ failed |" in (tmp_path / "summary.md").read_text()
+
+
+@pytest.mark.parametrize(
+	("code", "finding", "result"),
+	[(0, None, Result.PASSED), (1, "crash-0a1b", Result.FAILED), (0, "oom-0a1b", Result.FAILED)],
+)
+def test_a_fuzz_run_reports_its_findings_and_fails_on_any(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	code: int,
+	finding: str | None,
+	result: Result,
+) -> None:
+	(tmp_path / "out" / "daily_fuzz-oracle").mkdir(parents=True)
+	(tmp_path / "out" / "daily_fuzz-oracle" / "crash-stale").write_bytes(b"\x00")
+	(tmp_path / "bin").mkdir()
+	(tmp_path / "bin" / "camas").write_text(
+		"#!/bin/sh\n"
+		'echo "camas $*"\n'
+		+ (
+			f'for arg; do case $arg in --ARTIFACTS=*) printf "\\202\\001" > "${{arg#--ARTIFACTS=}}/{finding}";; esac; done\n'
+			if finding
+			else ""
+		)
+		+ f"exit {code}\n"
+	)
+	(tmp_path / "bin" / "camas").chmod(0o755)
+	monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+	monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+
+	assert fuzz.main(fuzz.Fuzzing("oracle", 60, 1), tmp_path / "out") == int(result is Result.FAILED)
+	written = Report.loads((tmp_path / "out" / "daily_fuzz-oracle" / REPORT).read_text())
+	assert written.result == result
+	assert "crash-stale" not in written.output
+	assert (f"{finding}, 2 bytes: 8201" in written.output) == (finding is not None)
+	assert (tmp_path / "summary.md").read_text() == written.markdown()
+
+
+def test_a_fuzz_job_without_a_report_reads_as_missing(tmp_path: Path) -> None:
+	assert issue.jobs((fuzz.job("cose"),), tmp_path) == (issue.Missing("daily_fuzz-cose"),)
