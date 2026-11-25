@@ -73,20 +73,38 @@ fn fed<'a, T: for<'de> Decode<'de> + Default>(
     bytes: &[u8],
     pieces: impl IntoIterator<Item = &'a [u8]>,
 ) -> Outcome<T> {
+    fed_by(bytes, pieces, |kind, field, _| (kind, field))
+}
+
+/// [`fed`], its error as `refusal` makes it of a kind, field and offset.
+fn fed_by<'a, T: for<'de> Decode<'de> + Default, E>(
+    bytes: &[u8],
+    pieces: impl IntoIterator<Item = &'a [u8]>,
+    refusal: impl Fn(ErrorKind, u16, u32) -> E,
+) -> Result<T, E> {
     let mut slot = MaybeUninit::uninit();
     let mut decoder = Decoder::<T>::new(&mut slot);
     let mut used = 0;
     for piece in pieces {
-        match decoder.feed(piece).map_err(|e| (e.kind, e.field))? {
+        match decoder
+            .feed(piece)
+            .map_err(|e| refusal(e.kind, e.field, e.offset))?
+        {
             Fed::Done(n) if used + n == bytes.len() => break,
-            Fed::Done(_) => return Err((ErrorKind::TrailingInput, 0)),
+            Fed::Done(n) => {
+                return Err(refusal(
+                    ErrorKind::TrailingInput,
+                    0,
+                    u32::try_from(used + n).unwrap_or(u32::MAX),
+                ));
+            }
             Fed::NeedInput => used += piece.len(),
         }
     }
     decoder
         .finish()
         .map(core::mem::take)
-        .map_err(|e| (e.kind, e.field))
+        .map_err(|e| refusal(e.kind, e.field, e.offset))
 }
 
 fn splits_as_whole<T: for<'de> Decode<'de> + Default + PartialEq + Debug>(bytes: &[u8]) {
@@ -173,6 +191,93 @@ fn a_counted_entry_past_the_16_bit_limit_ends_early_in_any_chunks() {
     let cut = b"\xb6\x5a\x7e\x40\x15\xdd\xac\x11\x34\xc7\x2d\xb4\xe2\x59\x55\xe5\x42\xa9\x69\xa0";
     assert_eq!(whole::<Counted>(cut), Err((ErrorKind::UnexpectedEnd, 0)));
     splits_as_whole::<Counted>(cut);
+}
+
+/// A unit variant named by text, as a COSE structure's context is.
+#[derive(Decode, Debug, PartialEq)]
+enum Word {
+    Ab,
+}
+
+/// Invalid text is refused at the end of its payload however the input is split: before the fix,
+/// a split just past the bad byte reported the end of the first chunk instead.
+fn refused_at_the_same_offset_at_every_split<
+    T: for<'de> Decode<'de> + Default + Debug + PartialEq,
+>(
+    bytes: &[u8],
+    expected: (ErrorKind, u32),
+) {
+    assert_eq!(
+        cbor_static::from_slice::<T>(bytes).map_err(|e| (e.kind, e.offset)),
+        Err(expected),
+        "whole {bytes:x?}"
+    );
+    for at in 0..=bytes.len() {
+        let (head, tail) = bytes.split_at(at);
+        assert_eq!(
+            fed_by::<T, _>(bytes, [head, tail], |kind, _, offset| (kind, offset)),
+            Err(expected),
+            "{name} {bytes:x?} split at {at}",
+            name = core::any::type_name::<T>()
+        );
+    }
+}
+
+/// The fuzzers' first finding: a text-named variant (`a\xffb`).
+#[test]
+fn invalid_text_naming_a_variant_is_refused_at_its_end_in_any_chunks() {
+    refused_at_the_same_offset_at_every_split::<Option<Word>>(
+        b"\x63a\xffb",
+        (ErrorKind::InvalidUtf8, 4),
+    );
+}
+
+#[test]
+fn an_invalid_text_key_is_refused_at_its_end_in_any_chunks() {
+    refused_at_the_same_offset_at_every_split::<Reading>(
+        b"\xa1\x63a\xffb\x00",
+        (ErrorKind::InvalidUtf8, 5),
+    );
+}
+
+#[test]
+fn an_unknown_invalid_text_key_is_refused_at_its_end_in_any_chunks() {
+    refused_at_the_same_offset_at_every_split::<Counted>(
+        b"\xa2\x62id\x00\x63a\xffb\x00",
+        (ErrorKind::InvalidUtf8, 9),
+    );
+}
+
+#[test]
+fn an_unknown_entrys_invalid_text_is_refused_at_its_end_in_any_chunks() {
+    refused_at_the_same_offset_at_every_split::<Reading>(
+        b"\xa2\x62id\x00\x61z\x63a\xffb",
+        (ErrorKind::InvalidUtf8, 11),
+    );
+    refused_at_the_same_offset_at_every_split::<Reading>(
+        b"\xa2\x62id\x00\x61z\x7f\x63a\xffb\xff",
+        (ErrorKind::InvalidUtf8, 12),
+    );
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn an_owned_invalid_text_is_refused_at_its_end_in_any_chunks() {
+    refused_at_the_same_offset_at_every_split::<String>(b"\x63a\xffb", (ErrorKind::InvalidUtf8, 4));
+    refused_at_the_same_offset_at_every_split::<String>(
+        b"\x7f\x63a\xffb\xff",
+        (ErrorKind::InvalidUtf8, 5),
+    );
+}
+
+/// Text cut short is cut short, whether or not the bytes so far are valid.
+#[cfg(feature = "alloc")]
+#[test]
+fn invalid_text_cut_short_ends_early_in_any_chunks() {
+    refused_at_the_same_offset_at_every_split::<String>(
+        b"\x63a\xff",
+        (ErrorKind::UnexpectedEnd, 3),
+    );
 }
 
 #[test]

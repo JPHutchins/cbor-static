@@ -38,15 +38,18 @@ pub(super) fn text_key<const INT: bool>(
     } else {
         KeyMatch::start(layout, header.arg)
     };
-    key.feed(layout, payload)?;
-    match key.finish()? {
-        Some(field) => {
+    key.feed(layout, payload);
+    match key.finish() {
+        Ok(Some(field)) => {
             input
                 .take_exact(payload.len())
                 .ok_or(ErrorKind::Unsupported)?;
             select(state, frames, field)
         }
-        None => unclaimed(state, frames, input, header, (2, Some(header))),
+        Ok(None) => unclaimed(state, frames, input, header, (2, Some(header))),
+        Err(kind) => input
+            .take_exact(payload.len())
+            .map_or(Err(ErrorKind::Unsupported), |_| Err(kind)),
     }
 }
 

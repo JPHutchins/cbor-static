@@ -78,8 +78,8 @@
 "<cbor_static::engine::pending::Pending>::head" = 40
 "<cbor_static::engine::skip::Skip>::on_header" = 24
 "<cbor_static::engine::skip::Skip>::open" = 16
-"<cbor_static::engine::text::KeyMatch>::feed" = 80
-"<cbor_static::engine::text::Utf8>::feed" = 16
+"<cbor_static::engine::text::KeyMatch>::feed" = 72
+"<cbor_static::engine::text::Utf8>::feed" = 24
 "<cbor_static::schema::Layout>::name_item" = 16
 "_start" = 832
 "cbor_static::engine::decode::abandon" = 16
@@ -247,7 +247,7 @@
 "<cbor_static::engine::input::Input>::take_head" = 32
 "<cbor_static::engine::skip::Skip>::on_header" = 24
 "<cbor_static::engine::skip::Skip>::open" = 16
-"<cbor_static::engine::text::Utf8>::feed" = 16
+"<cbor_static::engine::text::Utf8>::feed" = 24
 "<cbor_static::serde::de::Deserializer>::boolean" = 48
 "<cbor_static::serde::de::Deserializer>::bytes" = 48
 "<cbor_static::serde::de::Deserializer>::identifier" = 48
@@ -323,6 +323,5 @@
 "<cs_rich_cbor_static_serde_n32::Msg7 as serde_core::de::Deserialize>::deserialize::<&mut cbor_static::serde::de::Deserializer>" = 176
 "<cs_rich_cbor_static_serde_n32::Msg7 as serde_core::ser::Serialize>::serialize::<&mut cbor_static::serde::ser::Serializer>" = 120
 "_start" = 952
-"cbor_static::engine::text::utf8" = 32
 "cbor_static::token::simple" = 16
 "cbor_static::wire::parse" = 16

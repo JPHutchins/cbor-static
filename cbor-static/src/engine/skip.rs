@@ -71,7 +71,7 @@ impl Skip {
 
     pub fn payload(&mut self, segment: &[u8]) -> Result<(), ErrorKind> {
         if self.walk.text {
-            self.walk.utf8.feed(segment)?;
+            self.walk.utf8.feed(segment);
         }
         self.walk.payload_left -= u64::try_from(segment.len()).unwrap_or(self.walk.payload_left);
         if self.walk.payload_left == 0 && self.walk.text {
