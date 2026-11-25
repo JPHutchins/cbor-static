@@ -167,6 +167,25 @@ pub unsafe trait Encode: Sized {
 /// let _ = cbor_static::decode_into::<Liar>(b"\x01", &mut slot);
 /// ```
 ///
+/// Nor does a decoder of it that is only made and dropped:
+///
+/// ```compile_fail,E0080
+/// #[derive(Debug)]
+/// struct Liar(u32);
+///
+/// unsafe impl<'de> cbor_static::Decode<'de> for Liar {
+///     const DECODE: &'static cbor_static::__private::DecKind =
+///         <u32 as cbor_static::Decode<'de>>::DECODE;
+///     type Stack = ();
+///     const MAX_DEPTH: usize = 2;
+///     type OptionStack = ();
+///     const CONTIGUOUS: bool = false;
+/// }
+///
+/// let mut slot = core::mem::MaybeUninit::uninit();
+/// drop(cbor_static::Decoder::<Liar>::new(&mut slot));
+/// ```
+///
 /// A type whose stack needs more than 255 frames does not compile where it is decoded either:
 ///
 /// ```compile_fail,E0080

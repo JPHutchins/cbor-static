@@ -451,6 +451,7 @@ impl<T: for<'de> Decode<'de>> Decoder<'static, '_, T> {
 
 impl<'de, T: Decode<'de>> Drop for Decoder<'de, '_, T> {
     fn drop(&mut self) {
+        const { assert!(fits::<T::Stack>(T::MAX_DEPTH)) };
         decode::abandon(&mut self.state, frames(&mut self.stack, T::MAX_DEPTH));
     }
 }
