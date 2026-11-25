@@ -12,6 +12,8 @@ macro_rules! twin {
 mod common;
 
 mod constructs;
+#[cfg(not(miri))]
+mod differential;
 mod hand_built;
 mod records;
 mod smp_only;

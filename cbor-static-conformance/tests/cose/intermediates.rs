@@ -57,6 +57,18 @@ fn of_another_message(vector: &Vector<Kind>, step: &Intermediate) -> bool {
         || NOT_OF_THIS_MESSAGE.contains(&(vector.name, step.at))
 }
 
+/// The intermediate decoded as the structure its role names, a five-element `Sig_structure` or a
+/// four-element `Signature1` one for a signature, and re-encoded.
+pub fn structure_reencoded(role: Role, bytes: &[u8]) -> Result<Vec<u8>, cbor_static::Error> {
+    match (role, bytes.first()) {
+        (Role::ToBeSign, Some(0x85)) => reencode::<SigStructure>(bytes),
+        (Role::ToBeSign, _) => reencode::<SigStructure1>(bytes),
+        (Role::ToMac, _) => reencode::<MacStructure>(bytes),
+        (Role::Aad, _) => reencode::<EncStructure>(bytes),
+        (Role::Context, _) => reencode::<KdfContext>(bytes),
+    }
+}
+
 const KEY_BITS: [(i64, u64); 23] = [
     (4, 256),
     (5, 256),
@@ -126,14 +138,10 @@ fn rebuilt_from_its_message(name: &str, at: &str, role: Role) {
         );
         return;
     }
-    let again = match (role, step.bytes.first()) {
-        (Role::ToBeSign, Some(0x85)) => reencode::<SigStructure>(step.bytes),
-        (Role::ToBeSign, _) => reencode::<SigStructure1>(step.bytes),
-        (Role::ToMac, _) => reencode::<MacStructure>(step.bytes),
-        (Role::Aad, _) => reencode::<EncStructure>(step.bytes),
-        (Role::Context, _) => reencode::<KdfContext>(step.bytes),
-    };
-    assert_eq!(again.as_deref(), Ok(step.bytes));
+    assert_eq!(
+        structure_reencoded(role, step.bytes).as_deref(),
+        Ok(step.bytes)
+    );
     if vector.expect.ops().contains(&Failure::ChangeCborTag) {
         assert!(
             message(vector).is_err(),

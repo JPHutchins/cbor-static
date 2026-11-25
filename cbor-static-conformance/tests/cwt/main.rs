@@ -18,6 +18,8 @@ macro_rules! rfc8392 {
 mod common;
 
 mod constructs;
+#[cfg(not(miri))]
+mod differential;
 mod examples;
 mod keys;
 #[cfg(not(miri))]

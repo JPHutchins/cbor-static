@@ -6,6 +6,7 @@ pub mod hex;
 pub mod legs;
 pub mod python;
 pub mod readers;
+pub mod typed;
 
 /// The longest byte string ciborium reads under tag 2 or 3 as an integer.
 pub const SHORT_BIGNUM: usize = 16;
