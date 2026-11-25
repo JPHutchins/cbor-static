@@ -173,7 +173,7 @@ diagnostics = seeded(
 	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
 )
 properties = test | usize16 | serde_bare | oneshot
-kani = Task("cargo kani -p cbor-static", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
+kani = Task("cargo kani -p cbor-static --features heapless", env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/kani"})
 ci_jobs = (check - unit) | test | build | miri_doc | f32 | diagnostics | kani | flake | stack
 ci = ci_jobs | miri
 daily_properties = Task(
