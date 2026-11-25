@@ -35,6 +35,7 @@ MIRI_PACKAGE = f"-p cbor-static --features '{TOOLCHAIN['nightly']['FEATURES']}'"
 
 
 conformance = Project("cbor-static-conformance")
+fuzz = Project("fuzz")
 harness = Project("harness")
 stack = Project("harness/stack")
 
@@ -144,7 +145,7 @@ differential_wide = (
 	| Task(f"cargo test {CONFORMANCE_HOST} --tests -- differential::", env=STABLE_HOST)
 	| differential_generated
 )
-fix = rust_fmt | tasks_fix | nix_fmt | harness | conformance
+fix = rust_fmt | tasks_fix | nix_fmt | harness | conformance | fuzz
 check = (
 	rust_fmt_check
 	| nix_fmt_check
@@ -156,6 +157,7 @@ check = (
 	| tasks_check
 	| harness
 	| conformance
+	| fuzz
 	| differential_generated
 )
 f32 = seeded(
