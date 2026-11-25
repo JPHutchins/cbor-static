@@ -31,6 +31,9 @@ TOOLCHAIN: Final = {
 }
 TOOLCHAINS: Final = tuple(TOOLCHAIN.values())
 TARGET_DIR: Final = f"{ROOT}/target"
+STABLE_HOST: Final = {"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"}
+CONFORMANCE: Final = "-p cbor-static-conformance"
+CONFORMANCE_HOST: Final = f"{CONFORMANCE} --features '{TOOLCHAIN['stable']['FEATURES']}'"
 PROPTEST_RNG_SEED: Final = "PROPTEST_RNG_SEED"
 PINNED_SEED: Final = "20261120"
 SEED: Final = "SEED"

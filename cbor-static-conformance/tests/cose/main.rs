@@ -5,6 +5,8 @@ mod common;
 
 mod constructs;
 mod decoded;
+#[cfg(not(miri))]
+mod differential;
 mod headers;
 mod intermediates;
 mod keys;

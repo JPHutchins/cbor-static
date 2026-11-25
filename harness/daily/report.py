@@ -7,9 +7,18 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, NamedTuple
 
+from pydantic import BaseModel, ConfigDict
+
 REPORT: Final = "report.json"
 SUMMARY: Final = "report.md"
 ANSI: Final = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+class Tally(BaseModel):
+	"""How many items reached each case a run counts, which a task writes where `DAILY_TALLY` says."""
+
+	model_config = ConfigDict(extra="forbid", frozen=True)
+	rows: dict[str, int]
 
 
 class Result(StrEnum):
@@ -46,6 +55,9 @@ class Report(NamedTuple):
 	<BLANKLINE>
 	>>> Report.loads(SAMPLE.dumps()) == SAMPLE
 	True
+	>>> counted = SAMPLE._replace(counts=Tally(rows={"refused": 2}))
+	>>> Report.loads(counted.dumps()) == counted
+	True
 	>>> print(SAMPLE._replace(result=Result.PASSED, output="").markdown().splitlines()[0])
 	### ✅ `camas properties` on a fresh seed: passed
 	"""
@@ -56,10 +68,12 @@ class Report(NamedTuple):
 	ran: str
 	reproduce: str
 	output: str
+	counts: Tally = Tally(rows={})
 
 	def markdown(self, output_limit: int | None = None) -> str:
 		return (
-			f"### {self.result.mark} {self.title}: {self.result}\n\n{self.table()}\n{self.tail(output_limit)}"
+			f"### {self.result.mark} {self.title}: {self.result}\n\n{self.table()}\n"
+			f"{self.counted()}{self.tail(output_limit)}"
 		)
 
 	def table(self) -> str:
@@ -71,6 +85,42 @@ class Report(NamedTuple):
 					f"| {cell(name)} | {cell(code(value))} |"
 					for name, value in (*self.parameters, ("ran", self.ran), ("reproduce", self.reproduce))
 				),
+			)
+		)
+
+	def counted(self) -> str:
+		"""
+		How many items reached each case the run counts, and a warning for each case none reached.
+
+		>>> print(SAMPLE._replace(counts=Tally(rows={"collapsed": 3, "refused": 0})).counted())
+		<BLANKLINE>
+		| counted | items |
+		|---|---|
+		| collapsed | 3 |
+		| refused | 0 |
+		<BLANKLINE>
+		> [!WARNING]
+		> No item reached `refused`: the generator never produced that case.
+		<BLANKLINE>
+		>>> SAMPLE.counted()
+		''
+		"""
+		return (
+			""
+			if not self.counts.rows
+			else "\n".join(
+				(
+					"",
+					"| counted | items |",
+					"|---|---|",
+					*(f"| {cell(name)} | {count} |" for name, count in self.counts.rows.items()),
+					"",
+					*(
+						f"> [!WARNING]\n> No item reached {code(name)}: the generator never produced that case.\n"
+						for name, count in self.counts.rows.items()
+						if count == 0
+					),
+				)
 			)
 		)
 
@@ -88,7 +138,7 @@ class Report(NamedTuple):
 		)
 
 	def dumps(self) -> str:
-		return json.dumps(self._asdict(), indent="\t")
+		return json.dumps({**self._asdict(), "counts": self.counts.model_dump()}, indent="\t")
 
 	@classmethod
 	def loads(cls, text: str) -> Report:
@@ -109,8 +159,17 @@ class Report(NamedTuple):
 				"ran": str(ran),
 				"reproduce": str(reproduce),
 				"output": str(output),
+				**rest,
 			}:
-				return cls(title, Result(result), tuple(map(parameter, parameters)), ran, reproduce, output)
+				return cls(
+					title,
+					Result(result),
+					tuple(map(parameter, parameters)),
+					ran,
+					reproduce,
+					output,
+					Tally.model_validate(rest.get("counts", {"rows": {}})),
+				)
 			case other:
 				raise ValueError(f"not a daily report: {other!r}")
 

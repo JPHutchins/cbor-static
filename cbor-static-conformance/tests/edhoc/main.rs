@@ -19,6 +19,8 @@ macro_rules! rfc9529 {
 mod common;
 
 mod constructs;
+#[cfg(not(miri))]
+mod differential;
 mod invalid;
 mod items;
 #[cfg(not(miri))]

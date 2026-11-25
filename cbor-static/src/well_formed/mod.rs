@@ -6,6 +6,7 @@ mod appendix_f;
 mod model;
 mod nesting;
 mod oracle;
+mod tree;
 
 use core::mem::MaybeUninit;
 use std::vec;

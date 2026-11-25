@@ -22,6 +22,7 @@ from harness.templates import render
 from harness.values import value
 
 COUNT: Final = 32
+VARIANTS: Final = range(3)
 BOTH_DERIVE: Final = "#[derive(cbor_static::Cbor, serde::Serialize, serde::Deserialize)]"
 
 
@@ -71,11 +72,14 @@ def module(shape: str) -> str:
 		for m in messages(COUNT, shape)
 	)
 	stat = "\n".join(render_message(CBOR_STATIC, m) for m in messages(COUNT, shape))
-	both = "\n".join(render_message(BOTH, m) for m in messages(COUNT, shape))
 	return (
 		f"pub mod {shape} {{\npub mod hand {{\n{hand}\n}}\npub mod stat {{\n{stat}\n}}\n"
-		f"pub mod both {{\n{both}\n}}\n}}\n"
+		f"pub mod both {{\n{both(shape)}\n}}\n}}\n"
 	)
+
+
+def both(shape: str) -> str:
+	return "\n".join(render_message(BOTH, m) for m in messages(COUNT, shape))
 
 
 def tests(shape: str) -> str:
@@ -85,7 +89,7 @@ def tests(shape: str) -> str:
 			f"    agree!({shape}::hand::{m.name}{m.lifetime.replace('a', '_')}, {shape}::stat::{m.name}{m.lifetime.replace('a', '_')}, "
 			f"{value(m, variant, f'{shape}::hand')}, {value(m, variant, f'{shape}::stat')});\n"
 			f"    layers!({shape}::both::{m.name}{m.lifetime.replace('a', '_')}, {value(m, variant, f'{shape}::both')});\n"
-			for variant in range(3)
+			for variant in VARIANTS
 		)
 		+ "}\n"
 		for m in messages(COUNT, shape)

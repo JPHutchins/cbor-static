@@ -1,3 +1,5 @@
+import re
+from collections import Counter
 from typing import TYPE_CHECKING, NamedTuple
 
 from frames import Files, group, qualified
@@ -17,10 +19,20 @@ class Generated(NamedTuple):
 
 def oracle_files(cases: Iterable[OracleCase], smp_rev: str) -> Files:
 	"""The manifest of the twins the smp oracle reads, the generated list of the Rust types they
-	decode as, and the JPHutchins/smp revision that wrote them.
+	decode as, one generated case per twin, and the JPHutchins/smp revision that wrote them.
 	"""
 	manifest = OracleManifest(cases=tuple({case.name: case for case in cases}.values()))
 	return {
+		"oracle_cases.rs": "".join(
+			[
+				"oracle_cases! {\n",
+				*(
+					f'    ({ident}, "{case.name}", {case.rust}),\n'
+					for ident, case in identified(manifest.cases)
+				),
+				"}\n",
+			]
+		).encode(),
 		"oracle.json": manifest.model_dump_json(indent=1).encode(),
 		"smp.rev": smp_rev.encode(),
 		"oracle_types.rs": "".join(
@@ -31,6 +43,28 @@ def oracle_files(cases: Iterable[OracleCase], smp_rev: str) -> Files:
 			]
 		).encode(),
 	}
+
+
+def identified(cases: tuple[OracleCase, ...]) -> tuple[tuple[str, OracleCase], ...]:
+	"""
+	Each case with a Rust identifier made from its name.
+
+	>>> case = OracleCase(name="zephyr/os_mgmt_echo/command", rust="r", smp="s", entries=None, firmware=True)
+	>>> identified((case,))[0][0]
+	'zephyr_os_mgmt_echo_command'
+	>>> identified((case, case.model_copy(update={"name": "zephyr/os_mgmt_echo_command"})))
+	Traceback (most recent call last):
+	ValueError: two oracle cases share the Rust identifier zephyr_os_mgmt_echo_command
+
+	Raises:
+		ValueError: two names make the same identifier.
+	"""
+	idents = tuple((re.sub(r"\W", "_", case.name), case) for case in cases)
+	if duplicate := next(
+		(ident for ident, count in Counter(ident for ident, _ in idents).items() if count > 1), None
+	):
+		raise ValueError(f"two oracle cases share the Rust identifier {duplicate}")
+	return idents
 
 
 def oracle_case(name: str, cls: type[_MessageBase], module: str, *, firmware: bool) -> OracleCase:

@@ -8,9 +8,11 @@ import tomllib
 from camas import Claude, Config, Parallel, Project, Task, by_glob
 
 from harness.workspace import (
+	CONFORMANCE_HOST,
 	ENABLED,
 	ROOT,
 	SEED,
+	STABLE_HOST,
 	TARGET_DIR,
 	TOOLCHAIN,
 	TOOLCHAINS,
@@ -63,7 +65,7 @@ clippy = Parallel(
 unit = seeded(
 	Task(
 		f"cargo test --workspace --exclude cbor-static-conformance --features '{TOOLCHAIN['stable']['FEATURES']}'",
-		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+		env=STABLE_HOST,
 	),
 )
 usize16 = seeded(
@@ -121,6 +123,27 @@ miri = Parallel(
 	matrix={"SHARD": MIRI_SHARDS},
 )
 miri_doc = nightly_miri(f"cargo miri test {MIRI_PACKAGE} --doc", help="nextest runs no doctests")
+differential_generated = Task(
+	"uv run python -m harness.differential",
+	help="ciborium, minicbor and cbor2 against the generated messages, and ciborium's serde bytes",
+)
+DIFFERENTIAL_DATA_MODEL = f"cargo test {CONFORMANCE_HOST} --test differential"
+differential = (
+	seeded(
+		Task(DIFFERENTIAL_DATA_MODEL, env=STABLE_HOST),
+		help="generated CBOR through ciborium, minicbor and cbor2, as Tokens reads it",
+	)
+	| differential_generated
+)
+DAILY_CASES = "2000000"
+differential_wide = (
+	seeded(
+		Task(DIFFERENTIAL_DATA_MODEL, env={**STABLE_HOST, "PROPTEST_CASES": DAILY_CASES}),
+		help=f"the differential oracles on {DAILY_CASES} generated items",
+	)
+	| Task(f"cargo test {CONFORMANCE_HOST} --tests -- differential::", env=STABLE_HOST)
+	| differential_generated
+)
 fix = rust_fmt | tasks_fix | nix_fmt | harness | conformance
 check = (
 	rust_fmt_check
@@ -133,6 +156,7 @@ check = (
 	| tasks_check
 	| harness
 	| conformance
+	| differential_generated
 )
 f32 = seeded(
 	Task(
@@ -144,7 +168,7 @@ f32 = seeded(
 diagnostics = seeded(
 	Task(
 		f"cargo test -p cbor-static --features '{TOOLCHAIN['stable']['FEATURES']}' --test diagnostics -- --ignored",
-		env={"CARGO_TARGET_DIR": f"{TARGET_DIR}/stable-host"},
+		env=STABLE_HOST,
 	),
 	help="Q16: derive diagnostics under trybuild, whose expected stderr is the pinned stable rustc's",
 )
@@ -156,7 +180,11 @@ daily_properties = Task(
 	f"uv run python -m harness.daily seeded properties --axis {SEED} --out {shlex.quote(f'{TARGET_DIR}/daily')}",
 	help="Q18: the property suites on a fresh seed, reported for the daily workflow",
 )
-daily_jobs = Parallel(daily_properties)
+daily_differential = Task(
+	f"uv run python -m harness.daily seeded differential_wide --axis {SEED} --out {shlex.quote(f'{TARGET_DIR}/daily')}",
+	help="the differential oracles on a fresh seed and many more items, reported for the daily workflow",
+)
+daily_jobs = daily_properties | daily_differential
 all = fix + check
 
 _ = Config(default_task=all, github_task=ci, agent=Claude(fix=fix, check=check))
