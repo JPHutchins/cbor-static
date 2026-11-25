@@ -64,7 +64,7 @@ use super::text::KeyMatch;
 use super::{Fed, STRICT, StrictOps, frame_mut, push, top_field};
 use crate::error::{Error, ErrorKind};
 use crate::schema::{DecKind, Layout};
-use crate::stack::{Frame, Phase};
+use crate::stack::{Depth, Frame, Phase};
 use crate::wire::{Header, Major, length};
 use entries::{Entry, entries, next_entry, unnamed};
 use steps::{name, skip_unknown, start_name, start_skip};
@@ -146,7 +146,7 @@ pub struct State {
     target: Target,
     step: Step,
     status: Status,
-    depth: u8,
+    depth: Depth,
     offset: usize,
     carry: Carry,
     scratch: MaybeUninit<Scratch>,
@@ -411,7 +411,7 @@ fn drop_initialized(state: &mut State, frames: &mut [MaybeUninit<Frame>]) {
     state.depth = 0;
 }
 
-fn top(depth: u8, frames: &mut [MaybeUninit<Frame>]) -> Result<&mut Frame, ErrorKind> {
+fn top(depth: Depth, frames: &mut [MaybeUninit<Frame>]) -> Result<&mut Frame, ErrorKind> {
     frame_mut(frames, depth.checked_sub(1).ok_or(ErrorKind::Unsupported)?)
 }
 

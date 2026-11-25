@@ -58,7 +58,7 @@ use super::{Progress, frame_mut, top_field};
 use crate::engine::FieldPtrFn;
 use crate::error::{Error, ErrorKind};
 use crate::schema::{EncKind, Layout};
-use crate::stack::{Frame, Phase};
+use crate::stack::{Depth, Frame, Phase};
 
 type OnOpen = fn(
     &mut State,
@@ -94,7 +94,7 @@ enum Part {
 pub struct State {
     root: &'static EncKind,
     value: *const u8,
-    depth: u8,
+    depth: Depth,
     started: bool,
     pending: Pending,
     offset: usize,

@@ -18,7 +18,7 @@ use crate::engine::input::Input;
 use crate::engine::skip::item_len;
 use crate::error::ErrorKind;
 use crate::schema::{DecKind, Layout};
-use crate::stack::{Frame, INDEFINITE, Phase};
+use crate::stack::{Depth, Frame, INDEFINITE, Phase};
 use crate::wire::{Header, Major, length};
 
 pub static INTERNAL: DecOps = DecOps {
@@ -231,7 +231,7 @@ fn tagged(layout: &Layout, variants: usize, count: u64, bytes: &[u8]) -> Result<
 /// still has it ahead: the one unknown entry an internally tagged payload admits, under `Strict` or
 /// `deny_unknown_fields`. The scan already found exactly one tag entry, and any other unknown entry
 /// is an error either way, so claiming the first unknown one decides the same.
-pub(crate) fn claim_tag(frames: &mut [MaybeUninit<Frame>], depth: u8) -> Result<(), ErrorKind> {
+pub(crate) fn claim_tag(frames: &mut [MaybeUninit<Frame>], depth: Depth) -> Result<(), ErrorKind> {
     let frame = top(depth, frames)?;
     match frame.phase {
         Phase::TagAhead => {

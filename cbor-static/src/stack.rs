@@ -29,6 +29,10 @@ pub struct Frame {
 
 pub(crate) const INDEFINITE: u64 = u64::MAX;
 
+pub(crate) type Depth = u8;
+
+pub(crate) const MAX_FRAMES: usize = Depth::MAX as usize;
+
 #[repr(C)]
 pub struct Level<Children> {
     _frame: MaybeUninit<Frame>,
@@ -70,7 +74,8 @@ pub(crate) const fn depth_of<S>() -> usize {
 }
 
 pub(crate) const fn fits<S>(depth: usize) -> bool {
-    size_of::<S>() == depth * size_of::<Frame>()
+    depth <= MAX_FRAMES
+        && size_of::<S>() == depth * size_of::<Frame>()
         && (depth == 0 || align_of::<S>() == align_of::<Frame>())
 }
 
@@ -90,5 +95,14 @@ mod tests {
         assert!(fits::<Top>(1 + deeper(2, 1)));
         assert!(!fits::<Top>(2));
         assert_eq!(size_of::<Top>(), 3 * size_of::<Frame>());
+    }
+
+    #[test]
+    fn a_stack_holds_at_most_255_frames() {
+        use super::MAX_FRAMES;
+
+        assert_eq!(MAX_FRAMES, 255);
+        assert!(fits::<[Frame; 255]>(255));
+        assert!(!fits::<[Frame; 256]>(256));
     }
 }

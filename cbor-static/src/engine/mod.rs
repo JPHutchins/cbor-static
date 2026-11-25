@@ -118,7 +118,7 @@ pub(crate) use text::utf8;
 
 use crate::error::{Error, ErrorKind};
 use crate::schema::{Decode, Encode};
-use crate::stack::{Frame, fits};
+use crate::stack::{Depth, Frame, fits};
 
 /// Encoding as far as the last output buffer allowed: the bytes written, and whether more follow.
 ///
@@ -451,6 +451,7 @@ impl<T: for<'de> Decode<'de>> Decoder<'static, '_, T> {
 
 impl<'de, T: Decode<'de>> Drop for Decoder<'de, '_, T> {
     fn drop(&mut self) {
+        const { assert!(fits::<T::Stack>(T::MAX_DEPTH)) };
         decode::abandon(&mut self.state, frames(&mut self.stack, T::MAX_DEPTH));
     }
 }
@@ -484,21 +485,25 @@ pub(crate) fn bit(index: u8) -> u64 {
     1u64.checked_shl(u32::from(index)).unwrap_or(0)
 }
 
-fn frame_mut(frames: &mut [MaybeUninit<Frame>], index: u8) -> Result<&mut Frame, ErrorKind> {
+fn frame_mut(frames: &mut [MaybeUninit<Frame>], index: Depth) -> Result<&mut Frame, ErrorKind> {
     frames
         .get_mut(usize::from(index))
         .map(|slot| unsafe { slot.assume_init_mut() })
         .ok_or(ErrorKind::Unsupported)
 }
 
-fn top_field(frames: &mut [MaybeUninit<Frame>], depth: u8) -> u8 {
+fn top_field(frames: &mut [MaybeUninit<Frame>], depth: Depth) -> u8 {
     depth
         .checked_sub(1)
         .and_then(|top| frame_mut(frames, top).ok())
         .map_or(0, |frame| frame.field)
 }
 
-fn push(frames: &mut [MaybeUninit<Frame>], depth: &mut u8, frame: Frame) -> Result<(), ErrorKind> {
+fn push(
+    frames: &mut [MaybeUninit<Frame>],
+    depth: &mut Depth,
+    frame: Frame,
+) -> Result<(), ErrorKind> {
     frames
         .get_mut(usize::from(*depth))
         .ok_or(ErrorKind::LimitExceeded)?
@@ -509,3 +514,6 @@ fn push(frames: &mut [MaybeUninit<Frame>], depth: &mut u8, frame: Frame) -> Resu
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(kani)]
+mod proofs;
